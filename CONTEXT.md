@@ -20,31 +20,63 @@ Every rating, comparison, ordering, and watchlist belongs to exactly one owner.
 A single movie, identified by its TMDB entry.
 
 **Comparison**:
-A single pairwise judgment by the owner that one film ranks above another.
+A single pairwise judgment by the owner: one film ranks above the other, or the two are tied.
+Only overall comparisons move the ordering.
 
 **Ordering**:
-The total order over all rated films produced by comparisons. The durable, drift-proof layer of the rating system.
+The sequence of tie-groups over all rated films produced by comparisons.
+The durable, drift-proof layer of the rating system: nothing moves except through the owner's judgments or explicit actions.
+_Avoid_: shelf, ranking, total order
+
+**Tie-group**:
+A set of films the owner has judged equal, occupying a single slot in the ordering.
 
 **Anchor**:
-A film the owner designates as defining the boundary of a band. Fixed reference points: comparisons cannot move them, only the owner can.
+A film the owner designates as the canonical exemplar of a band (the definitive 4.0).
+At most one per band; comparisons cannot move anchors, only the owner can.
+
+**Divider**:
+The derived boundary between two adjacent bands, sitting between their anchors in the ordering.
+Pinned by the owner's band judgments and movable as those judgments accumulate; never set directly.
 
 **Band**:
-A half-star rating bucket (e.g. 3.5). A film's band is determined by which anchors it sits between in the ordering.
+A half-star rating bucket (e.g. 3.5), centered on its anchor and bounded by the dividers on either side.
+A band with no anchor still works fully; its dividers persist independently.
 
 **Rating**:
-A film's half-star value, derived from its position in the ordering relative to anchors. Never entered directly.
+A film's half-star value, derived from which dividers its position sits between.
+Never entered directly.
 _Avoid_: score (ambiguous with recommender scoring)
 
+**Placement**:
+The comparison flow that finds a new film's slot in the ordering: seeded by an optional ballpark guess, narrowed against anchors until the band locks, then bisected within the band.
+
+**Ballpark guess**:
+An optional half-star estimate the owner gives when logging a film.
+Seeds the placement search at the nearest anchor but never sets the rating.
+
+**Sliver question**:
+The band-assignment question asked only when a film lands between the highest known film of one band and the lowest known film of the next: closer in quality to which of the two canonical films?
+
+**Provisional placement**:
+A film's position trusted less than a fully-compared one: produced by the seed import or by ending a placement early once the band is locked.
+Refined by later comparisons.
+
+**Comparison log**:
+The append-only record of every judgment: comparisons, skips, sliver answers, and criteria answers, each with its context.
+Entries are active, in tension (contradicting the ordering), or superseded (settled against by an owner resolution); never deleted.
+
+**Criteria question**:
+A comparison on a single quality of two films (screenplay, acting, shots).
+Feeds only the taste profile; never moves the ordering.
+
 **Drift**:
-The condition where a film's position in the ordering has become inconsistent with its recorded rating. Detected by the app; resolved by the owner deciding whether the rating or the ordering is stale.
+The condition where a film's position in the ordering has become inconsistent with its recorded rating or with later judgments.
+Detected by the app; resolved by the owner deciding whether the rating or the ordering is stale.
 
 **Seed import**:
 The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering.
 Anchor has no live Letterboxd connection; this is the only data that crosses over.
-
-**Provisional placement**:
-A film's position taken from the seed import rather than derived from comparisons.
-Trusted less than comparison-derived positions until refined.
 
 ### Watchlist
 
