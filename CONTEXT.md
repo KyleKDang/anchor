@@ -33,7 +33,7 @@ A set of films the owner has judged equal, occupying a single slot in the orderi
 
 **Anchor**:
 A film the owner designates as the canonical exemplar of a band (the definitive 4.0).
-At most one per band; comparisons cannot move anchors, only the owner can.
+At most one per band; comparisons cannot move anchors, only the owner can, and an anchor re-placed outside its band is automatically retired.
 
 **Divider**:
 The derived boundary between two adjacent bands, sitting between their anchors in the ordering.
@@ -71,8 +71,23 @@ A comparison on a single quality of two films (screenplay, acting, shots).
 Feeds only the taste profile; never moves the ordering.
 
 **Drift**:
-The condition where a film's position in the ordering has become inconsistent with its recorded rating or with later judgments.
-Detected by the app; resolved by the owner deciding whether the rating or the ordering is stale.
+The condition where later judgments contradict a film's position in the ordering.
+Detected by the app, never auto-corrected; the owner resolves it through the film's drift flag.
+
+**Drift flag**:
+The per-film aggregation of the in-tension judgments implicating a film; at most one open flag per film.
+Closes when the owner resolves it (re-place, keep, or re-point at the opponent film) or when all its evidence resolves on its own.
+
+**Drift check**:
+A targeted comparison the app slips into a normal comparison moment to confirm or clear a suspected drift before surfacing the flag.
+
+**Re-placement**:
+The placement flow run again for an already-rated film, entered from drift resolution, a rewatch, or an anchor-designation mismatch.
+Head-started by the film's in-tension judgments where they exist; its outcome always wins over the owner's stated intent.
+
+**Rewatch**:
+A repeat watch of a rated film, timestamped internally.
+Offers an optional re-placement but never forces one; keeping the current position is a confirming signal.
 
 **Seed import**:
 The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering.
