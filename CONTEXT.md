@@ -110,3 +110,9 @@ What the recommendation engine has learned about the owner's preferences from ra
 **Discovery feed**:
 Recommendations of films the owner has never added: suggestions from the wider catalog to consider adding to the backlog.
 Kept separate from the ranked tier, which never promotes a film the owner didn't backlog.
+
+### Data sources
+
+**No-training provider rule**:
+The compliance gate for AI providers: TMDB content and the taste profile may be sent only to APIs whose terms bar training on customer inputs by default.
+See ADR 0003 for the full licensing posture, bright lines, and fallback.
