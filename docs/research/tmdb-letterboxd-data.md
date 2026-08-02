@@ -121,12 +121,13 @@ Certifications are sparse and country-dependent; treat them as optional display 
 First-party pages confirm by name that the bundle contains `ratings.csv` and `watched.csv`, each with a `Date` column: "Open your ratings.csv (or watched.csv) file and rename the 'Date' column to 'Watched Date'." (https://letterboxd.com/journal/2024-year-in-review-faq/); the help center repeats the same rename instruction (https://letterboxd.zendesk.com/hc/en-us/articles/15178773269263-I-ve-been-marking-films-watched-instead-of-logging-them-to-my-Diary-How-can-I-fix-this).
 Exported dates come with a timezone quirk: "our exported dates are in New Zealand time, so they may import one day later than desired (depending on your location)" (https://letterboxd.com/journal/2024-year-in-review-faq/).
 
-Unverified: the full file inventory of the zip.
-Community documentation consistently reports `profile.csv`, `ratings.csv`, `watched.csv`, `diary.csv`, `reviews.csv`, `watchlist.csv`, `comments.csv`, a `lists/` folder (one CSV per list), a `likes/` folder, and a `deleted/` folder, but no public Letterboxd page enumerates this, so only `ratings.csv` and `watched.csv` are first-party-confirmed names.
+The full file inventory was verified against a real account export on 2026-08-02 (recorded in [Obtain a real Letterboxd export](https://github.com/KyleKDang/anchor/issues/16)).
+The zip contained `profile.csv`, `ratings.csv`, `watched.csv`, `watchlist.csv`, `diary.csv`, `reviews.csv`, `comments.csv`, a `likes/` folder (`films.csv`, `lists.csv`, `reviews.csv`), a `deleted/` folder (`comments.csv`, `diary.csv`, `reviews.csv`), and an `orphaned/` folder (`comments.csv`, `diary.csv`, `reviews.csv`) that community documentation does not mention.
+No `lists/` folder appeared because the account has no lists, so folders are conditional on account content and the importer must not assume a fixed inventory.
 
-Unverified: the exact column headers.
-The commonly reported headers are `Date,Name,Year,Letterboxd URI,Rating` for ratings.csv and `Date,Name,Year,Letterboxd URI` for watchlist.csv; this matches all first-party evidence (the confirmed `Date` column, the boxd.it URI format below, and the export-to-import round trip Letterboxd itself recommends) but no public primary source prints the header rows.
-This should be confirmed against Kyle's own export before the import schema is frozen; it is a two-minute check.
+The exact column headers were confirmed against the same export: `Date,Name,Year,Letterboxd URI,Rating` for ratings.csv and `Date,Name,Year,Letterboxd URI` for watchlist.csv, exactly as community sources report.
+Whole-star ratings serialize without a decimal (`3`, not `3.0`), so `Rating` must be parsed as a decimal rather than pattern-matched on `.5`.
+Per-file headers for the whole zip, plus real matcher test cases (an en dash followed by a non-breaking space in exported Star Wars titles, the middle dot in `WALL·E`, comma-bearing titles), are recorded in the ticket resolution.
 
 ### Rating scale
 
@@ -177,5 +178,5 @@ Letterboxd's own importer sets the UX precedent for handling all of this: it doe
 - Letterboxd import arrives with no TMDB ids, so Anchor needs a real matching pipeline: Name+Year search with alternative-title tolerance, plus/minus-1-year retry, director disambiguation, and - decisively - a human review screen for mismatches, mirroring Letterboxd's own importer UX (https://letterboxd.com/about/importing-data/).
 - The boxd.it URI to film page to `data-tmdb-id` scrape is a working but unsupported fallback for hard rows; treat it as best-effort, rate-limit it politely, and never make the pipeline depend on it (verified live 2026-07-26; markup undocumented).
 - Some Letterboxd rows are structurally unmatchable to TMDB movies (TV-side entries, deleted films); the import design must include an explicit "unmatched" state rather than forcing every row to resolve (https://letterboxd.zendesk.com/hc/en-us/articles/15269096507407-Do-you-support-TV-shows).
-- The exact export headers (`Date,Name,Year,Letterboxd URI,Rating`) are unverified against public primary sources; confirm against a real export before freezing Anchor's import schema.
+- The export headers are confirmed against a real export (2026-08-02): `Date,Name,Year,Letterboxd URI,Rating` for ratings.csv and `Date,Name,Year,Letterboxd URI` for watchlist.csv, so Anchor's import schema can freeze against them ([Obtain a real Letterboxd export](https://github.com/KyleKDang/anchor/issues/16)).
 - Ratings arrive on a 0.5-5.0 half-step scale (10 values), which is the input Anchor's pairwise-comparison model must be able to seed from (https://letterboxd.com/about/importing-data/).
