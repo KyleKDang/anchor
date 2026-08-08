@@ -29,7 +29,8 @@ The durable, drift-proof layer of the rating system: nothing moves except throug
 _Avoid_: shelf, ranking, total order
 
 **Tie-group**:
-A set of films the owner has judged equal, occupying a single slot in the ordering.
+A set of films occupying a single slot in the ordering: judged equal by the owner (definitive) or seeded equal by the import (provisional).
+A provisional tie-group is a placeholder, not a judgment; it dissolves as comparisons pull films out.
 
 **Anchor**:
 A film the owner designates as the canonical exemplar of a band (the definitive 4.0).
@@ -37,7 +38,7 @@ At most one per band; comparisons cannot move anchors, only the owner can, and a
 
 **Divider**:
 The derived boundary between two adjacent bands, sitting between their anchors in the ordering.
-Pinned by the owner's band judgments and movable as those judgments accumulate; never set directly.
+Pinned by the owner's band judgments (imported seed ratings count, at lower weight than live answers) and movable as those judgments accumulate; never set directly.
 
 **Band**:
 A half-star rating bucket (e.g. 3.5), centered on its anchor and bounded by the dividers on either side.
@@ -60,11 +61,11 @@ The band-assignment question asked only when a film lands between the highest kn
 
 **Provisional placement**:
 A film's position trusted less than a fully-compared one: produced by the seed import or by ending a placement early once the band is locked.
-Refined by later comparisons.
+Refined by later comparisons; graduates to fully trusted when the advisory math's confidence crosses the same threshold a normal placement needs.
 
 **Comparison log**:
 The append-only record of every judgment: comparisons, skips, sliver answers, and criteria answers, each with its context.
-Entries are active, in tension (contradicting the ordering), or superseded (settled against by an owner resolution); never deleted.
+Entries are active, in tension (contradicting the ordering), or superseded (settled against by an owner resolution); never deleted (an account reset or deletion is the only exception).
 
 **Criteria question**:
 A comparison on a single quality of two films (screenplay, acting, shots).
@@ -90,8 +91,17 @@ A repeat watch of a rated film, timestamped internally.
 Offers an optional re-placement but never forces one; keeping the current position is a confirming signal.
 
 **Seed import**:
-The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering.
+The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering, backlog, and watch history.
 Anchor has no live Letterboxd connection; this is the only data that crosses over.
+Re-importing is allowed only as a hard reset: behind an explicit warning, it wipes all account data and rebuilds from the new export alone.
+
+**Unmatched row**:
+An import row with no bound TMDB film (TV-side entries, deleted films, failed searches).
+Affects nothing until the owner binds a film manually or dismisses it; the unmatched list stays open indefinitely.
+
+**Watched-unrated film**:
+A film imported as watched but never rated: outside the ordering, the backlog, and the taste profile.
+Its only effects are a discovery-feed dedupe (never recommend a seen film) and an optional later invitation to place it.
 
 ### Watchlist
 
