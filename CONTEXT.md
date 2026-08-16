@@ -47,6 +47,7 @@ A band with no anchor still works fully; its dividers persist independently.
 **Rating**:
 A film's half-star value, derived from which dividers its position sits between.
 Never entered directly.
+A film placed before any band structure exists shows its position only; its rating materializes as anchors and band judgments accumulate.
 _Avoid_: score (ambiguous with recommender scoring)
 
 **Placement**:
@@ -93,7 +94,7 @@ Offers an optional re-placement but never forces one; keeping the current positi
 **Seed import**:
 The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering, backlog, and watch history.
 Anchor has no live Letterboxd connection; this is the only data that crosses over.
-Re-importing is allowed only as a hard reset: behind an explicit warning, it wipes all account data and rebuilds from the new export alone.
+Importing over existing account data, seeded or organic, is allowed only as a hard reset: behind an explicit warning that enumerates what will be destroyed, it wipes all account data and rebuilds from the new export alone.
 
 **Unmatched row**:
 An import row with no bound TMDB film (TV-side entries, deleted films, failed searches).
@@ -102,6 +103,10 @@ Affects nothing until the owner binds a film manually or dismisses it; the unmat
 **Watched-unrated film**:
 A film imported as watched but never rated: outside the ordering, the backlog, and the taste profile.
 Its only effects are a discovery-feed dedupe (never recommend a seen film) and an optional later invitation to place it.
+
+**Warmup**:
+The skippable guided sequence offered when an account starts: designate anchors, gather first comparison evidence, seed the backlog.
+One skeleton with two fills, post-import (import-ranked anchor candidates, advisory comparisons, watchlist rows) and fresh (search-driven designation, first placements, hand-added films); the app is fully usable the moment any part is skipped.
 
 ### Watchlist
 
