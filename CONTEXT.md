@@ -117,8 +117,42 @@ The unlimited tier of the watchlist: every unwatched film the owner has added.
 The small ordered tier of the watchlist (~25-50 films): what to watch next.
 Generated and continuously maintained by the recommendation engine; draws only from the backlog. Manual overrides (pin, veto, force a promotion) are exceptions, not the workflow.
 
+### Taste profile
+
 **Taste profile**:
-What the recommendation engine has learned about the owner's preferences from ratings (and possibly richer signals). Owns the ranked tier of the watchlist.
+What the recommendation engine has learned about the owner's preferences: three artifacts derived from the one ordering - the weight vector, the exemplar set, and the prose profile.
+Regenerated on change, never incrementally patched.
+Owns the ranked tier of the watchlist and drives the discovery feed.
+
+**Weight vector**:
+The numeric artifact of the taste profile: a learned weight per film feature, retrained from scratch on every ordering change.
+Scores any film instantly; ranks the backlog and prefilters discovery candidates.
+The only scorer that runs at request time.
+
+**Exemplar set**:
+The canonical films standing for the owner's taste: anchors plus the ordering's extremes.
+Recomputed mechanically whenever those change; supplies concrete examples for discovery prompts and explanations.
+
+**Prose profile**:
+The owner-readable description of the owner's taste, LLM-maintained and versioned.
+Regenerates on accumulated change with a staleness backstop, never per comparison, and every regeneration must respect the owner's profile constraints.
+Drives discovery reranking; visible to the owner, never a required step.
+
+**Profile version**:
+The marker bumped by each prose-profile regeneration.
+Cached recommendation judgments are keyed by film and profile version, so a bump is what schedules re-scoring.
+
+**Quality picker**:
+The skippable multi-select of favored qualities (message, screenplay, shots, and the like) offered at profile creation and editable later, pre-checked with suggestions inferred from the owner's judgments.
+Selections become profile constraints; free text is an optional escape hatch, never required.
+
+**Profile constraint**:
+A durable owner-stated fact about their taste: a quality-picker selection or a correction made on the prose profile.
+Stored structurally, never as text edits, and respected by every regeneration.
+
+**Taste profile readiness**:
+The evidence-based gate on recommendation features: cold (too little signal to train anything), forming (enough for a stable weight vector; discovery lights up; a seed import lands here immediately), ready (enough explicit comparisons and band structure; the ranked tier unlocks).
+Measured in evidence, never in time.
 
 ### Discovery
 
