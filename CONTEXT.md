@@ -114,8 +114,34 @@ One skeleton with two fills, post-import (import-ranked anchor candidates, advis
 The unlimited tier of the watchlist: every unwatched film the owner has added.
 
 **Ranked tier**:
-The small ordered tier of the watchlist (~25-50 films): what to watch next.
-Generated and continuously maintained by the recommendation engine; draws only from the backlog. Manual overrides (pin, veto, force a promotion) are exceptions, not the workflow.
+The small ordered tier of the watchlist (capped at 30 films): what to watch next.
+Generated and continuously maintained by the recommendation engine; draws only from the backlog; exists only at taste-profile readiness ready.
+Split into the up-next zone and the pool; manual overrides (pin, veto, not-now) are exceptions, not the workflow.
+Never shows anything rating-shaped for an unwatched film: position is the entire public statement (ADR 0005).
+
+**Up-next zone**:
+The strictly ordered top of the ranked tier (five films): a genuine "watch these next" claim.
+Pinned films sit here above the engine's picks; its order is protected from casual reshuffling.
+
+**Pool**:
+The loosely ordered remainder of the ranked tier.
+Its internal order floats freely with the scorer; membership changes are damped so the tier never churns faster than it earns.
+
+**Pin**:
+The override that puts or holds a backlog film in the up-next zone, above the engine's picks, immune to all automatic maintenance.
+Ordered by pin time, capped at the zone size; a pinned film leaves only by being watched, unpinned, or removed from the backlog.
+
+**Veto**:
+The override that bars a backlog film from the ranked tier until the owner lifts it.
+The film stays in the backlog with its score untouched; vetoing says "not from my queue", never "I'd dislike it", so it carries no taste-profile effect.
+
+**Not-now**:
+The lightweight action that rotates a ranked-tier film out immediately with the standard re-entry cooldown.
+Manual staleness: a mood signal, never a taste signal, and never fed to the taste profile.
+
+**Rotation**:
+The demotion of a stale ranked-tier pick: one repeatedly passed over, measured in the owner's logged watches, never calendar time.
+The film leaves with a re-entry cooldown and an untouched score, so a genuinely strong film returns later; a dormant account never rotates.
 
 ### Taste profile
 
