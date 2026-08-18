@@ -101,7 +101,7 @@ An import row with no bound TMDB film (TV-side entries, deleted films, failed se
 Affects nothing until the owner binds a film manually or dismisses it; the unmatched list stays open indefinitely.
 
 **Watched-unrated film**:
-A film imported as watched but never rated: outside the ordering, the backlog, and the taste profile.
+A film marked watched but never rated - imported as watched, or marked seen-it on the discovery feed: outside the ordering, the backlog, and the taste profile.
 Its only effects are a discovery-feed dedupe (never recommend a seen film) and an optional later invitation to place it.
 
 **Warmup**:
@@ -183,8 +183,29 @@ Measured in evidence, never in time.
 ### Discovery
 
 **Discovery feed**:
-Recommendations of films the owner has never added: suggestions from the wider catalog to consider adding to the backlog.
-Kept separate from the ranked tier, which never promotes a film the owner didn't backlog.
+The bounded shelf of suggested films from the wider catalog - films the owner has never added, offered for the backlog.
+A flat list in which position is the entire public statement (ADR 0005): no fit labels, and each film's explanation speaks only in exemplars.
+Kept separate from the ranked tier: accepting lands a film in the backlog, where it competes on the same terms as any hand-added film, and the feed never writes to the tier.
+
+**Suggestion**:
+A film currently on the discovery feed, acted on by accept, dismissal, or seen-it.
+One passed over for several refreshes rotates out with a re-entry cooldown, measured in refreshes survived, never calendar time; a dormant account never rotates anything.
+
+**Verdict**:
+The precomputed judgment backing a suggestion: a coarse fit bucket and an exemplar-grounded explanation, keyed by film and profile version.
+Buckets stay internal - only the explanation is ever shown - and a film with no verdict never reaches the feed, whatever the spend state; the shelf runs short rather than pad.
+
+**Dismissal**:
+The owner's "not interested" on a suggestion: permanent-until-lifted suppression from the feed, kept on a reviewable dismissed list, touching no other surface.
+Accumulated dismissals feed prose-profile regeneration as pattern evidence only, the one queue signal in Anchor that feeds the taste profile (ADR 0006).
+
+**Seen-it**:
+The owner's "already watched this" on a suggestion: converts the film to a watched-unrated film and offers an optional, skippable placement.
+Kept separate from dismissal so a dismissal cleanly means the pitch does not appeal.
+
+**Restock**:
+The re-pull of discovery candidate pools that tops up the feed's pipeline.
+Happens only when the owner has visited the feed since the last one; an owner who ignores discovery costs nothing.
 
 ### Data sources
 
