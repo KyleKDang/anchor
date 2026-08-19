@@ -69,7 +69,8 @@ The append-only record of every judgment: comparisons, skips, sliver answers, an
 Entries are active, in tension (contradicting the ordering), or superseded (settled against by an owner resolution); never deleted (an account reset or deletion is the only exception).
 
 **Criteria question**:
-A comparison on a single quality of two films (screenplay, acting, shots).
+A comparison on a single quality of two films the owner just compared, offered as an optional bonus at the end of a placement - at most one per placement, never blocking, and ignoring or dismissing it is the same as skipping it.
+Appears at an adaptive frequency the owner can also set manually or turn off.
 Feeds only the taste profile; never moves the ordering.
 
 **Drift**:
@@ -168,9 +169,17 @@ Drives discovery reranking; visible to the owner, never a required step.
 The marker bumped by each prose-profile regeneration.
 Cached recommendation judgments are keyed by film and profile version, so a bump is what schedules re-scoring.
 
+**Quality**:
+A named aspect of films the owner's taste can favor: craft (acting, screenplay, shots, score, message) or feel (tension, ending, rewatchability), never right-now mood.
+One canonical list per account - the built-in list plus the owner's custom additions, all treated identically - shared by the quality picker and criteria questions; the system never invents entries.
+
+**Quality tag**:
+A precomputed, account-independent marker that a film is known for a quality.
+Computed once per film, cached and shared across accounts; a criteria question asks about a quality both films are tagged with, falling back to rotation through the list.
+
 **Quality picker**:
-The skippable multi-select of favored qualities (message, screenplay, shots, and the like) offered at profile creation and editable later, pre-checked with suggestions inferred from the owner's judgments.
-Selections become profile constraints; free text is an optional escape hatch, never required.
+The skippable multi-select of favored qualities, drawn from the account's quality list, offered at profile creation and editable later, pre-checked with suggestions inferred from the owner's judgments (criteria answers included).
+Selections become profile constraints; free text is an optional escape hatch that adds a custom quality to the list, never required.
 
 **Profile constraint**:
 A durable owner-stated fact about their taste: a quality-picker selection or a correction made on the prose profile.
