@@ -14,6 +14,10 @@ Accounts do not interact with each other.
 The account whose data is in question.
 Every rating, comparison, ordering, and watchlist belongs to exactly one owner.
 
+**Demo account**:
+The shared read-only account offered from the landing page so a visitor can explore a fully lived-in Anchor without registering.
+All writes are disabled; its content is curated, not any real owner's data.
+
 ### Rating
 
 **Film**:
