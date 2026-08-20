@@ -60,6 +60,10 @@ Seeds the placement search at the nearest anchor but never sets the rating.
 **Sliver question**:
 The band-assignment question asked only when a film lands between the highest known film of one band and the lowest known film of the next: closer in quality to which of the two canonical films?
 
+**Keep comparing**:
+The placement-done screen's option to extend a placement that looks wrong with further comparisons around the landed position, including band-edge anchor questions.
+Only the answers can move the film or a divider; the doubt itself never moves anything.
+
 **Provisional placement**:
 A film's position trusted less than a fully-compared one: produced by the seed import or by ending a placement early once the band is locked.
 Refined by later comparisons; graduates to fully trusted when the advisory math's confidence crosses the same threshold a normal placement needs.
@@ -103,7 +107,11 @@ Affects nothing until the owner binds a film manually or dismisses it; the unmat
 
 **Watched-unrated film**:
 A film marked watched but never rated - imported as watched, or marked seen-it on the discovery feed: outside the ordering, the backlog, and the taste profile.
-Its only effects are a discovery-feed dedupe (never recommend a seen film) and an optional later invitation to place it.
+Its only effects are a discovery-feed dedupe (never recommend a seen film) and a seat in the rate-later queue.
+
+**Rate-later queue**:
+The bench of watched-unrated films awaiting an optional placement, kept in view on the rated-films screen.
+Fed by the seed import, the "later" choice when logging a watch, seen-it conversions, and abandoned placements; joining it never obliges a rating.
 
 **Warmup**:
 The skippable guided sequence offered when an account starts: designate anchors, gather first comparison evidence, seed the backlog.
