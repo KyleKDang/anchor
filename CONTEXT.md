@@ -100,6 +100,10 @@ Head-started by the film's in-tension judgments where they exist; its outcome al
 A repeat watch of a rated film, timestamped internally.
 Offers an optional re-placement but never forces one; keeping the current position is a confirming signal.
 
+**Watch event**:
+A single timestamped record of the owner watching a film: an imported diary row, a logged watch, or a rewatch.
+History, not truth: whether a film counts as watched is carried by its state, so a film imported with a rating but no diary entry is watched despite having no events.
+
 **Seed import**:
 The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering, backlog, and watch history.
 Anchor has no live Letterboxd connection; this is the only data that crosses over.
@@ -116,6 +120,7 @@ Its only effects are a discovery-feed dedupe (never recommend a seen film) and a
 **Rate-later queue**:
 The bench of watched-unrated films awaiting an optional placement, kept in view on the rated-films screen.
 Fed by the seed import, the "later" choice when logging a watch, seen-it conversions, and abandoned placements; joining it never obliges a rating.
+Leaving is equally free: waving a film off the queue never touches its watched status.
 
 **Warmup**:
 The skippable guided sequence offered when an account starts: designate anchors, gather first comparison evidence, seed the backlog.
@@ -155,6 +160,10 @@ Manual staleness: a mood signal, never a taste signal, and never fed to the tast
 **Rotation**:
 The demotion of a stale ranked-tier pick: one repeatedly passed over, measured in the owner's logged watches, never calendar time.
 The film leaves with a re-entry cooldown and an untouched score, so a genuinely strong film returns later; a dormant account never rotates.
+
+**Watch clock**:
+The running count of an account's watch events: the unit every ranked-tier cooldown and staleness measure is denominated in, never calendar time.
+A dormant account's clock stands still, so nothing rotates or expires while the owner is away.
 
 ### Taste profile
 
