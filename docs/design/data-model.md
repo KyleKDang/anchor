@@ -99,7 +99,9 @@ One record per (account, film) pair once any interaction exists; untracked films
   Rated is left only through the account-realm wipe.
 - **Rate-later seat**: a flag valid only in the watched-unrated state.
   Set by the import, the "later" choice, seen-it, and abandoned placements; removable at will, and removing it never touches watched-ness.
-- State-specific attachments: backlog carries the tier bookkeeping, rated carries the placement, watched-unrated carries the rate-later seat.
+- **Last synced rating**: a nullable value on the rated state - the rating Letterboxd currently holds for the film, initialized by the seed import and overwritten only when the owner marks the film synced.
+  The sync list is derived, never stored: the fully trusted rated films whose current band differs from it, plus those that lack one entirely (never recorded on Letterboxd).
+- State-specific attachments: backlog carries the tier bookkeeping, rated carries the placement and the last synced rating, watched-unrated carries the rate-later seat.
 
 ### Dismissal
 

@@ -113,6 +113,15 @@ Importing over existing account data, seeded or organic, is allowed only as a ha
 An import row with no bound TMDB film (TV-side entries, deleted films, failed searches).
 Affects nothing until the owner binds a film manually or dismisses it; the unmatched list stays open indefinitely.
 
+**Last synced rating**:
+The rating Letterboxd currently holds for a film, as far as Anchor knows: initialized by the seed import, updated only when the owner marks the film synced.
+Absent for films never recorded on Letterboxd.
+
+**Sync list**:
+The pull-only list of films whose current rating differs from their last synced rating, shown old to new so the owner can carry the update to Letterboxd by hand; fresh Anchor ratings never recorded there join as a not-yet-on-Letterboxd section.
+Only fully trusted placements appear (provisional films wait for graduation), and a rating that wobbles back to its synced value drops off on its own.
+Lives in the Profile's Letterboxd area with an ambient count; never nudges, reminds, or writes anything to Letterboxd itself.
+
 **Watched-unrated film**:
 A film marked watched but never rated - imported as watched, or marked seen-it on the discovery feed: outside the ordering, the backlog, and the taste profile.
 Its only effects are a discovery-feed dedupe (never recommend a seen film) and a seat in the rate-later queue.
