@@ -16,7 +16,8 @@ Every rating, comparison, ordering, and watchlist belongs to exactly one owner.
 
 **Demo account**:
 The shared read-only account offered from the landing page so a visitor can explore a fully lived-in Anchor without registering.
-All writes are disabled; its content is curated, not any real owner's data.
+Its content is a curated fixture built from the developer's own judgments, replayed through the real engine and presented without an owner identity.
+Nothing in it moves: visitor writes are rejected and the engine's own maintenance skips it, so it changes only when its fixture is rebuilt.
 
 ### Rating
 
