@@ -246,6 +246,17 @@ Kept separate from dismissal so a dismissal cleanly means the pitch does not app
 The re-pull of discovery candidate pools that tops up the feed's pipeline.
 Happens only when the owner has visited the feed since the last one; an owner who ignores discovery costs nothing.
 
+### Evaluation
+
+**Watch source**:
+The stamp recorded on a watch event at logging time: where the film stood (up-next, pool, pinned, or plain backlog) and how it entered the backlog (discovery accept, hand-added, or import-seeded).
+Captured in the moment because tier history is never kept; a pinned film counts as the owner's pick, never the engine's.
+
+**Landing**:
+Where an engine pick sits in the ordering once watched and placed, recorded as a percentile of the ordering.
+The ground truth of recommender evaluation: judged only against the same-window landings of the owner's hand-picked watches, never against fixed targets.
+Evaluation reads the owner's behavior but never teaches the taste profile with it (ADR 0012).
+
 ### Data sources
 
 **No-training provider rule**:
