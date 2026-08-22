@@ -54,6 +54,7 @@ In suggested reading order:
 | [surfacing.md](surfacing.md) | The no-nagging posture applied: where every surfacing moment lives, and the Letterboxd sync list |
 | [data-model.md](data-model.md) | The conceptual data model: realms, entities, relationships, invariants |
 | [architecture.md](architecture.md) | Hosting, stack, processes and jobs, accounts and auth, the LLM seam and spend controls, TMDB integration and compliance |
+| [testing.md](testing.md) | The test seams, the fakes, and the test-quality bar for implementation |
 | [evaluation.md](evaluation.md) | Recommender quality evaluation: landings, held-out accuracy, the indicator set |
 | [demo-account.md](demo-account.md) | The shared read-only demo account: fixture, build, and read-only enforcement |
 
