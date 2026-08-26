@@ -12,7 +12,7 @@ Implementation is tracked by [issue #21](https://github.com/KyleKDang/anchor/iss
 - `frontend/` - the React + TypeScript single-page app (Vite), served as static files by Caddy.
   `frontend/e2e/` holds the browser smoke suite (Playwright) that runs over the full composed stack.
 - `Dockerfile`, `docker-compose.yml`, `Caddyfile` - the composed stack: PostgreSQL, a one-shot migration, the web process, the worker, a fake Resend, and Caddy.
-- `tools/` - development stand-ins that never ship: `fake_resend.py` is the composed stack's mail sink.
+- `backend/tools/` - development stand-ins that never ship: `fake_resend.py` is the composed stack's mail sink.
 
 ## Running the stack
 

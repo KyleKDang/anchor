@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from "react";
 
-import { api, ApiError } from "../api";
+import { api, messageOf } from "../api";
 import { useAuth } from "../auth";
 
 export function Profile() {
@@ -13,7 +13,7 @@ export function Profile() {
 }
 
 function AccountSection() {
-  const { account, logOut, forgetDeletedAccount } = useAuth();
+  const { account, logOut, accountDeleted } = useAuth();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -24,9 +24,9 @@ function AccountSection() {
     setError(null);
     try {
       await api.deleteAccount(password);
-      forgetDeletedAccount();
+      accountDeleted();
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Something went wrong.");
+      setError(messageOf(caught));
       setBusy(false);
     }
   }

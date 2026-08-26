@@ -1,12 +1,12 @@
 import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
-import { api, ApiError } from "../../api";
+import { api, messageOf, type Credentials } from "../../api";
 import { AuthCard } from "./AuthCard";
+import { CredentialsFields } from "./CredentialsFields";
 
 export function Signup() {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [credentials, setCredentials] = useState<Credentials>({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [sentTo, setSentTo] = useState<string | null>(null);
@@ -16,10 +16,10 @@ export function Signup() {
     setBusy(true);
     setError(null);
     try {
-      const account = await api.signUp(email, password);
+      const account = await api.signUp(credentials);
       setSentTo(account.email);
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Something went wrong.");
+      setError(messageOf(caught));
     } finally {
       setBusy(false);
     }
@@ -29,7 +29,8 @@ export function Signup() {
     return (
       <AuthCard title="Check your email">
         <p>
-          We sent a verification link to <strong>{sentTo}</strong>. Open it to finish signing up.
+          We sent a link to <strong>{sentTo}</strong>. Open it and enter your password to finish
+          signing up.
         </p>
         <p className="muted">
           Nothing arrived? Signing up again with the same email sends a fresh link.
@@ -41,31 +42,7 @@ export function Signup() {
   return (
     <AuthCard title="Create your account">
       <form onSubmit={submit} className="form">
-        <label className="field">
-          <span>Email</span>
-          <input
-            type="email"
-            name="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>Password</span>
-          <input
-            type="password"
-            name="password"
-            autoComplete="new-password"
-            required
-            minLength={8}
-            maxLength={128}
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-          <span className="hint">At least 8 characters.</span>
-        </label>
+        <CredentialsFields value={credentials} onChange={setCredentials} newPassword />
         {error && (
           <p className="error" role="alert">
             {error}

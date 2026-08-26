@@ -1,8 +1,9 @@
 """Per-IP rate limits on the unauthenticated auth endpoints.
 
 A sliding window kept in process memory: the app runs as one web process on one box,
-and a limit that resets on restart costs nothing. The client IP is what uvicorn reports
-after honouring Caddy's forwarded headers (see the compose file).
+and a limit that resets on restart costs nothing (a multi-worker uvicorn would
+multiply every limit). The client IP is what uvicorn reports after honouring
+Caddy's forwarded headers (see the compose file).
 """
 
 from collections import deque
@@ -24,8 +25,8 @@ class RateLimiter:
         self._hits: dict[tuple[str, str], deque[float]] = {}
         self._since_sweep = 0
 
-    def hit(self, scope: str, key: str, limit: int) -> float | None:
-        """Record a hit; return the seconds to wait if it went over the limit, else None."""
+    def seconds_to_wait(self, scope: str, key: str, limit: int) -> float | None:
+        """Record a hit on ``key``; None if it is within the limit, else how long to wait."""
         now = monotonic()
         hits = self._hits.setdefault((scope, key), deque())
         self._expire(hits, now)
@@ -57,13 +58,13 @@ def limited(scope: str, limit_of: Callable[[Settings], int]) -> params.Depends:
         settings: Settings = request.app.state.settings
         limiter: RateLimiter = request.app.state.rate_limiter
         ip = request.client.host if request.client else "unknown"
-        retry_after = limiter.hit(scope, ip, limit_of(settings))
-        if retry_after is not None:
+        wait = limiter.seconds_to_wait(scope, ip, limit_of(settings))
+        if wait is not None:
             raise ApiError(
                 429,
                 "rate_limited",
                 "Too many attempts from your network; try again in a few minutes.",
-                headers={"Retry-After": str(max(1, int(retry_after) + 1))},
+                headers={"Retry-After": str(max(1, int(wait) + 1))},
             )
 
     return params.Depends(dependency)
