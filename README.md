@@ -11,7 +11,8 @@ Implementation is tracked by [issue #21](https://github.com/KyleKDang/anchor/iss
   The web process and the worker run from the same image with different commands.
 - `frontend/` - the React + TypeScript single-page app (Vite), served as static files by Caddy.
   `frontend/e2e/` holds the browser smoke suite (Playwright) that runs over the full composed stack.
-- `Dockerfile`, `docker-compose.yml`, `Caddyfile` - the composed stack: PostgreSQL, a one-shot migration, the web process, the worker, and Caddy.
+- `Dockerfile`, `docker-compose.yml`, `Caddyfile` - the composed stack: PostgreSQL, a one-shot migration, the web process, the worker, a fake Resend, and Caddy.
+- `tools/` - development stand-ins that never ship: `fake_resend.py` is the composed stack's mail sink.
 
 ## Running the stack
 
@@ -21,6 +22,10 @@ docker compose up --build --wait
 
 Opens the app at <http://localhost> (set `ANCHOR_HTTP_PORT` to move it) and publishes PostgreSQL on port 5433 (`ANCHOR_POSTGRES_PORT`).
 `GET /api/health` reports web, database, and worker health; the worker check is a real job round-trip.
+
+Mail never leaves the box: the stack sends through a fake Resend whose inbox is <http://localhost:8025/emails> (`ANCHOR_MAIL_PORT`), so a verification link is one request away.
+A backend run outside compose with no `ANCHOR_RESEND_API_KEY` logs each message instead.
+Real mail needs `ANCHOR_RESEND_API_KEY`, `ANCHOR_MAIL_FROM` on a domain verified with Resend, and `ANCHOR_PUBLIC_URL` (the base of emailed links); the session cookie is `Secure` by default (`ANCHOR_COOKIE_SECURE`), which browsers honour on `http://localhost` but nowhere else without HTTPS.
 
 ## Developing
 
@@ -45,5 +50,5 @@ cd frontend
 npm install
 npm run dev          # proxies /api to the backend on :8000
 npm run build        # typecheck + production build
-npm run smoke        # Playwright, against ANCHOR_BASE_URL (default http://localhost)
+npm run smoke        # Playwright, against ANCHOR_BASE_URL (default http://localhost) and ANCHOR_MAIL_URL (default http://localhost:8025)
 ```

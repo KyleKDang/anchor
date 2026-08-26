@@ -199,6 +199,7 @@ async def test_deleting_the_account_wipes_its_realm_and_nothing_else(
 
         wrong = await client.request("DELETE", "/api/account", json={"password": "not it"})
         assert wrong.status_code == 401
+        assert wrong.json()["error"]["code"] == "wrong_password"
 
         response = await client.request("DELETE", "/api/account", json={"password": PASSWORD})
         assert response.status_code == 204

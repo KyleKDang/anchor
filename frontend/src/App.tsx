@@ -1,8 +1,34 @@
-import { Navigate, NavLink, Route, Routes } from "react-router";
+import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 
+import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
+import { Login } from "./screens/auth/Login";
+import { Signup } from "./screens/auth/Signup";
+import { Verify } from "./screens/auth/Verify";
 
 export function App() {
+  return (
+    <Routes>
+      <Route element={<RequireVisitor />}>
+        <Route path="/signup" element={<Signup />} />
+        <Route path="/login" element={<Login />} />
+      </Route>
+      <Route path="/verify" element={<Verify />} />
+      <Route element={<RequireAccount />}>
+        <Route element={<Shell />}>
+          <Route index element={<Navigate to={destinations[0].path} replace />} />
+          {destinations.map(({ path, screen: Screen }) => (
+            <Route key={path} path={path} element={<Screen />} />
+          ))}
+        </Route>
+      </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
+    </Routes>
+  );
+}
+
+/** The logged-in frame: the five destinations and the screen they open. */
+function Shell() {
   return (
     <div className="app">
       <nav className="nav" aria-label="Main">
@@ -13,12 +39,7 @@ export function App() {
         ))}
       </nav>
       <main className="main">
-        <Routes>
-          <Route index element={<Navigate to={destinations[0].path} replace />} />
-          {destinations.map(({ path, screen: Screen }) => (
-            <Route key={path} path={path} element={<Screen />} />
-          ))}
-        </Routes>
+        <Outlet />
       </main>
     </div>
   );

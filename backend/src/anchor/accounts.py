@@ -226,7 +226,7 @@ async def delete_account(
 ) -> None:
     """Delete the account and, through cascading foreign keys, its whole realm."""
     if account.password_hash is None or not _check_password(account.password_hash, body.password):
-        raise _invalid_credentials()
+        raise ApiError(401, "wrong_password", "That password is not correct.")
     await db.execute(delete(Account).where(Account.id == account.id))
     await db.commit()
     _clear_cookie(response)
