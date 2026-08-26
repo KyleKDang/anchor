@@ -1,5 +1,9 @@
 x-app-environment: &app-environment
   ANCHOR_DATABASE_URL: postgresql://anchor:anchor@postgres:5432/anchor
+  ANCHOR_PUBLIC_URL: ${ANCHOR_PUBLIC_URL:-http://localhost}
+  # Mail goes to the fake Resend below; a real key and base URL are a deploy concern.
+  ANCHOR_RESEND_BASE_URL: http://mail:8025
+  ANCHOR_RESEND_API_KEY: dev
 
 services:
   postgres:
@@ -31,11 +35,14 @@ services:
 
   web:
     image: anchor-app
-    command: ["uvicorn", "anchor.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    # Caddy is the only client, so its forwarded headers name the real visitor (rate limits key on it).
+    command: ["uvicorn", "anchor.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
     environment: *app-environment
     depends_on:
       migrate:
         condition: service_completed_successfully
+      mail:
+        condition: service_started
     # /api/health passes only when the database and the worker answer too, so "web healthy"
     # deliberately means "the whole stack answers": `docker compose up --wait` waits for all of it.
     healthcheck:
@@ -53,6 +60,16 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+  mail:
+    # Resend's HTTP API, faked: dev and test never send real mail. Read what was sent
+    # at http://localhost:8025/emails.
+    image: python:3.13-alpine
+    command: ["python", "/fake_resend.py"]
+    volumes:
+      - ./tools/fake_resend.py:/fake_resend.py:ro
+    ports:
+      - "${ANCHOR_MAIL_PORT:-8025}:8025"
 
   caddy:
     build:

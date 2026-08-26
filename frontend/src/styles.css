@@ -31,3 +31,170 @@ body {
   text-decoration: underline;
   text-underline-offset: 0.4em;
 }
+
+/* Auth screens: one centered card. */
+
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  box-sizing: border-box;
+}
+
+.auth-card {
+  width: min(100%, 22rem);
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.auth-card h1,
+.auth-card p {
+  margin: 0;
+}
+
+.auth-card h1 {
+  font-size: 1.5rem;
+}
+
+.auth-card strong {
+  overflow-wrap: anywhere;
+}
+
+.wordmark {
+  margin: 0;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}
+
+/* Forms */
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.field > span:first-child {
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.field input {
+  font: inherit;
+  padding: 0.55rem 0.7rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+.field input:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+}
+
+.hint,
+.muted {
+  font-size: 0.9rem;
+  opacity: 0.7;
+}
+
+.muted {
+  margin: 0;
+}
+
+.muted a {
+  color: inherit;
+  text-underline-offset: 0.2em;
+}
+
+.error {
+  margin: 0;
+  font-size: 0.9rem;
+  color: light-dark(#a4262c, #ff8a8a);
+}
+
+.notice {
+  margin: 0;
+  padding: 0.6rem 0.8rem;
+  border-radius: 0.4rem;
+  font-size: 0.9rem;
+  background: color-mix(in srgb, currentColor 8%, transparent);
+}
+
+.button {
+  font: inherit;
+  font-weight: 600;
+  padding: 0.6rem 1rem;
+  border-radius: 0.4rem;
+  border: 1px solid currentColor;
+  background: currentColor;
+  cursor: pointer;
+  text-align: center;
+  text-decoration: none;
+  align-self: flex-start;
+}
+
+.button:not(.secondary):not(.danger) {
+  color: light-dark(#fff, #111);
+  background: light-dark(#111, #fff);
+  border-color: transparent;
+}
+
+.button.secondary {
+  color: inherit;
+  background: transparent;
+}
+
+.button.danger {
+  color: light-dark(#a4262c, #ff8a8a);
+  background: transparent;
+}
+
+.button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.auth-card .button {
+  align-self: stretch;
+}
+
+/* Profile sections */
+
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+}
+
+.section h2 {
+  margin: 0;
+}
+
+.section p {
+  margin: 0;
+}
+
+.danger-zone {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  width: min(100%, 22rem);
+}
+
+.danger-zone h3 {
+  margin: 0;
+}
