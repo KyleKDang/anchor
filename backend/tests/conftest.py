@@ -5,10 +5,15 @@ booted against it, and the queue app for enqueueing and running jobs inline.
 """
 
 import asyncio
+import json
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
+from dataclasses import dataclass, field
+from typing import Any
 
+import httpx
 import procrastinate
 import psycopg
 import pytest
@@ -74,17 +79,62 @@ def settings(request: pytest.FixtureRequest, template_database: str) -> Iterator
         _admin(f'DROP DATABASE "{name}" WITH (FORCE)')
 
 
+@dataclass
+class FakeResend:
+    """Resend faked at its HTTP edge: records every message the app posts to it."""
+
+    sent: list[dict[str, Any]] = field(default_factory=list)
+    down: bool = False
+    """When set, Resend answers every send with a 500."""
+
+    def transport(self) -> httpx.MockTransport:
+        def handle(request: httpx.Request) -> httpx.Response:
+            assert request.url == "https://api.resend.com/emails"
+            assert request.headers["authorization"].startswith("Bearer ")
+            if self.down:
+                return httpx.Response(500, json={"message": "resend is down"})
+            self.sent.append(json.loads(request.content))
+            return httpx.Response(200, json={"id": str(uuid.uuid4())})
+
+        return httpx.MockTransport(handle)
+
+    def sent_to(self, email: str) -> list[dict[str, Any]]:
+        return [message for message in self.sent if message["to"] == [email]]
+
+    def verification_token(self, email: str) -> str:
+        """The token in the latest verification link mailed to ``email``."""
+        message = self.sent_to(email)[-1]
+        match = re.search(r"/verify\?token=([A-Za-z0-9_-]+)", message["text"])
+        assert match, message["text"]
+        return match.group(1)
+
+
 @pytest.fixture
-async def app(settings: Settings) -> AsyncIterator[FastAPI]:
-    app = create_app(settings)
+def resend() -> FakeResend:
+    return FakeResend()
+
+
+@pytest.fixture
+async def app(settings: Settings, resend: FakeResend) -> AsyncIterator[FastAPI]:
+    app = create_app(settings, resend_transport=resend.transport())
     async with LifespanManager(app):
         yield app
 
 
 @pytest.fixture
-async def client(app: FastAPI) -> AsyncIterator[AsyncClient]:
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as client:
+def client_from(app: FastAPI) -> Callable[[str], AsyncClient]:
+    """A client whose requests arrive from the given IP address."""
+
+    def make(ip: str) -> AsyncClient:
+        transport = ASGITransport(app=app, client=(ip, 12345))
+        return AsyncClient(transport=transport, base_url="https://test")
+
+    return make
+
+
+@pytest.fixture
+async def client(client_from: Callable[[str], AsyncClient]) -> AsyncIterator[AsyncClient]:
+    async with client_from("127.0.0.1") as client:
         yield client
 
 

@@ -11,13 +11,14 @@ dependencies = [
     "alembic",
     "procrastinate",
     "pydantic-settings",
+    "argon2-cffi",
+    "httpx",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-asyncio",
-    "httpx",
     "ruff",
     "mypy",
     "asgi-lifespan",

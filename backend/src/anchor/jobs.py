@@ -12,11 +12,11 @@ from typing import Any
 
 import procrastinate
 from procrastinate import JobContext, builtin_tasks
-from sqlalchemy import func, update
+from sqlalchemy import delete, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor.db import Database
-from anchor.models import WorkerProbe
+from anchor.models import AuthSession, WorkerProbe
 from anchor.settings import Settings
 
 NAMESPACE = "anchor"
@@ -73,10 +73,17 @@ async def remove_old_jobs(context: JobContext, timestamp: int) -> None:
     await builtin_tasks.remove_old_jobs(context, max_hours=24)
 
 
+async def prune_expired_sessions(context: JobContext, timestamp: int) -> None:
+    """Nightly hygiene: an expired login session is already refused; drop its row."""
+    async with database_of(context).sessions() as session:
+        await session.execute(delete(AuthSession).where(AuthSession.expires_at <= func.now()))
+        await session.commit()
+
+
 def _declare_tasks() -> procrastinate.Blueprint:
     tasks = procrastinate.Blueprint()
     tasks.task(name=answer_probe.__name__, pass_context=True)(answer_probe)
-    for nightly, cron in [(remove_old_jobs, "0 4 * * *")]:
+    for nightly, cron in [(remove_old_jobs, "0 4 * * *"), (prune_expired_sessions, "10 4 * * *")]:
         task = tasks.task(name=nightly.__name__, queueing_lock=nightly.__name__, pass_context=True)(
             nightly
         )
