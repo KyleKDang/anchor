@@ -16,7 +16,7 @@ emails: list[dict[str, Any]] = []
 
 
 class Handler(BaseHTTPRequestHandler):
-    def do_POST(self) -> None:  # noqa: N802
+    def do_POST(self) -> None:
         if self.path != "/emails":
             return self._json(404, {"message": "not found"})
         length = int(self.headers.get("Content-Length", "0"))
@@ -27,12 +27,12 @@ class Handler(BaseHTTPRequestHandler):
         print(f"mail to {message.get('to')}: {message.get('subject')}", flush=True)
         self._json(200, {"id": message["id"]})
 
-    def do_GET(self) -> None:  # noqa: N802
+    def do_GET(self) -> None:
         if self.path != "/emails":
             return self._json(404, {"message": "not found"})
         self._json(200, emails)
 
-    def do_DELETE(self) -> None:  # noqa: N802
+    def do_DELETE(self) -> None:
         if self.path != "/emails":
             return self._json(404, {"message": "not found"})
         emails.clear()
@@ -46,7 +46,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def log_message(self, format: str, *args: Any) -> None:  # noqa: A002
+    def log_message(self, format: str, *args: Any) -> None:
         pass
 
 

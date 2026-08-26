@@ -13,3 +13,4 @@ docs
 **/test-results
 **/playwright-report
 backend/tests
+backend/tools

@@ -1,16 +1,16 @@
 import { useState, type FormEvent } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 
-import { api, ApiError } from "../../api";
+import { api, messageOf, type Credentials } from "../../api";
 import { useAuth } from "../../auth";
 import { AuthCard } from "./AuthCard";
+import { CredentialsFields } from "./CredentialsFields";
 
 export function Login() {
-  const { notice, signIn } = useAuth();
+  const { notice, loggedIn } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
+  const [credentials, setCredentials] = useState<Credentials>({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [noticeDismissed, setNoticeDismissed] = useState(false);
@@ -21,12 +21,12 @@ export function Login() {
     setError(null);
     setNoticeDismissed(true);
     try {
-      const account = await api.logIn(email, password);
-      signIn(account);
+      const account = await api.logIn(credentials);
+      loggedIn(account);
       const from = (location.state as { from?: string } | null)?.from;
       navigate(from ?? "/", { replace: true });
     } catch (caught) {
-      setError(caught instanceof ApiError ? caught.message : "Something went wrong.");
+      setError(messageOf(caught));
       setBusy(false);
     }
   }
@@ -39,28 +39,7 @@ export function Login() {
         </p>
       )}
       <form onSubmit={submit} className="form">
-        <label className="field">
-          <span>Email</span>
-          <input
-            type="email"
-            name="email"
-            autoComplete="email"
-            required
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-          />
-        </label>
-        <label className="field">
-          <span>Password</span>
-          <input
-            type="password"
-            name="password"
-            autoComplete="current-password"
-            required
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-          />
-        </label>
+        <CredentialsFields value={credentials} onChange={setCredentials} />
         {error && (
           <p className="error" role="alert">
             {error}

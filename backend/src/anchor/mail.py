@@ -88,7 +88,7 @@ def verification_message(to: str, link: str) -> Message:
         subject="Verify your Anchor email",
         text=(
             "Welcome to Anchor.\n\n"
-            f"Verify your email by opening this link:\n{link}\n\n"
+            f"Finish signing up by opening this link and entering your password:\n{link}\n\n"
             "The link is good for one use. If you did not sign up, ignore this message."
         ),
     )

@@ -1,60 +1,74 @@
-import { useEffect, useRef, useState } from "react";
-import { Link, useSearchParams } from "react-router";
+import { useState, type FormEvent } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
-import { api, ApiError } from "../../api";
+import { api, messageOf } from "../../api";
+import { useAuth } from "../../auth";
 import { AuthCard } from "./AuthCard";
 
-type State = { kind: "verifying" } | { kind: "verified"; email: string } | { kind: "failed"; message: string };
-
-/** The landing of the emailed link: verifies the token once, then points at login. */
+/** The landing of the emailed link: the password chosen at signup finishes the job. */
 export function Verify() {
   const [params] = useSearchParams();
   const token = params.get("token");
-  const started = useRef(false);
-  const [state, setState] = useState<State>(
-    token ? { kind: "verifying" } : { kind: "failed", message: "This verification link is incomplete." },
-  );
+  const { loggedIn } = useAuth();
+  const navigate = useNavigate();
+  const [password, setPassword] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
-    if (!token || started.current) return;
-    started.current = true;
-    api
-      .verify(token)
-      .then((account) => setState({ kind: "verified", email: account.email }))
-      .catch((caught: unknown) =>
-        setState({
-          kind: "failed",
-          message: caught instanceof ApiError ? caught.message : "Something went wrong.",
-        }),
-      );
-  }, [token]);
-
-  if (state.kind === "verifying") {
+  if (!token) {
     return (
-      <AuthCard title="Verifying your email">
-        <p className="muted">One moment.</p>
-      </AuthCard>
-    );
-  }
-  if (state.kind === "verified") {
-    return (
-      <AuthCard title="Email verified">
-        <p>
-          <strong>{state.email}</strong> is verified. You can log in now.
+      <AuthCard title="Verification failed">
+        <p className="error" role="alert">
+          This verification link is incomplete.
         </p>
-        <Link to="/login" className="button">
-          Log in
-        </Link>
+        <p className="muted">
+          <Link to="/signup">Sign up again</Link> to get a fresh link.
+        </p>
       </AuthCard>
     );
   }
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const account = await api.verify(token!, password);
+      loggedIn(account);
+      navigate("/", { replace: true });
+    } catch (caught) {
+      setError(messageOf(caught));
+      setBusy(false);
+    }
+  }
+
   return (
-    <AuthCard title="Verification failed">
-      <p className="error" role="alert">
-        {state.message}
-      </p>
+    <AuthCard title="Finish signing up">
+      <p>Enter the password you chose to verify your email and log in.</p>
+      <form onSubmit={submit} className="form">
+        <label className="field">
+          <span>Password</span>
+          <input
+            type="password"
+            name="password"
+            autoComplete="current-password"
+            required
+            maxLength={128}
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+        <button type="submit" className="button" disabled={busy}>
+          Verify and log in
+        </button>
+      </form>
       <p className="muted">
-        <Link to="/signup">Sign up again</Link> to get a fresh link.
+        Link expired or not yours? <Link to="/signup">Sign up again</Link> for a fresh one.
       </p>
     </AuthCard>
   );

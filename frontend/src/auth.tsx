@@ -1,17 +1,19 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 
-import { api, ApiError, type Account } from "./api";
+import { api, ApiError, messageOf, type Account } from "./api";
+import { AuthCard } from "./screens/auth/AuthCard";
 
 interface Auth {
   /** `undefined` while the session is still being looked up, `null` when logged out. */
   account: Account | null | undefined;
   /** A line for the login screen after a deliberate sign-out ("You are logged out."). */
   notice: string | null;
-  signIn: (account: Account) => void;
+  /** The API just logged this account in (login or verification). */
+  loggedIn: (account: Account) => void;
   logOut: () => Promise<void>;
-  /** Forget the account after it was deleted; the guards send the visitor to login. */
-  forgetDeletedAccount: () => void;
+  /** The account was just deleted; the guards send the visitor to login. */
+  accountDeleted: () => void;
 }
 
 const AuthContext = createContext<Auth | null>(null);
@@ -19,6 +21,7 @@ const AuthContext = createContext<Auth | null>(null);
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [account, setAccount] = useState<Account | null | undefined>(undefined);
   const [notice, setNotice] = useState<string | null>(null);
+  const [bootError, setBootError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -28,35 +31,51 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       .catch((error: unknown) => {
         if (cancelled) return;
         if (error instanceof ApiError && error.status === 401) setAccount(null);
-        else throw error;
+        else setBootError(messageOf(error));
       });
     return () => {
       cancelled = true;
     };
   }, []);
 
-  const signIn = useCallback((signedIn: Account) => {
+  const loggedIn = useCallback((signedIn: Account) => {
     setAccount(signedIn);
     setNotice(null);
   }, []);
 
-  const signOut = useCallback((reason: string) => {
+  const loggedOut = useCallback((reason: string) => {
     setAccount(null);
     setNotice(reason);
   }, []);
 
   const logOut = useCallback(async () => {
     await api.logOut();
-    signOut("You are logged out.");
-  }, [signOut]);
+    loggedOut("You are logged out.");
+  }, [loggedOut]);
 
-  const forgetDeletedAccount = useCallback(() => signOut("Your account has been deleted."), [signOut]);
+  const accountDeleted = useCallback(() => loggedOut("Your account has been deleted."), [loggedOut]);
 
   const value = useMemo(
-    () => ({ account, notice, signIn, logOut, forgetDeletedAccount }),
-    [account, notice, signIn, logOut, forgetDeletedAccount],
+    () => ({ account, notice, loggedIn, logOut, accountDeleted }),
+    [account, notice, loggedIn, logOut, accountDeleted],
   );
+
+  if (bootError) return <Unavailable message={bootError} />;
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+/** The session lookup failed for a reason other than "not logged in": nothing else can render. */
+function Unavailable({ message }: { message: string }) {
+  return (
+    <AuthCard title="Anchor is unavailable">
+      <p className="error" role="alert">
+        {message}
+      </p>
+      <button type="button" className="button" onClick={() => window.location.reload()}>
+        Try again
+      </button>
+    </AuthCard>
+  );
 }
 
 export function useAuth(): Auth {

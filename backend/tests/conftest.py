@@ -163,6 +163,16 @@ async def worker(jobs_app: procrastinate.App, db: Database) -> AsyncIterator[Non
 
 
 @pytest.fixture
+def defer(jobs_app: procrastinate.App) -> Callable[..., Awaitable[None]]:
+    """``await defer(task, **kwargs)`` queues a task as the worker's scheduler would."""
+
+    async def defer_task(task: jobs.TaskFunction, **kwargs: Any) -> None:
+        await jobs_app.configure_task(name=jobs.task_name(task)).defer_async(**kwargs)
+
+    return defer_task
+
+
+@pytest.fixture
 def run_jobs(jobs_app: procrastinate.App, db: Database) -> Callable[[], Awaitable[None]]:
     """``await run_jobs()`` executes every queued job inline in the test, then returns."""
 

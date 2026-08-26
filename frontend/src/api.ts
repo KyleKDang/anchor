@@ -1,9 +1,14 @@
-/** The JSON API client: same-origin, cookie-carried session, typed errors. */
+/** The JSON API client: same-origin, cookie-carried session, one error shape. */
 
 export interface Account {
   id: string;
   email: string;
   verified: boolean;
+}
+
+export interface Credentials {
+  email: string;
+  password: string;
 }
 
 export class ApiError extends Error {
@@ -14,6 +19,11 @@ export class ApiError extends Error {
   ) {
     super(message);
   }
+}
+
+/** What to show a person for a failed call, whatever was thrown. */
+export function messageOf(error: unknown): string {
+  return error instanceof ApiError ? error.message : "Something went wrong.";
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -33,12 +43,6 @@ function toApiError(status: number, payload: unknown): ApiError {
   if (isRecord(payload) && isRecord(payload.error)) {
     return new ApiError(status, String(payload.error.code), String(payload.error.message));
   }
-  if (status === 422 && isRecord(payload) && Array.isArray(payload.detail)) {
-    const [first] = payload.detail as { loc?: unknown[]; msg?: string }[];
-    const field = first?.loc?.at(-1);
-    const detail = first?.msg?.replace(/^Value error, /, "") ?? "is not valid";
-    return new ApiError(status, "invalid_input", `${capitalize(String(field ?? "Input"))} ${detail}.`);
-  }
   return new ApiError(status, "unexpected", `Something went wrong (HTTP ${status}).`);
 }
 
@@ -46,17 +50,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-function capitalize(text: string): string {
-  return text.charAt(0).toUpperCase() + text.slice(1);
-}
-
 export const api = {
   me: () => request<Account>("GET", "/api/auth/me"),
-  signUp: (email: string, password: string) =>
-    request<Account>("POST", "/api/auth/signup", { email, password }),
-  verify: (token: string) => request<Account>("POST", "/api/auth/verify", { token }),
-  logIn: (email: string, password: string) =>
-    request<Account>("POST", "/api/auth/login", { email, password }),
+  signUp: (credentials: Credentials) => request<Account>("POST", "/api/auth/signup", credentials),
+  verify: (token: string, password: string) =>
+    request<Account>("POST", "/api/auth/verify", { token, password }),
+  logIn: (credentials: Credentials) => request<Account>("POST", "/api/auth/login", credentials),
   logOut: () => request<void>("POST", "/api/auth/logout"),
   deleteAccount: (password: string) => request<void>("DELETE", "/api/account", { password }),
 };

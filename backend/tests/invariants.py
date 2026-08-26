@@ -35,7 +35,7 @@ async def realm_row_counts(db: Database, account_id: uuid.UUID) -> dict[str, int
         counts = {}
         for table in await account_realm_tables(session):
             counts[table] = await session.scalar(
-                text(f'SELECT count(*) FROM "{table}" WHERE account_id = :id'),  # noqa: S608
+                text(f'SELECT count(*) FROM "{table}" WHERE account_id = :id'),
                 {"id": account_id},
             )
         return counts

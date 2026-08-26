@@ -67,7 +67,7 @@ services:
     image: python:3.13-alpine
     command: ["python", "/fake_resend.py"]
     volumes:
-      - ./tools/fake_resend.py:/fake_resend.py:ro
+      - ./backend/tools/fake_resend.py:/fake_resend.py:ro
     ports:
       - "${ANCHOR_MAIL_PORT:-8025}:8025"
 
