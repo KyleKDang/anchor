@@ -1,0 +1,74 @@
+x-app-environment: &app-environment
+  ANCHOR_DATABASE_URL: postgresql://anchor:anchor@postgres:5432/anchor
+
+services:
+  postgres:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: anchor
+      POSTGRES_PASSWORD: anchor
+      POSTGRES_DB: anchor
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "${ANCHOR_POSTGRES_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anchor -d anchor"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  migrate:
+    build:
+      context: .
+      target: app
+    image: anchor-app
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: anchor-app
+    command: ["uvicorn", "anchor.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # /api/health passes only when the database and the worker answer too, so "web healthy"
+    # deliberately means "the whole stack answers": `docker compose up --wait` waits for all of it.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+
+  worker:
+    image: anchor-app
+    command: ["python", "-m", "anchor.worker"]
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    build:
+      context: .
+      target: caddy
+    image: anchor-caddy
+    ports:
+      - "${ANCHOR_HTTP_PORT:-80}:80"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

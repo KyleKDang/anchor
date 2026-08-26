@@ -1,0 +1,15 @@
+.git
+.github
+.claude
+.playwright-mcp
+docs
+**/node_modules
+**/dist
+**/.venv
+**/__pycache__
+**/.pytest_cache
+**/.mypy_cache
+**/.ruff_cache
+**/test-results
+**/playwright-report
+backend/tests

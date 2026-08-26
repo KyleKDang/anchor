@@ -1,0 +1,19 @@
+# The reverse proxy: the JSON API goes to the web process, everything else is
+# the React shell (a single-page app, so unknown paths fall back to index.html).
+{
+	admin off
+}
+
+:80 {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy web:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
