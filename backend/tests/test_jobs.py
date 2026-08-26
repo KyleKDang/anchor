@@ -20,7 +20,7 @@ async def _todo_jobs(jobs_app):
     return [
         job
         for job in await jobs_app.job_manager.list_jobs_async()
-        if job.status == "todo" and job.task_name == jobs.answer_probe.name
+        if job.status == "todo" and job.task_name == jobs.task_name(jobs.answer_probe)
     ]
 
 
