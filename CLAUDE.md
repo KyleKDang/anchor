@@ -9,7 +9,10 @@ The design spec is complete at `docs/design/`; implementation is tracked by the 
 
 1. Fetch it (`gh issue view <N>`) and claim it (`gh issue edit <N> --add-assignee @me`) before starting.
 2. The ticket is the brief: its Spec citations are required reading, and its Test seam section names where the tests live (the bar is `docs/design/testing.md`).
-3. Done means every acceptance criterion verified, the project validation green, and Kyle debriefed (see the global learning rule); then comment on the ticket with how each criterion is met, and close it.
+3. Code lands on a branch named after the ticket and a PR that links it (`Closes #N`), never straight on `main`; `main` is protected and, once #24 lands, every push to it deploys.
+   Before merging: CI green and a `/code-review` pass on the PR with its findings acted on; then rebase-merge (the branch auto-deletes).
+   Doc and config one-liners may go straight to `main`.
+4. Done means every acceptance criterion verified, the project validation green, and Kyle debriefed (see the global learning rule); then comment on the ticket with how each criterion is met, and close it.
 
 The next ticket is the frontier: open, unassigned, no open blockers.
 
