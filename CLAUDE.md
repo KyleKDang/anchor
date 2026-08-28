@@ -9,7 +9,7 @@ The design spec is complete at `docs/design/`; implementation is tracked by the 
 
 1. Fetch it (`gh issue view <N>`) and claim it (`gh issue edit <N> --add-assignee @me`) before starting.
 2. The ticket is the brief: its Spec citations are required reading, and its Test seam section names where the tests live (the bar is `docs/design/testing.md`).
-3. Done means every acceptance criterion verified and the project validation green; then comment on the ticket with how each criterion is met, and close it.
+3. Done means every acceptance criterion verified, the project validation green, and Kyle debriefed (see the global learning rule); then comment on the ticket with how each criterion is met, and close it.
 
 The next ticket is the frontier: open, unassigned, no open blockers.
 
