@@ -3,7 +3,7 @@
 import asyncio
 import logging
 
-from anchor import jobs
+from anchor import jobs, sentry
 from anchor.db import Database
 from anchor.settings import Settings
 
@@ -20,7 +20,9 @@ async def run(settings: Settings) -> None:
 
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
-    asyncio.run(run(Settings()))
+    settings = Settings()
+    sentry.install(settings)
+    asyncio.run(run(settings))
 
 
 if __name__ == "__main__":

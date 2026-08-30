@@ -1,0 +1,7 @@
+# Runs one backup; scheduled by anchor-backup.timer.
+[Unit]
+Description=Ship a pg_dump of Anchor to object storage
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash /opt/anchor/backup.sh

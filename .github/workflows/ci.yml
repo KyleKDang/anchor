@@ -75,3 +75,84 @@ jobs:
         run: docker compose logs
       - if: always()
         run: docker compose down -v
+
+  deploy:
+    name: Deploy to the box
+    # Push-to-main only (a PR stops at the test jobs above); the host gate keeps
+    # main green until the box from #24's errands exists.
+    if: github.event_name == 'push' && vars.ANCHOR_DEPLOY_HOST != ''
+    needs: [backend, frontend, smoke]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push the app image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: app
+          push: true
+          tags: ghcr.io/kylekdang/anchor-app:${{ github.sha }}
+          cache-from: type=gha,scope=app
+          cache-to: type=gha,scope=app,mode=max
+      - name: Build and push the caddy image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: caddy
+          push: true
+          tags: ghcr.io/kylekdang/anchor-caddy:${{ github.sha }}
+          build-args: VITE_SENTRY_DSN=${{ vars.ANCHOR_SENTRY_DSN_FRONTEND }}
+          cache-from: type=gha,scope=caddy
+          cache-to: type=gha,scope=caddy,mode=max
+      - name: Render the production .env
+        env:
+          RESEND_API_KEY: ${{ secrets.ANCHOR_RESEND_API_KEY }}
+          POSTGRES_PASSWORD: ${{ secrets.ANCHOR_POSTGRES_PASSWORD }}
+          SENTRY_DSN: ${{ secrets.ANCHOR_SENTRY_DSN }}
+        run: |
+          cat > deploy/.env <<EOF
+          ANCHOR_IMAGE_TAG=${{ github.sha }}
+          ANCHOR_PUBLIC_URL=${{ vars.ANCHOR_PUBLIC_URL }}
+          ANCHOR_MAIL_FROM=${{ vars.ANCHOR_MAIL_FROM }}
+          ANCHOR_RESEND_API_KEY=$RESEND_API_KEY
+          ANCHOR_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
+          ANCHOR_SENTRY_DSN=$SENTRY_DSN
+          EOF
+      - name: Ship to the box and restart the stack
+        env:
+          SSH_KEY: ${{ secrets.ANCHOR_DEPLOY_SSH_KEY }}
+          KNOWN_HOSTS: ${{ vars.ANCHOR_DEPLOY_KNOWN_HOSTS }}
+          TARGET: ${{ vars.ANCHOR_DEPLOY_USER }}@${{ vars.ANCHOR_DEPLOY_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/anchor_deploy
+          chmod 600 ~/.ssh/anchor_deploy
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          rsync -az --delete -e "ssh -i ~/.ssh/anchor_deploy" deploy/ "$TARGET:/opt/anchor/"
+          ssh -i ~/.ssh/anchor_deploy "$TARGET" \
+            "cd /opt/anchor && docker compose pull -q && docker compose up -d --wait && docker image prune -af --filter until=72h"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Smoke the live site
+        # Only the skeleton journey: the auth journey reads mail out of the fake
+        # Resend, which production (real Resend) deliberately does not have.
+        run: npx playwright test e2e/skeleton.spec.ts
+        working-directory: frontend
+        env:
+          ANCHOR_BASE_URL: ${{ vars.ANCHOR_PUBLIC_URL }}

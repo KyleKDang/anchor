@@ -1,0 +1,82 @@
+# The production stack on the VPS. Images are pulled from GHCR (never built here);
+# every ${...} comes from /opt/anchor/.env, rendered by the deploy job from repo
+# secrets and variables, with ANCHOR_IMAGE_TAG pinning the exact commit deployed.
+
+x-app-environment: &app-environment
+  ANCHOR_DATABASE_URL: postgresql://anchor:${ANCHOR_POSTGRES_PASSWORD}@postgres:5432/anchor
+  ANCHOR_PUBLIC_URL: ${ANCHOR_PUBLIC_URL}
+  ANCHOR_MAIL_FROM: ${ANCHOR_MAIL_FROM}
+  ANCHOR_RESEND_API_KEY: ${ANCHOR_RESEND_API_KEY}
+  ANCHOR_SENTRY_DSN: ${ANCHOR_SENTRY_DSN}
+
+services:
+  postgres:
+    image: postgres:17
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: anchor
+      POSTGRES_PASSWORD: ${ANCHOR_POSTGRES_PASSWORD}
+      POSTGRES_DB: anchor
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U anchor -d anchor"]
+      interval: 2s
+      timeout: 2s
+      retries: 15
+
+  migrate:
+    image: ghcr.io/kylekdang/anchor-app:${ANCHOR_IMAGE_TAG}
+    command: ["alembic", "upgrade", "head"]
+    environment: *app-environment
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  web:
+    image: ghcr.io/kylekdang/anchor-app:${ANCHOR_IMAGE_TAG}
+    restart: unless-stopped
+    # Caddy is the only client, so its forwarded headers name the real visitor (rate limits key on it).
+    command: ["uvicorn", "anchor.main:app", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--forwarded-allow-ips=*"]
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    # As in dev: /api/health spans database and worker, so "web healthy" means the
+    # whole stack answers and `docker compose up --wait` gates the deploy on it.
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+      start_interval: 2s
+
+  worker:
+    image: ghcr.io/kylekdang/anchor-app:${ANCHOR_IMAGE_TAG}
+    restart: unless-stopped
+    command: ["python", "-m", "anchor.worker"]
+    environment: *app-environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  caddy:
+    image: ghcr.io/kylekdang/anchor-caddy:${ANCHOR_IMAGE_TAG}
+    restart: unless-stopped
+    command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile.prod"]
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      web:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  caddy-data:
+  caddy-config:

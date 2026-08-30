@@ -1,6 +1,9 @@
 .playwright-mcp/
 .claude/settings.local.json
 
+# Rendered by the deploy job; never committed
+deploy/.env
+
 # Backend
 backend/.venv/
 __pycache__/

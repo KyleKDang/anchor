@@ -21,6 +21,9 @@ class Settings(BaseSettings):
     resend_base_url: str = "https://api.resend.com"
     mail_from: str = "Anchor <anchor@localhost>"
 
+    sentry_dsn: str | None = None
+    """Sentry error reporting. Unset (the dev default), errors are not reported."""
+
     session_ttl_hours: int = 24 * 30
     """How long a login session lives."""
 

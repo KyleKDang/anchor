@@ -1,0 +1,23 @@
+# The production edge: same routing as the dev Caddyfile, but on the real domain,
+# so Caddy fetches and renews HTTPS certificates automatically.
+{
+	admin off
+}
+
+anchorfilms.app {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy web:8000
+	}
+
+	handle {
+		root * /srv
+		try_files {path} /index.html
+		file_server
+	}
+}
+
+www.anchorfilms.app {
+	redir https://anchorfilms.app{uri} permanent
+}

@@ -1,0 +1,10 @@
+# Nightly backup schedule; the box runs on UTC, so 09:17 is the small hours in the US.
+[Unit]
+Description=Nightly Anchor backup
+
+[Timer]
+OnCalendar=*-*-* 09:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
