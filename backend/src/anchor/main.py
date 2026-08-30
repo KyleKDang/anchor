@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from anchor import accounts, errors, health, jobs, mail
+from anchor import accounts, errors, health, jobs, mail, sentry
 from anchor.db import Database
 from anchor.ratelimit import RateLimiter
 from anchor.settings import Settings
@@ -17,6 +17,7 @@ def create_app(
 ) -> FastAPI:
     """The web process. ``resend_transport`` is the test seam that fakes Resend's HTTP edge."""
     settings = settings or Settings()
+    sentry.install(settings)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:

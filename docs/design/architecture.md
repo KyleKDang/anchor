@@ -10,7 +10,7 @@ The app's true shape is one always-on box: the only request-time compute is a lo
 Whole-app cost ceiling: ~$6-8 VPS + ~$1 domain + $0 email + capped LLM spend lands worst-case under $20/month.
 
 - **Deployment is push-to-main**: GitHub Actions runs tests, builds one image, and deploys to the box.
-- **Backups**: nightly pg_dump shipped off-box to object storage (Backblaze B2 / Cloudflare R2 class); this is the corruption-recovery path ([ADR 0010](../adr/0010-comparison-log-is-evidence-not-event-source.md)).
+- **Backups**: nightly pg_dump shipped off-box to object storage (Cloudflare R2), driven by a systemd timer on the host rather than an app job so it keeps running even when the app is down; this is the corruption-recovery path ([ADR 0010](../adr/0010-comparison-log-is-evidence-not-event-source.md)).
 - **Monitoring**: Sentry free tier on backend and frontend.
 
 ## Stack
@@ -25,7 +25,7 @@ Whole-app cost ceiling: ~$6-8 VPS + ~$1 domain + $0 email + capped LLM spend lan
 The web process and the worker process run from the same image with different commands; the recommendation engine is an imported module called by both, never a separate service.
 
 - Background jobs run on a Postgres-backed queue (procrastinate): transactional enqueue (a data change and its follow-up job commit or fail together), cron-style scheduling, no Redis.
-- Jobs: the seed import pipeline, weight-vector retrains, prose regeneration, discovery verdict refresh, TMDB re-sync, backups.
+- Jobs: the seed import pipeline, weight-vector retrains, prose regeneration, discovery verdict refresh, TMDB re-sync.
 
 ## Accounts and auth
 

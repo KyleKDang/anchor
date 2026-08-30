@@ -49,6 +49,12 @@ async def health(request: Request) -> JSONResponse:
     )
 
 
+@router.get("/api/debug/error")
+async def debug_error() -> None:
+    """Fail on purpose: hitting this in production must produce a Sentry event."""
+    raise RuntimeError("deliberate backend error to check Sentry")
+
+
 async def _ask_worker(db: Database, jobs_app: procrastinate.App) -> uuid.UUID:
     """Record a probe and enqueue its answer in one transaction; return the probe id.
 

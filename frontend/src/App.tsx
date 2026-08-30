@@ -14,6 +14,7 @@ export function App() {
         <Route path="/login" element={<Login />} />
       </Route>
       <Route path="/verify" element={<Verify />} />
+      <Route path="/debug/error" element={<DebugError />} />
       <Route element={<RequireAccount />}>
         <Route element={<Shell />}>
           <Route index element={<Navigate to={destinations[0].path} replace />} />
@@ -25,6 +26,11 @@ export function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/** Fails on purpose: visiting this in production must produce a Sentry event. */
+function DebugError(): never {
+  throw new Error("deliberate frontend error to check Sentry");
 }
 
 /** The logged-in frame: the five destinations and the screen they open. */
