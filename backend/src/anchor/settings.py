@@ -39,6 +39,8 @@ class Settings(BaseSettings):
     signup_rate_limit: int = 5
     login_rate_limit: int = 10
     verify_rate_limit: int = 10
+    debug_error_rate_limit: int = 3
+    """Caps the Sentry check endpoint so nobody can loop it to burn the error quota."""
 
     @property
     def sqlalchemy_url(self) -> str:

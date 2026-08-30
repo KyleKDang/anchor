@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from anchor import jobs
 from anchor.db import Database
 from anchor.models import WorkerProbe
+from anchor.ratelimit import limited
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -49,7 +50,10 @@ async def health(request: Request) -> JSONResponse:
     )
 
 
-@router.get("/api/debug/error")
+@router.get(
+    "/api/debug/error",
+    dependencies=[limited("debug", lambda settings: settings.debug_error_rate_limit)],
+)
 async def debug_error() -> None:
     """Fail on purpose: hitting this in production must produce a Sentry event."""
     raise RuntimeError("deliberate backend error to check Sentry")

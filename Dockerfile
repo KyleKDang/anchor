@@ -6,9 +6,9 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 COPY frontend/ ./
-# The frontend Sentry DSN is baked in at build time; empty (the default) disables reporting.
+# The frontend Sentry DSN is baked in at build time (a build ARG is visible to RUN);
+# empty, the default, disables reporting.
 ARG VITE_SENTRY_DSN
-ENV VITE_SENTRY_DSN=$VITE_SENTRY_DSN
 RUN npm run build
 
 
