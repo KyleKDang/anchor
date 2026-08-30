@@ -83,6 +83,7 @@ jobs:
     if: github.event_name == 'push' && vars.ANCHOR_DEPLOY_HOST != ''
     needs: [backend, frontend, smoke]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     permissions:
       contents: read
       packages: write
@@ -113,20 +114,34 @@ jobs:
           build-args: VITE_SENTRY_DSN=${{ vars.ANCHOR_SENTRY_DSN_FRONTEND }}
           cache-from: type=gha,scope=caddy
           cache-to: type=gha,scope=caddy,mode=max
+      # The smoke tooling is installed before anything ships, so a flaky download
+      # can never fail the job after production has already changed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
       - name: Render the production .env
+        # printf, not a heredoc: secret values land verbatim, never re-expanded by the shell.
         env:
+          PUBLIC_URL: ${{ vars.ANCHOR_PUBLIC_URL }}
+          MAIL_FROM: ${{ vars.ANCHOR_MAIL_FROM }}
           RESEND_API_KEY: ${{ secrets.ANCHOR_RESEND_API_KEY }}
           POSTGRES_PASSWORD: ${{ secrets.ANCHOR_POSTGRES_PASSWORD }}
           SENTRY_DSN: ${{ secrets.ANCHOR_SENTRY_DSN }}
         run: |
-          cat > deploy/.env <<EOF
-          ANCHOR_IMAGE_TAG=${{ github.sha }}
-          ANCHOR_PUBLIC_URL=${{ vars.ANCHOR_PUBLIC_URL }}
-          ANCHOR_MAIL_FROM=${{ vars.ANCHOR_MAIL_FROM }}
-          ANCHOR_RESEND_API_KEY=$RESEND_API_KEY
-          ANCHOR_POSTGRES_PASSWORD=$POSTGRES_PASSWORD
-          ANCHOR_SENTRY_DSN=$SENTRY_DSN
-          EOF
+          printf '%s=%s\n' \
+            ANCHOR_IMAGE_TAG "$GITHUB_SHA" \
+            ANCHOR_PUBLIC_URL "$PUBLIC_URL" \
+            ANCHOR_MAIL_FROM "$MAIL_FROM" \
+            ANCHOR_RESEND_API_KEY "$RESEND_API_KEY" \
+            ANCHOR_POSTGRES_PASSWORD "$POSTGRES_PASSWORD" \
+            ANCHOR_SENTRY_DSN "$SENTRY_DSN" \
+            > deploy/.env
       - name: Ship to the box and restart the stack
         env:
           SSH_KEY: ${{ secrets.ANCHOR_DEPLOY_SSH_KEY }}
@@ -137,18 +152,11 @@ jobs:
           printf '%s\n' "$SSH_KEY" > ~/.ssh/anchor_deploy
           chmod 600 ~/.ssh/anchor_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          rsync -az --delete -e "ssh -i ~/.ssh/anchor_deploy" deploy/ "$TARGET:/opt/anchor/"
+          # The prod Caddyfile is baked into the caddy image; a copy on the box would be dead.
+          rsync -az --delete --delete-excluded --exclude=Caddyfile \
+            -e "ssh -i ~/.ssh/anchor_deploy" deploy/ "$TARGET:/opt/anchor/"
           ssh -i ~/.ssh/anchor_deploy "$TARGET" \
-            "cd /opt/anchor && docker compose pull -q && docker compose up -d --wait && docker image prune -af --filter until=72h"
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - run: npm ci
-        working-directory: frontend
-      - run: npx playwright install --with-deps chromium
-        working-directory: frontend
+            "cd /opt/anchor && docker compose pull -q && docker compose up -d --wait"
       - name: Smoke the live site
         # Only the skeleton journey: the auth journey reads mail out of the fake
         # Resend, which production (real Resend) deliberately does not have.
@@ -156,3 +164,8 @@ jobs:
         working-directory: frontend
         env:
           ANCHOR_BASE_URL: ${{ vars.ANCHOR_PUBLIC_URL }}
+      - name: Prune old images
+        # Only after a green smoke, so the previous build stays on the box for a fast rollback.
+        env:
+          TARGET: ${{ vars.ANCHOR_DEPLOY_USER }}@${{ vars.ANCHOR_DEPLOY_HOST }}
+        run: ssh -i ~/.ssh/anchor_deploy "$TARGET" "docker image prune -af --filter until=72h"

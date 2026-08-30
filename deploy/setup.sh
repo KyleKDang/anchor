@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 # One-time bootstrap of a fresh Ubuntu 24.04 box for Anchor.
-# Run as root with the CI public key as the argument:
+# First run, as root, with the CI public key as the argument:
 #   bash setup.sh "ssh-ed25519 AAAA... anchor-ci"
 # Prompts for the R2 credentials (they live only on this box, in root's rclone config).
+# Safe to re-run from /opt/anchor without arguments: it keeps the existing CI key and
+# rclone config and refreshes everything else (including the systemd units).
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run as root" >&2; exit 1; }
-[ $# -eq 1 ] || { echo "usage: bash setup.sh \"<CI public key line>\"" >&2; exit 1; }
-ci_public_key="$1"
+[ $# -le 1 ] || { echo "usage: bash setup.sh [\"<CI public key line>\"]" >&2; exit 1; }
+ci_public_key="${1:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
 
 echo "==> installing docker, rclone, rsync, unattended-upgrades"
@@ -29,14 +31,21 @@ echo "==> creating the deploy user GitHub Actions logs in as"
 id deploy >/dev/null 2>&1 || useradd --create-home --shell /bin/bash deploy
 usermod -aG docker deploy
 install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
-printf '%s\n' "$ci_public_key" > /home/deploy/.ssh/authorized_keys
-chown deploy:deploy /home/deploy/.ssh/authorized_keys
-chmod 600 /home/deploy/.ssh/authorized_keys
+if [[ -n "$ci_public_key" ]]; then
+  printf '%s\n' "$ci_public_key" > /home/deploy/.ssh/authorized_keys
+  chown deploy:deploy /home/deploy/.ssh/authorized_keys
+  chmod 600 /home/deploy/.ssh/authorized_keys
+elif [[ ! -s /home/deploy/.ssh/authorized_keys ]]; then
+  echo "the first run needs the CI public key as the argument" >&2
+  exit 1
+fi
 
 echo "==> staging /opt/anchor (the deploy job rsyncs over this on every deploy)"
 install -d -o deploy -g deploy /opt/anchor
-cp "$here"/* /opt/anchor/
-chown deploy:deploy /opt/anchor/*
+if [[ "$here" != /opt/anchor ]]; then
+  cp "$here"/* /opt/anchor/
+  chown deploy:deploy /opt/anchor/*
+fi
 
 echo "==> firewall: ssh and web only"
 ufw allow OpenSSH >/dev/null
@@ -50,11 +59,14 @@ printf 'PasswordAuthentication no\n' > /etc/ssh/sshd_config.d/50-anchor.conf
 systemctl reload ssh
 
 echo "==> backups: rclone remote for the R2 bucket"
-read -rp "R2 account id: " r2_account
-read -rp "R2 access key id: " r2_key
-read -rsp "R2 secret access key: " r2_secret; echo
-mkdir -p /root/.config/rclone
-cat > /root/.config/rclone/rclone.conf <<EOF
+if [[ -f /root/.config/rclone/rclone.conf ]]; then
+  echo "keeping the existing rclone config"
+else
+  read -rp "R2 account id: " r2_account
+  read -rp "R2 access key id: " r2_key
+  read -rsp "R2 secret access key: " r2_secret; echo
+  mkdir -p /root/.config/rclone
+  cat > /root/.config/rclone/rclone.conf <<EOF
 [r2]
 type = s3
 provider = Cloudflare
@@ -62,7 +74,8 @@ access_key_id = ${r2_key}
 secret_access_key = ${r2_secret}
 endpoint = https://${r2_account}.r2.cloudflarestorage.com
 EOF
-chmod 600 /root/.config/rclone/rclone.conf
+  chmod 600 /root/.config/rclone/rclone.conf
+fi
 echo "checking the bucket is reachable..."
 rclone lsf r2:anchor-backups >/dev/null
 echo "bucket ok"

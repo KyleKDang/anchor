@@ -4,4 +4,6 @@ Description=Ship a pg_dump of Anchor to object storage
 
 [Service]
 Type=oneshot
+# systemd starts services without HOME; rclone and docker find root's config through it.
+Environment=HOME=/root
 ExecStart=/usr/bin/bash /opt/anchor/backup.sh
