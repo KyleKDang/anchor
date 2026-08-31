@@ -21,7 +21,30 @@ if ! command -v docker >/dev/null; then
   curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
   sh /tmp/get-docker.sh </dev/null
 fi
-apt-get install -qy rclone rsync unattended-upgrades </dev/null
+apt-get install -qy rsync unzip unattended-upgrades </dev/null
+
+# rclone comes from upstream, not apt: Ubuntu 24.04 packages 1.60.1 (2022), which
+# fails R2 uploads with "501 Not Implemented" on the first attempt and only lands
+# on rclone's internal retry. Pinned and checksummed so a rebuilt box gets the
+# same binary, and a swapped artifact fails loudly instead of installing.
+RCLONE_VERSION=v1.75.0
+RCLONE_SHA256=aa2804e08f48250e71009c727124b6341cd0288465804a9a09d14663cabafbaa
+# Drop the apt build if an earlier run of this script installed it, so /usr/bin and
+# /usr/local/bin can never disagree about which rclone the backup timer gets.
+if dpkg -s rclone >/dev/null 2>&1; then
+  apt-get purge -qy rclone </dev/null
+fi
+installed_rclone="$(rclone version 2>/dev/null | head -n1 || true)"
+if [[ "$installed_rclone" != "rclone $RCLONE_VERSION" ]]; then
+  zip="/tmp/rclone-$RCLONE_VERSION-linux-amd64.zip"
+  curl -fsSL -o "$zip" \
+    "https://downloads.rclone.org/$RCLONE_VERSION/rclone-$RCLONE_VERSION-linux-amd64.zip"
+  printf '%s  %s\n' "$RCLONE_SHA256" "$zip" | sha256sum -c -
+  unzip -oq "$zip" -d /tmp/rclone-unpack
+  install -m 755 "/tmp/rclone-unpack/rclone-$RCLONE_VERSION-linux-amd64/rclone" /usr/local/bin/rclone
+  rm -rf "$zip" /tmp/rclone-unpack
+fi
+rclone version | head -n1 || true
 
 echo "==> enabling automatic security updates"
 printf 'APT::Periodic::Update-Package-Lists "1";\nAPT::Periodic::Unattended-Upgrade "1";\n' \
@@ -73,8 +96,15 @@ provider = Cloudflare
 access_key_id = ${r2_key}
 secret_access_key = ${r2_secret}
 endpoint = https://${r2_account}.r2.cloudflarestorage.com
+no_check_bucket = true
 EOF
   chmod 600 /root/.config/rclone/rclone.conf
+fi
+# Object-scoped R2 tokens cannot check or create buckets, and rclone attempts that
+# before every upload unless told not to: without this, uploads fail 403 outright.
+# Appended separately so a config written by an earlier run gets it too.
+if ! grep -q '^no_check_bucket' /root/.config/rclone/rclone.conf; then
+  printf 'no_check_bucket = true\n' >> /root/.config/rclone/rclone.conf
 fi
 echo "checking the bucket is reachable..."
 rclone lsf r2:anchor-backups >/dev/null
