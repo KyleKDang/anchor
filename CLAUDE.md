@@ -5,14 +5,24 @@ The design spec is complete at `docs/design/`; implementation is tracked by the 
 
 ## Implementing a ticket
 
-`/implement #N` is the whole prompt: the ticket (a sub-issue of the map at #21) carries everything needed.
+`/ship #N` is the whole prompt: it drives one ticket from claim to close, and the ticket (a sub-issue of the map at #21) carries everything needed.
+`/ship` owns the sequence; this file owns what is specific to Anchor.
 
-1. Fetch it (`gh issue view <N>`) and claim it (`gh issue edit <N> --add-assignee @me`) before starting.
-2. The ticket is the brief: its Spec citations are required reading, and its Test seam section names where the tests live (the bar is `docs/design/testing.md`).
-3. Code lands on a branch named after the ticket and a PR that links it (`Closes #N`), never straight on `main`; `main` is protected and, once #24 lands, every push to it deploys.
-   Before merging: CI green and a `/code-review` pass on the PR with its findings acted on; then rebase-merge (the branch auto-deletes).
-   Doc and config one-liners may go straight to `main`.
-4. Done means every acceptance criterion verified, the project validation green, and Kyle debriefed (see the global learning rule); then comment on the ticket with how each criterion is met, and close it.
+**The brief.**
+The ticket's Spec citations are required reading, and its Test seam section names where the tests live.
+The bar is `docs/design/testing.md`.
+
+**Branching and merging.**
+`main` is protected and every push to it deploys, so code reaches it only through a rebase-merge of a PR that links the ticket (`Closes #N`); the branch then auto-deletes.
+Doc and config one-liners may go straight to `main`.
+
+**Validation green.**
+In `backend/`: `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`, `uv run pytest`.
+In `frontend/`: `npm run build`.
+CI additionally runs the Playwright smoke suite against `docker compose`, and `.github/workflows/ci.yml` is the authority on all of it.
+
+**Code review** means `mattpocock-skills:code-review`, named in full.
+The bare `code-review` is Claude Code's built-in, which fans out sub-agents at the session effort level and is not the review this flow asks for.
 
 The next ticket is the frontier: open, unassigned, no open blockers.
 
