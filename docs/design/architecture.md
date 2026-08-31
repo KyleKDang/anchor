@@ -7,7 +7,7 @@ Decision rationale: [ADR 0008](../adr/0008-python-fastapi-react-postgres-stack.m
 
 A single Hetzner/DigitalOcean-class VPS running Docker Compose: the web app, a background worker, PostgreSQL, and Caddy as the reverse proxy with automatic HTTPS.
 The app's true shape is one always-on box: the only request-time compute is a logistic-regression scorer that retrains in milliseconds, and everything heavy is batch precompute.
-Whole-app cost ceiling: ~$6-8 VPS + ~$1 domain + $0 email + capped LLM spend lands worst-case under $20/month.
+Whole-app cost ceiling: ~$12 VPS + ~$1 domain + $0 email + capped LLM spend lands worst-case around $20/month.
 
 - **Deployment is push-to-main**: GitHub Actions runs tests, builds one image, and deploys to the box.
 - **Backups**: nightly pg_dump shipped off-box to object storage (Cloudflare R2), driven by a systemd timer on the host rather than an app job so it keeps running even when the app is down; this is the corruption-recovery path ([ADR 0010](../adr/0010-comparison-log-is-evidence-not-event-source.md)).
