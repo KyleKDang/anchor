@@ -217,23 +217,28 @@ set_secret ANCHOR_DEPLOY_SSH_KEY "$(cat "$HOME/.ssh/anchor_ci")"
 note "The CI private key now lives only in that GitHub secret and in ~/.ssh/anchor_ci."
 pause
 
-# ── Stage 2: the Hetzner box ──────────────────────────────────────────────
-stage "Hetzner — rent the server"
-say "One small VPS (~\$5/month) runs the whole app."
-open_url "https://console.hetzner.com/"
-step "Sign up if you don't have an account (needs a card; new accounts sometimes wait briefly for verification)."
-step "Create a project (call it 'anchor'), then click 'Add Server'."
-step "Location: Ashburn, VA.  Image: Ubuntu 24.04.  Type: Shared vCPU x86 -> CPX11."
-step "Under SSH keys, click 'Add SSH key' and paste this line:"
+# ── Stage 2: the DigitalOcean box ─────────────────────────────────────────
+stage "DigitalOcean - rent the server"
+say "One small VPS (\$12/month) runs the whole app."
+open_url "https://cloud.digitalocean.com/droplets/new"
+step "Sign up if you don't have an account (needs a card; check the GitHub Student Developer Pack first, it often covers a year of credit)."
+step "Region: San Francisco (SFO3)."
+step "Image: Ubuntu 24.04 (LTS) x64."
+note "24.04 specifically, not 26.04: deploy/setup.sh targets 24.04 and is only tested there."
+step "Droplet type: Basic.  CPU option: Regular with SSD -> \$12/mo, 2 GB RAM / 1 vCPU / 50 GB."
+note "Not the Premium Intel/AMD tiers: same RAM, more money. Read the price off the page before you click."
+step "Authentication method: SSH Key -> 'Add SSH Key', and paste this whole line:"
 printf '\n%s\n\n' "$(cat "$personal_pub")"
-step "Create the server, then copy its public IPv4 address."
+note "All of it, including the trailing email: that part is just a label, and it is not secret."
+step "Hostname: anchor.  Leave the paid add-ons (backups, monitoring) unchecked."
+step "Create the droplet, then copy its public IPv4 address."
 ask ANCHOR_DEPLOY_HOST "Paste the server's IPv4 address:"
 write_env ANCHOR_DEPLOY_HOST "$ANCHOR_DEPLOY_HOST"
 say "Waiting for the box to answer on SSH..."
 tries=0
 until ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new "root@$ANCHOR_DEPLOY_HOST" true 2>/dev/null; do
   tries=$((tries + 1))
-  if (( tries >= 24 )); then warn "no SSH answer after 2 minutes — check the IP"; exit 1; fi
+  if (( tries >= 60 )); then warn "no SSH answer after 5 minutes - check the IP, and that the droplet finished building"; exit 1; fi
   sleep 5
 done
 say "SSH is up."
@@ -276,6 +281,7 @@ step "In the bucket -> Settings, add an object lifecycle rule: delete objects 30
 step "Back on the R2 overview, open the API tokens page (labelled 'Manage R2 API Tokens' or similar)."
 step "Create a token: permissions 'Object Read & Write', scoped to only the anchor-backups bucket."
 say "The token page shows three things the server needs (they go only to the box, never to GitHub):"
+note "These are not saved to disk. If you stop before Stage 7 you will paste them again, so finish 4-7 in one sitting."
 note "The account ID is the long hex string in the endpoint URL: https://<account-id>.r2.cloudflarestorage.com"
 ask R2_ACCOUNT_ID "Paste the account ID:"
 ask R2_ACCESS_KEY_ID "Paste the Access Key ID:"
