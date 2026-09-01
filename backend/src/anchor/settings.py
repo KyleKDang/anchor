@@ -24,6 +24,20 @@ class Settings(BaseSettings):
     sentry_dsn: str | None = None
     """Sentry error reporting. Unset (the dev default), errors are not reported."""
 
+    tmdb_access_token: str | None = None
+    """TMDB v4 read access token. Unset, every catalog call fails outright."""
+
+    tmdb_base_url: str = "https://api.themoviedb.org/3"
+
+    tmdb_requests_per_second: float = 4.0
+    """The shared client's self-throttle, far under TMDB's ~40/s soft limit."""
+
+    tmdb_max_attempts: int = 3
+    """Tries per TMDB call, counting the first; the retries are the 429 backoff."""
+
+    film_refresh_days: int = 150
+    """~5 months: still-referenced films re-sync at this age, inside ADR 0003's 6-month ceiling."""
+
     session_ttl_hours: int = 24 * 30
     """How long a login session lives."""
 

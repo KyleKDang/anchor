@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from anchor.mail import Mailer
 from anchor.ratelimit import RateLimiter
 from anchor.settings import Settings
+from anchor.tmdb import Tmdb
 
 
 def settings_of(request: Request) -> Settings:
@@ -17,6 +18,10 @@ def settings_of(request: Request) -> Settings:
 
 def mailer_of(request: Request) -> Mailer:
     return request.app.state.mailer  # type: ignore[no-any-return]
+
+
+def tmdb_of(request: Request) -> Tmdb:
+    return request.app.state.tmdb  # type: ignore[no-any-return]
 
 
 def rate_limiter_of(request: Request) -> RateLimiter:
@@ -30,4 +35,5 @@ async def db_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 AppSettings = Annotated[Settings, Depends(settings_of)]
 AppMailer = Annotated[Mailer, Depends(mailer_of)]
+AppTmdb = Annotated[Tmdb, Depends(tmdb_of)]
 DbSession = Annotated[AsyncSession, Depends(db_session)]
