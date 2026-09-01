@@ -198,3 +198,239 @@ body {
 .danger-zone h3 {
   margin: 0;
 }
+
+/* Search */
+
+.search-form {
+  display: flex;
+  gap: 0.75rem;
+  align-items: flex-end;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.search-form .field {
+  flex: 1 1 18rem;
+}
+
+/* Beats the base button's align-self, so it lines up with the input beside it. */
+.search-form .button {
+  align-self: flex-end;
+}
+
+/* Film rows: search results and the backlog share one shape. */
+
+.film-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  /* The sections these sit in stack their children at their natural width; a list of
+     films wants the full column instead. */
+  align-self: stretch;
+  width: 100%;
+}
+
+.film-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 1rem;
+  align-items: start;
+  padding: 1rem 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+}
+
+.film-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.film-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+.film-row-title {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+/* Titles carry their own weight; the underline is for the pointer, not the page. */
+.film-row-title a {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+}
+
+.film-row-title a:hover,
+.film-row-title a:focus-visible {
+  text-decoration: underline;
+}
+
+/* The poster is a second link to the same film, so it must not read as one. */
+.film-row > a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.film-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.film-row .button {
+  align-self: center;
+  white-space: nowrap;
+}
+
+.poster {
+  display: block;
+  border-radius: 0.3rem;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+  object-fit: cover;
+}
+
+.poster-w154 {
+  width: 4rem;
+  aspect-ratio: 2 / 3;
+}
+
+.poster-w342 {
+  /* A fixed width, not a percentage: the grid column it sits in is content-sized. */
+  width: 14rem;
+  aspect-ratio: 2 / 3;
+}
+
+.poster-missing {
+  display: grid;
+  place-items: center;
+  padding: 0.5rem;
+  text-align: center;
+  font-size: 0.75rem;
+  opacity: 0.6;
+  box-sizing: border-box;
+}
+
+/* The spoiler toggle every plot summary sits behind. */
+
+.spoiler summary {
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 600;
+  width: fit-content;
+}
+
+.spoiler p {
+  margin: 0.4rem 0 0;
+  font-size: 0.95rem;
+}
+
+.standing {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+/* The film page */
+
+.back-link {
+  margin: 1rem 0;
+}
+
+.film-page {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+.film-page-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.film-page-body h1,
+.film-page-body p {
+  margin: 0;
+}
+
+.film-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
+}
+
+.film-actions .button {
+  align-self: auto;
+}
+
+@media (max-width: 34rem) {
+  .film-page {
+    grid-template-columns: 1fr;
+  }
+
+  .poster-w342 {
+    width: min(100%, 11rem);
+  }
+
+  .film-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .film-row .button {
+    grid-column: 2;
+    justify-self: start;
+  }
+}
+
+/* Backlog filters */
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  align-self: stretch;
+  width: 100%;
+}
+
+.filters .field {
+  flex: 0 1 10rem;
+}
+
+.filters select {
+  font: inherit;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  background: transparent;
+  color: inherit;
+}
+
+/* TMDB attribution */
+
+.attribution {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+}
+
+.tmdb-logo {
+  width: 8rem;
+  height: auto;
+}
+
+.attribution .muted {
+  max-width: 34rem;
+}

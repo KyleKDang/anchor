@@ -4,6 +4,12 @@ x-app-environment: &app-environment
   # Mail goes to the fake Resend below; a real key and base URL are a deploy concern.
   ANCHOR_RESEND_BASE_URL: http://mail:8025
   ANCHOR_RESEND_API_KEY: dev
+  # Likewise TMDB: the dev stack talks to the fake below, so it needs no credential.
+  ANCHOR_TMDB_BASE_URL: http://tmdb:8030/3
+  ANCHOR_TMDB_ACCESS_TOKEN: dev
+  # The per-IP signup limit is a production defence, and in-process, so re-running the
+  # smoke suite inside one window exhausts it. Dev and CI raise it rather than trip it.
+  ANCHOR_SIGNUP_RATE_LIMIT: 100
 
 services:
   postgres:
@@ -43,6 +49,8 @@ services:
         condition: service_completed_successfully
       mail:
         condition: service_started
+      tmdb:
+        condition: service_started
     # /api/health passes only when the database and the worker answer too, so "web healthy"
     # deliberately means "the whole stack answers": `docker compose up --wait` waits for all of it.
     healthcheck:
@@ -70,6 +78,14 @@ services:
       - ./backend/tools/fake_resend.py:/fake_resend.py:ro
     ports:
       - "${ANCHOR_MAIL_PORT:-8025}:8025"
+
+  tmdb:
+    # TMDB's HTTP API, faked over a fixed handful of films: the dev stack works
+    # without a credential, and the browser smoke suite stays deterministic.
+    image: python:3.13-alpine
+    command: ["python", "/fake_tmdb.py"]
+    volumes:
+      - ./backend/tools/fake_tmdb.py:/fake_tmdb.py:ro
 
   caddy:
     build:
