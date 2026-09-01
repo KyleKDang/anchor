@@ -121,10 +121,10 @@ export const api = {
   addToBacklog: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/backlog`),
   removeFromBacklog: (tmdbId: number) => request<void>("DELETE", `/api/films/${tmdbId}/backlog`),
   markWatched: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`),
-  backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${query(filters)}`),
+  backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
 };
 
-function query(filters: BacklogFilters): string {
+function backlogQuery(filters: BacklogFilters): string {
   const params = new URLSearchParams();
   if (filters.sort) params.set("sort", filters.sort);
   if (filters.genre) params.set("genre", filters.genre);

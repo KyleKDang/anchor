@@ -4,6 +4,7 @@ import { Link } from "react-router";
 import { api, messageOf, type Backlog, type BacklogFilm, type BacklogSort } from "../api";
 import { Poster } from "../films/Poster";
 import { filmPath, releaseYear } from "../films/tmdb";
+import { useAsyncAction } from "../films/useAsyncAction";
 
 const SORTS: { value: BacklogSort; label: string }[] = [
   { value: "added", label: "Recently added" },
@@ -11,7 +12,8 @@ const SORTS: { value: BacklogSort; label: string }[] = [
   { value: "year", label: "Year" },
 ];
 
-const ALL = "";
+/** The value of a filter select when it is not filtering. */
+const ANY = "";
 
 /**
  * The Watchlist screen. Two tiers eventually, ranked over backlog; before taste-profile
@@ -22,8 +24,8 @@ const ALL = "";
  */
 export function Watchlist() {
   const [sort, setSort] = useState<BacklogSort>("added");
-  const [genre, setGenre] = useState(ALL);
-  const [decade, setDecade] = useState(ALL);
+  const [genre, setGenre] = useState(ANY);
+  const [decade, setDecade] = useState(ANY);
   const [backlog, setBacklog] = useState<Backlog | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -32,10 +34,12 @@ export function Watchlist() {
       setBacklog(
         await api.backlog({
           sort,
-          genre: genre === ALL ? null : genre,
-          decade: decade === ALL ? null : Number(decade),
+          genre: genre === ANY ? null : genre,
+          decade: decade === ANY ? null : Number(decade),
         }),
       );
+      // Cleared on success too, or one transient failure pins the banner for the session.
+      setError(null);
     } catch (caught) {
       setError(messageOf(caught));
     }
@@ -70,7 +74,7 @@ export function Watchlist() {
             <label className="field">
               <span>Genre</span>
               <select value={genre} onChange={(event) => setGenre(event.target.value)}>
-                <option value={ALL}>All genres</option>
+                <option value={ANY}>All genres</option>
                 {backlog.genres.map((name) => (
                   <option key={name} value={name}>
                     {name}
@@ -81,7 +85,7 @@ export function Watchlist() {
             <label className="field">
               <span>Decade</span>
               <select value={decade} onChange={(event) => setDecade(event.target.value)}>
-                <option value={ALL}>All decades</option>
+                <option value={ANY}>All decades</option>
                 {backlog.decades.map((start) => (
                   <option key={start} value={String(start)}>
                     {start}s
@@ -109,19 +113,13 @@ export function Watchlist() {
 }
 
 function BacklogRow({ film, onWatched }: { film: BacklogFilm; onWatched: () => void }) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useAsyncAction();
 
   async function markWatched() {
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       await api.markWatched(film.tmdb_id);
       onWatched();
-    } catch (caught) {
-      setError(messageOf(caught));
-      setBusy(false);
-    }
+    });
   }
 
   return (

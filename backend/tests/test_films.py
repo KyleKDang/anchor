@@ -4,13 +4,11 @@ TMDB is faked at the shared client's HTTP edge, so these are the real flows over
 canned metadata: search, open a film, add it, take it back out, mark it watched.
 """
 
-from datetime import UTC, datetime, timedelta
-
 import pytest
 from sqlalchemy import select, update
 
 from anchor.models import AccountFilm, Film, LifecycleState
-from faketmdb import ARRIVAL, FIGHT_CLUB, NOSFERATU
+from faketmdb import ARRIVAL, FIGHT_CLUB, NOSFERATU, FilmFixture
 from invariants import assert_nothing_rating_shaped
 
 CATALOG = (FIGHT_CLUB, ARRIVAL, NOSFERATU)
@@ -148,13 +146,16 @@ async def test_the_store_keeps_image_paths_and_a_fetch_stamp_not_bytes(owner, db
     assert not any(isinstance(value, bytes) for value in vars(film).values())
 
 
-async def test_a_stale_film_is_re_fetched_when_it_is_next_opened(owner, db, tmdb, settings):
+async def test_a_stale_film_is_re_fetched_when_it_is_next_opened(owner, tmdb, settings, age_film):
+    """And the request that pays for the re-fetch is the one that sees the new metadata."""
     await open_film(owner, FIGHT_CLUB)
-    await _age(db, FIGHT_CLUB.tmdb_id, days=settings.film_refresh_days + 1)
+    await age_film(FIGHT_CLUB.tmdb_id, days=settings.film_refresh_days + 1)
+    tmdb.with_films(FilmFixture(FIGHT_CLUB.tmdb_id, "Fight Club", runtime=151))
 
-    await open_film(owner, FIGHT_CLUB)
+    film = await open_film(owner, FIGHT_CLUB)
 
     assert len(tmdb.bundled_calls(FIGHT_CLUB.tmdb_id)) == 2
+    assert film["runtime"] == 151
 
 
 async def test_a_film_tmdb_does_not_have_is_a_404(owner):
@@ -257,14 +258,3 @@ async def test_the_shared_catalog_survives_the_account_that_filled_it(owner, db)
     async with db.sessions() as session:
         assert await session.get(Film, FIGHT_CLUB.tmdb_id) is not None
         assert list(await session.scalars(select(AccountFilm))) == []
-
-
-async def _age(db, tmdb_id, *, days):
-    """Push a stored film's fetch stamp into the past, as calendar time would."""
-    async with db.sessions() as session:
-        await session.execute(
-            update(Film)
-            .where(Film.tmdb_id == tmdb_id)
-            .values(fetched_at=datetime.now(UTC) - timedelta(days=days))
-        )
-        await session.commit()

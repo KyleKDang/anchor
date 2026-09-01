@@ -105,7 +105,7 @@ async def resync_stale_films(context: JobContext, timestamp: int) -> None:
     async with db.sessions() as session:
         stale = await catalog.stale_referenced_films(session, refresh_days)
 
-    for tmdb_id in stale:
+    for done, tmdb_id in enumerate(stale):
         try:
             bundle = await tmdb.film(tmdb_id)
         except FilmNotInTmdb:
@@ -116,7 +116,7 @@ async def resync_stale_films(context: JobContext, timestamp: int) -> None:
         except TmdbUnavailable:
             # Down or still throttling after its retries: stop rather than hammer it,
             # and let tomorrow's run pick up where this one left off.
-            log.warning("TMDB unavailable; %s films left to re-sync", len(stale))
+            log.warning("TMDB unavailable; %s films left to re-sync", len(stale) - done)
             return
         async with db.sessions() as session:
             await catalog.store(session, bundle)

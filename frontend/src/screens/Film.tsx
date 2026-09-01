@@ -1,11 +1,12 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { api, messageOf, type FilmDetail } from "../api";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
-import { Standing } from "../films/Standing";
+import { StateFlag } from "../films/StateFlag";
 import { releaseYear } from "../films/tmdb";
+import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
  * The film page, reached by tapping a film anywhere. It is not a destination of its own.
@@ -48,24 +49,7 @@ export function Film() {
 }
 
 function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmDetail) => void }) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-
-  const act = useCallback(
-    async (action: () => Promise<FilmDetail | void>) => {
-      setBusy(true);
-      setError(null);
-      try {
-        const updated = await action();
-        onChange(updated ?? { ...film, state: null });
-      } catch (caught) {
-        setError(messageOf(caught));
-      } finally {
-        setBusy(false);
-      }
-    },
-    [film, onChange],
-  );
+  const { busy, error, run } = useAsyncAction();
 
   return (
     <>
@@ -78,7 +62,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
             <span className="muted">
               {[releaseYear(film.year), runtime(film.runtime)].join(" · ")}
             </span>
-            <Standing state={film.state} rating={film.rating} />
+            <StateFlag state={film.state} rating={film.rating} />
           </p>
           {film.genres.length > 0 && <p className="muted">{film.genres.join(", ")}</p>}
           {film.directors.length > 0 && (
@@ -99,7 +83,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 type="button"
                 className="button"
                 disabled={busy}
-                onClick={() => void act(() => api.addToBacklog(film.tmdb_id))}
+                onClick={() => void run(async () => onChange(await api.addToBacklog(film.tmdb_id)))}
               >
                 Add to backlog
               </button>
@@ -109,7 +93,12 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 type="button"
                 className="button secondary"
                 disabled={busy}
-                onClick={() => void act(() => api.removeFromBacklog(film.tmdb_id))}
+                onClick={() =>
+                  void run(async () => {
+                    await api.removeFromBacklog(film.tmdb_id);
+                    onChange({ ...film, state: null });
+                  })
+                }
               >
                 Remove from backlog
               </button>
@@ -119,7 +108,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 type="button"
                 className="button secondary"
                 disabled={busy}
-                onClick={() => void act(() => api.markWatched(film.tmdb_id))}
+                onClick={() => void run(async () => onChange(await api.markWatched(film.tmdb_id)))}
               >
                 I watched this
               </button>
