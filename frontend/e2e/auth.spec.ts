@@ -1,7 +1,6 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-/** The composed stack's fake Resend, where the verification link lands. */
-const MAIL_URL = process.env.ANCHOR_MAIL_URL ?? "http://localhost:8025";
+import { verificationPath } from "./mail";
 
 const destinations = ["Watchlist", "Discovery", "Rated", "Search", "Profile"];
 
@@ -44,14 +43,3 @@ test("a visitor signs up, verifies through the emailed link, logs out, logs in, 
   await page.goto("/watchlist");
   await expect(page).toHaveURL(/\/login$/);
 });
-
-async function verificationPath(request: APIRequestContext, email: string): Promise<string> {
-  const response = await request.get(`${MAIL_URL}/emails`);
-  expect(response.ok()).toBe(true);
-  const emails = (await response.json()) as { to: string[]; text: string }[];
-  const message = emails.filter((candidate) => candidate.to.includes(email)).at(-1);
-  expect(message, `no mail to ${email}`).toBeDefined();
-  const match = /(\/verify\?token=[A-Za-z0-9_-]+)/.exec(message!.text);
-  expect(match, message!.text).not.toBeNull();
-  return match![1]!;
-}

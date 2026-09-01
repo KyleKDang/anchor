@@ -2,6 +2,7 @@ import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 
 import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
+import { Film } from "./screens/Film";
 import { Login } from "./screens/auth/Login";
 import { Signup } from "./screens/auth/Signup";
 import { Verify } from "./screens/auth/Verify";
@@ -21,6 +22,8 @@ export function App() {
           {destinations.map(({ path, screen: Screen }) => (
             <Route key={path} path={path} element={<Screen />} />
           ))}
+          {/* Not a destination: the film page is reached by tapping a film anywhere. */}
+          <Route path="/films/:tmdbId" element={<Film />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
