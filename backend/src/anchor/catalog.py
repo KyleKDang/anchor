@@ -10,6 +10,8 @@ ADR 0005 governs what leaves here: ``rating`` is filled only for a film the owne
 has actually rated, and no rating-shaped value ever appears for an unwatched one.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 
 from pydantic import BaseModel
@@ -134,7 +136,7 @@ async def search(tmdb: Tmdb, query: str) -> list[SearchHit]:
 async def ensure_film(db: AsyncSession, tmdb: Tmdb, tmdb_id: int, refresh_days: int) -> Film:
     """The store's row for a film, fetched when it is missing and re-fetched when stale."""
     film = await db.get(Film, tmdb_id)
-    if film is not None and not is_stale(film, refresh_days):
+    if film is not None and not _is_stale(film, refresh_days):
         return film
     async with _translated_errors():
         bundle = await tmdb.film(tmdb_id)
@@ -167,14 +169,17 @@ async def store(db: AsyncSession, bundle: FilmBundle) -> Film:
             index_elements=[Film.tmdb_id],
             set_={key: value for key, value in values.items() if key != "tmdb_id"},
         )
-        .returning(Film)
     )
-    film = (await db.execute(statement)).scalar_one()
+    await db.execute(statement)
     await db.commit()
+    # populate_existing, because a refresh writes over a film this session already loaded,
+    # and the identity map would otherwise hand the caller back the row it just replaced.
+    film = await db.get(Film, bundle.tmdb_id, populate_existing=True)
+    assert film is not None  # written just above, inside this session's own transaction
     return film
 
 
-def is_stale(film: Film, refresh_days: int) -> bool:
+def _is_stale(film: Film, refresh_days: int) -> bool:
     return film.fetched_at < _cutoff(refresh_days)
 
 
@@ -199,16 +204,14 @@ def _cutoff(refresh_days: int) -> datetime:
 # --- Errors ---
 
 
-class _translated_errors:
+@asynccontextmanager
+async def _translated_errors() -> AsyncIterator[None]:
     """Turns the client's failures into the API's error shape."""
-
-    async def __aenter__(self) -> None:
-        return None
-
-    async def __aexit__(self, kind: object, error: BaseException | None, traceback: object) -> None:
-        if isinstance(error, FilmNotInTmdb):
-            raise ApiError(404, "film_not_found", "We could not find that film on TMDB.") from error
-        if isinstance(error, TmdbUnavailable):
-            raise ApiError(
-                503, "tmdb_unavailable", "Film data is unavailable right now; try again soon."
-            ) from error
+    try:
+        yield
+    except FilmNotInTmdb as error:
+        raise ApiError(404, "film_not_found", "We could not find that film on TMDB.") from error
+    except TmdbUnavailable as error:
+        raise ApiError(
+            503, "tmdb_unavailable", "Film data is unavailable right now; try again soon."
+        ) from error

@@ -5,10 +5,8 @@ five. Age is real calendar time here - it is TMDB's clock, not the owner's - so 
 age a stored film by writing its fetch stamp rather than by freezing anything.
 """
 
-from datetime import UTC, datetime, timedelta
-
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select
 
 from anchor import jobs
 from anchor.models import Film
@@ -22,16 +20,6 @@ def stocked(tmdb):
     return tmdb.with_films(*CATALOG)
 
 
-async def age(db, tmdb_id, *, days):
-    async with db.sessions() as session:
-        await session.execute(
-            update(Film)
-            .where(Film.tmdb_id == tmdb_id)
-            .values(fetched_at=datetime.now(UTC) - timedelta(days=days))
-        )
-        await session.commit()
-
-
 async def fetched_at(db, tmdb_id):
     async with db.sessions() as session:
         return await session.scalar(select(Film.fetched_at).where(Film.tmdb_id == tmdb_id))
@@ -43,10 +31,10 @@ async def resync(defer, run_jobs):
 
 
 async def test_a_still_referenced_film_past_the_window_is_re_synced(
-    owner, db, tmdb, settings, defer, run_jobs
+    owner, db, tmdb, settings, defer, run_jobs, age_film
 ):
     await owner.post(f"/api/films/{FIGHT_CLUB.tmdb_id}/backlog")
-    await age(db, FIGHT_CLUB.tmdb_id, days=settings.film_refresh_days + 1)
+    await age_film(FIGHT_CLUB.tmdb_id, days=settings.film_refresh_days + 1)
     stale_since = await fetched_at(db, FIGHT_CLUB.tmdb_id)
 
     await resync(defer, run_jobs)
@@ -64,11 +52,11 @@ async def test_a_fresh_film_is_left_alone(owner, tmdb, defer, run_jobs):
 
 
 async def test_a_film_no_account_tracks_is_left_to_go_stale(
-    owner, db, tmdb, settings, defer, run_jobs
+    owner, db, tmdb, settings, defer, run_jobs, age_film
 ):
     """Nobody is looking at it, and it re-fetches on next use anyway."""
     await owner.get(f"/api/films/{ARRIVAL.tmdb_id}")
-    await age(db, ARRIVAL.tmdb_id, days=settings.film_refresh_days + 1)
+    await age_film(ARRIVAL.tmdb_id, days=settings.film_refresh_days + 1)
 
     await resync(defer, run_jobs)
 
@@ -76,10 +64,10 @@ async def test_a_film_no_account_tracks_is_left_to_go_stale(
 
 
 async def test_a_film_pulled_from_tmdb_keeps_the_row_the_catalog_already_has(
-    owner, db, tmdb, settings, defer, run_jobs
+    owner, db, tmdb, settings, defer, run_jobs, age_film
 ):
     await owner.post(f"/api/films/{FIGHT_CLUB.tmdb_id}/backlog")
-    await age(db, FIGHT_CLUB.tmdb_id, days=settings.film_refresh_days + 1)
+    await age_film(FIGHT_CLUB.tmdb_id, days=settings.film_refresh_days + 1)
     del tmdb.catalog[FIGHT_CLUB.tmdb_id]
 
     await resync(defer, run_jobs)
@@ -89,11 +77,11 @@ async def test_a_film_pulled_from_tmdb_keeps_the_row_the_catalog_already_has(
 
 
 async def test_tmdb_being_down_stops_the_run_rather_than_hammering_it(
-    owner, db, tmdb, settings, defer, run_jobs
+    owner, db, tmdb, settings, defer, run_jobs, age_film
 ):
     for film in (FIGHT_CLUB, ARRIVAL, NOSFERATU):
         await owner.post(f"/api/films/{film.tmdb_id}/backlog")
-        await age(db, film.tmdb_id, days=settings.film_refresh_days + 1)
+        await age_film(film.tmdb_id, days=settings.film_refresh_days + 1)
     before = len(tmdb.requests)
     tmdb.down = True
 

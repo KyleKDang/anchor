@@ -4,8 +4,9 @@ import { Link } from "react-router";
 import { api, messageOf, type LifecycleState, type SearchResult } from "../api";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
-import { Standing } from "../films/Standing";
+import { StateFlag } from "../films/StateFlag";
 import { filmPath, releaseYear } from "../films/tmdb";
+import { useAsyncAction } from "../films/useAsyncAction";
 
 /** One dedicated screen searching TMDB, with the owner's own films flagged inline. */
 export function Search() {
@@ -31,7 +32,7 @@ export function Search() {
   }
 
   /** Keep the flag on the row the owner just acted on, without re-running the search. */
-  function restanding(tmdbId: number, state: LifecycleState) {
+  function reflag(tmdbId: number, state: LifecycleState) {
     setResults(
       (current) =>
         current?.map((result) => (result.tmdb_id === tmdbId ? { ...result, state } : result)) ??
@@ -68,7 +69,7 @@ export function Search() {
       {results !== null && results.length > 0 && (
         <ul className="film-list">
           {results.map((result) => (
-            <ResultRow key={result.tmdb_id} result={result} onTracked={restanding} />
+            <ResultRow key={result.tmdb_id} result={result} onTracked={reflag} />
           ))}
         </ul>
       )}
@@ -83,20 +84,13 @@ function ResultRow({
   result: SearchResult;
   onTracked: (tmdbId: number, state: LifecycleState) => void;
 }) {
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useAsyncAction();
 
   async function addToBacklog() {
-    setBusy(true);
-    setError(null);
-    try {
+    await run(async () => {
       await api.addToBacklog(result.tmdb_id);
       onTracked(result.tmdb_id, "backlog");
-    } catch (caught) {
-      setError(messageOf(caught));
-    } finally {
-      setBusy(false);
-    }
+    });
   }
 
   return (
@@ -110,7 +104,7 @@ function ResultRow({
         </h2>
         <p className="film-row-meta">
           <span className="muted">{releaseYear(result.year)}</span>
-          <Standing state={result.state} rating={result.rating} />
+          <StateFlag state={result.state} rating={result.rating} />
         </p>
         <Plot overview={result.overview} />
         {error && (

@@ -57,7 +57,7 @@ async def film_page(
     tmdb_id: int, account: CurrentAccount, db: DbSession, tmdb: AppTmdb, settings: AppSettings
 ) -> FilmDetail:
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
-    return FilmDetail.of(film, await _standing(db, account, tmdb_id))
+    return FilmDetail.of(film, await _account_film(db, account, tmdb_id))
 
 
 @router.post("/{tmdb_id}/backlog")
@@ -66,7 +66,7 @@ async def add_to_backlog(
 ) -> FilmDetail:
     """Put an untracked film in the backlog; adding one already there changes nothing."""
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
-    account_film = await _standing(db, account, tmdb_id)
+    account_film = await _account_film(db, account, tmdb_id)
     if account_film is None:
         account_film = AccountFilm(
             account_id=account.id, film_id=tmdb_id, state=LifecycleState.backlog
@@ -81,7 +81,7 @@ async def add_to_backlog(
 @router.delete("/{tmdb_id}/backlog", status_code=204)
 async def remove_from_backlog(tmdb_id: int, account: CurrentAccount, db: DbSession) -> None:
     """Take a film back out of the backlog, leaving it untracked - and so, no record."""
-    account_film = await _standing(db, account, tmdb_id)
+    account_film = await _account_film(db, account, tmdb_id)
     if account_film is None:
         return
     if account_film.state is not LifecycleState.backlog:
@@ -101,7 +101,7 @@ async def mark_watched(
     can honestly exist before an ordering does.
     """
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
-    account_film = await _standing(db, account, tmdb_id)
+    account_film = await _account_film(db, account, tmdb_id)
     if account_film is None:
         account_film = AccountFilm(
             account_id=account.id, film_id=tmdb_id, state=LifecycleState.watched_unrated
@@ -118,14 +118,14 @@ async def mark_watched(
 # --- Helpers ---
 
 
-async def _standing(db: AsyncSession, account: Account, tmdb_id: int) -> AccountFilm | None:
+async def _account_film(db: AsyncSession, account: Account, tmdb_id: int) -> AccountFilm | None:
     """This account's record for one film, or None where the film is untracked."""
-    standing: AccountFilm | None = await db.scalar(
+    account_film: AccountFilm | None = await db.scalar(
         select(AccountFilm).where(
             AccountFilm.account_id == account.id, AccountFilm.film_id == tmdb_id
         )
     )
-    return standing
+    return account_film
 
 
 async def _tracked(

@@ -11,6 +11,7 @@ import re
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
@@ -23,10 +24,12 @@ from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from procrastinate.worker import Worker
+from sqlalchemy import update
 
 from anchor import jobs
 from anchor.db import Database
 from anchor.main import create_app
+from anchor.models import Film
 from anchor.settings import Settings
 from faketmdb import FakeTmdb
 
@@ -113,6 +116,26 @@ class FakeResend:
 @pytest.fixture
 def resend() -> FakeResend:
     return FakeResend()
+
+
+@pytest.fixture
+def age_film(db: Database) -> Callable[..., Awaitable[None]]:
+    """``await age_film(tmdb_id, days=200)``: push a stored film's fetch stamp into the past.
+
+    Staleness here is TMDB's clock, not the owner's, so it is the one measure in Anchor
+    denominated in calendar time. Tests move it by writing the stamp, never by freezing time.
+    """
+
+    async def age(tmdb_id: int, *, days: int) -> None:
+        async with db.sessions() as session:
+            await session.execute(
+                update(Film)
+                .where(Film.tmdb_id == tmdb_id)
+                .values(fetched_at=datetime.now(UTC) - timedelta(days=days))
+            )
+            await session.commit()
+
+    return age
 
 
 @pytest.fixture

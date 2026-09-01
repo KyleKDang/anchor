@@ -6,7 +6,6 @@ call. Failures are scripted per test: ``fake.throttle_next(2)`` makes the next t
 requests answer 429, and ``fake.down`` makes every request answer 500.
 """
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs
@@ -152,6 +151,3 @@ class FakeTmdb:
             for request in self.requests
             if request.url.path.removesuffix("/").endswith(f"/movie/{tmdb_id}")
         ]
-
-    def payloads(self) -> list[dict[str, Any]]:
-        return [json.loads(request.content or b"{}") for request in self.requests]
