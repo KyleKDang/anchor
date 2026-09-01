@@ -3,18 +3,22 @@
 import asyncio
 import logging
 
-from anchor import jobs, sentry
+from anchor import jobs, sentry, tmdb
 from anchor.db import Database
 from anchor.settings import Settings
 
 
 async def run(settings: Settings) -> None:
     db = Database(settings)
+    catalog_client = tmdb.build_tmdb(settings)
     app = jobs.build_app(settings)
     try:
         async with app.open_async():
-            await app.run_worker_async(additional_context=jobs.worker_context(db))
+            await app.run_worker_async(
+                additional_context=jobs.worker_context(db, catalog_client, settings)
+            )
     finally:
+        await catalog_client.aclose()
         await db.dispose()
 
 

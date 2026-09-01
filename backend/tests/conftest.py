@@ -28,6 +28,7 @@ from anchor import jobs
 from anchor.db import Database
 from anchor.main import create_app
 from anchor.settings import Settings
+from faketmdb import FakeTmdb
 
 ADMIN_URL = os.environ.get(
     "ANCHOR_TEST_ADMIN_DATABASE_URL", "postgresql://anchor:anchor@localhost:5433/postgres"
@@ -115,10 +116,53 @@ def resend() -> FakeResend:
 
 
 @pytest.fixture
-async def app(settings: Settings, resend: FakeResend) -> AsyncIterator[FastAPI]:
-    app = create_app(settings, resend_transport=resend.transport())
+def tmdb() -> FakeTmdb:
+    """TMDB's HTTP edge, faked. Tests fill its catalog with the films they need."""
+    return FakeTmdb()
+
+
+@pytest.fixture
+async def app(settings: Settings, resend: FakeResend, tmdb: FakeTmdb) -> AsyncIterator[FastAPI]:
+    app = create_app(settings, resend_transport=resend.transport(), tmdb_transport=tmdb.transport())
     async with LifespanManager(app):
         yield app
+
+
+PASSWORD = "correct horse battery staple"
+
+
+@pytest.fixture
+def register(resend: FakeResend) -> Callable[..., Awaitable[AsyncClient]]:
+    """``await register(client, email)``: sign up, verify, and leave the client logged in."""
+
+    async def register_owner(client: AsyncClient, email: str) -> AsyncClient:
+        signup = await client.post("/api/auth/signup", json={"email": email, "password": PASSWORD})
+        assert signup.status_code == 201, signup.text
+        token = resend.verification_token(email)
+        verified = await client.post(
+            "/api/auth/verify", json={"token": token, "password": PASSWORD}
+        )
+        assert verified.status_code == 200, verified.text
+        return client
+
+    return register_owner
+
+
+@pytest.fixture
+async def owner(
+    client: AsyncClient, register: Callable[..., Awaitable[AsyncClient]]
+) -> AsyncClient:
+    """A verified account, logged in: where every account-realm flow starts."""
+    return await register(client, "owner@example.com")
+
+
+@pytest.fixture
+async def other_owner(
+    client_from: Callable[[str], AsyncClient], register: Callable[..., Awaitable[AsyncClient]]
+) -> AsyncIterator[AsyncClient]:
+    """A second logged-in account, for proving one account never sees another's realm."""
+    async with client_from("127.0.0.2") as client:
+        yield await register(client, "other@example.com")
 
 
 @pytest.fixture
@@ -149,11 +193,15 @@ def jobs_app(app: FastAPI) -> procrastinate.App:
 
 
 @pytest.fixture
-async def worker(jobs_app: procrastinate.App, db: Database) -> AsyncIterator[None]:
+def job_context(app: FastAPI, db: Database) -> dict[str, Any]:
+    """What a job sees in the worker: the same database, TMDB fake, and settings the app has."""
+    return jobs.worker_context(db, app.state.tmdb, app.state.settings)
+
+
+@pytest.fixture
+async def worker(jobs_app: procrastinate.App, job_context: dict[str, Any]) -> AsyncIterator[None]:
     """A real worker on the test's event loop, as the worker process would run."""
-    worker = Worker(
-        jobs_app, install_signal_handlers=False, additional_context=jobs.worker_context(db)
-    )
+    worker = Worker(jobs_app, install_signal_handlers=False, additional_context=job_context)
     task = asyncio.create_task(worker.run())
     try:
         yield
@@ -173,7 +221,9 @@ def defer(jobs_app: procrastinate.App) -> Callable[..., Awaitable[None]]:
 
 
 @pytest.fixture
-def run_jobs(jobs_app: procrastinate.App, db: Database) -> Callable[[], Awaitable[None]]:
+def run_jobs(
+    jobs_app: procrastinate.App, job_context: dict[str, Any]
+) -> Callable[[], Awaitable[None]]:
     """``await run_jobs()`` executes every queued job inline in the test, then returns."""
 
     async def run() -> None:
@@ -181,7 +231,7 @@ def run_jobs(jobs_app: procrastinate.App, db: Database) -> Callable[[], Awaitabl
             wait=False,
             install_signal_handlers=False,
             listen_notify=False,
-            additional_context=jobs.worker_context(db),
+            additional_context=job_context,
         )
 
     return run
