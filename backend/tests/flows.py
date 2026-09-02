@@ -173,6 +173,29 @@ async def film_page(client, film):
     return response.json()
 
 
+async def profile(client):
+    response = await client.get("/api/profile")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def backlog(client, **params):
+    response = await client.get("/api/watchlist/backlog", params=params)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def add_to_backlog(client, film):
+    response = await client.post(f"/api/films/{film.tmdb_id}/backlog")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def stage_of(payload, state):
+    """One readiness state's row on the Profile screen, with its bars."""
+    return next(stage for stage in payload["stages"] if stage["state"] == state)
+
+
 def ordering_of(payload):
     """The ordering as plain ids, flattened back out of its band grouping."""
     return [

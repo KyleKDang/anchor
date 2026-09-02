@@ -478,3 +478,106 @@ class WatchEvent(Base):
     origin: Mapped[WatchOrigin] = mapped_column(
         Enum(WatchOrigin, name="watch_origin"), nullable=False
     )
+
+
+class WeightVector(Base):
+    """The numeric taste artifact: a learned weight per symbolic film feature (ADR 0004).
+
+    Current-only, one row per account: it retrains from scratch on every ordering change
+    in milliseconds, so a history of superseded fits would be churn nobody reads.
+
+    ``weights`` is the fit itself, keyed by feature name so it can be read - "westerns
+    +0.4, this director -0.2" is the whole point of choosing a linear scorer. ``space``
+    is the vocabulary those names index: which symbols earned a column, what a present
+    one is worth, and where the priors were centred. Both are needed to score a film,
+    and neither means anything without the other, so they live and die together.
+    """
+
+    __tablename__ = "weight_vectors"
+    __table_args__ = (UniqueConstraint("account_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    weights: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    space: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    training_pairs: Mapped[int] = mapped_column(Integer, nullable=False)
+    """How many pairs the fit saw: the one number that says how much it can be trusted."""
+    trained_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ExemplarRole(enum.StrEnum):
+    """Why a film stands for the owner's taste: designated, or found at an end."""
+
+    anchor = "anchor"
+    best = "best"
+    worst = "worst"
+
+
+class Exemplar(Base):
+    """One film standing for the owner's taste: an anchor, or an end of the ordering.
+
+    Current-only and regenerated wholesale, never patched: the set is a mechanical
+    reading of the anchors and the ordering, so recomputing it is cheaper than working
+    out which rows a change invalidated - and cannot leave a stale row behind.
+
+    ``rank`` orders the set within its role: the band's place on the scale for an anchor,
+    and the distance from the end for an extreme, so ``best`` rank 0 is the owner's
+    favourite film. It is what a prompt reads to say "because you loved X and Y".
+    """
+
+    __tablename__ = "exemplars"
+    __table_args__ = (UniqueConstraint("account_id", "role", "rank"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    film_id: Mapped[int] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
+    )
+    role: Mapped[ExemplarRole] = mapped_column(
+        Enum(ExemplarRole, name="exemplar_role"), nullable=False
+    )
+    band: Mapped[float | None] = mapped_column(Float)
+    """The band an anchor is the exemplar of. None for an extreme, which stands for no band."""
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class TasteMetrics(Base):
+    """One retrain's numbers, appended and never rewritten (evaluation.md).
+
+    The fast metric: held-out pairwise accuracy, plus the evidence counts that say what
+    it is accuracy *of*. Fifty-eight percent means one thing over four hundred answered
+    comparisons and nothing at all over nine, so the counts ride in the same row rather
+    than being joined back to a moving present.
+
+    Readiness is deliberately not a column. It is a pure function of these counts and the
+    configured thresholds, so deriving it wherever it is needed keeps it what the spec
+    says it is - never stored authoritatively - while the counts stay the durable record.
+    """
+
+    __tablename__ = "taste_metrics"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    held_out_accuracy: Mapped[float | None] = mapped_column(Float)
+    """None where the account had no answered comparisons to hold any back from."""
+    held_out_pairs: Mapped[int] = mapped_column(Integer, nullable=False)
+    training_pairs: Mapped[int] = mapped_column(Integer, nullable=False)
+    rated_films: Mapped[int] = mapped_column(Integer, nullable=False)
+    explicit_comparisons: Mapped[int] = mapped_column(Integer, nullable=False)
+    settled_films: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Rated films whose position rests on the owner's own comparisons, not a seed or a bail."""
+    bands_spanned: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )

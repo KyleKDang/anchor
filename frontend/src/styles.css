@@ -934,3 +934,136 @@ body {
   margin: 0;
   font-size: 0.85rem;
 }
+
+/* Readiness on Profile: the state, what it unlocks, and the arithmetic behind it.
+
+   Deliberately plain. Readiness is a fact about how much the owner has told Anchor, not
+   an achievement to celebrate, so the bars carry their own figures and nothing here
+   congratulates anybody or nags them towards the next state (ADR 0011). */
+
+/* A chip rather than a big word: the state is a value, and set as a heading it would
+   outrank the section heading above it. */
+.readiness-state {
+  align-self: flex-start;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 1rem;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* The Account section follows this one, and two headings with only a paragraph gap
+   between them read as one run rather than two sections. */
+.readiness {
+  margin-bottom: 2rem;
+}
+
+.stages {
+  align-self: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin: 0.25rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stage {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.5rem;
+}
+
+.stage.reached {
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+
+.stage-name {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin: 0 0 0.15rem;
+  font-weight: 600;
+}
+
+.stage-mark {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  opacity: 0.55;
+}
+
+.stage.reached .stage-mark {
+  opacity: 0.8;
+}
+
+.bars {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin: 0.7rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.bar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 6rem auto;
+  align-items: center;
+  gap: 0.6rem;
+  font-size: 0.85rem;
+}
+
+.bar-label {
+  opacity: 0.75;
+}
+
+.bar-need {
+  opacity: 0.7;
+  white-space: nowrap;
+}
+
+.bar-track {
+  block-size: 0.4rem;
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, currentColor 15%, transparent);
+  overflow: hidden;
+}
+
+.bar-fill {
+  display: block;
+  block-size: 100%;
+  background: currentColor;
+  opacity: 0.55;
+}
+
+.bar-figures {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+  white-space: nowrap;
+}
+
+/* Two columns is already tight for a label and its figures; below that the bar drops
+   under its own label rather than squeezing both into nothing. */
+@media (max-width: 30rem) {
+  .bars {
+    gap: 0.8rem;
+  }
+
+  .bar {
+    grid-template-columns: minmax(0, 1fr) auto;
+    row-gap: 0.3rem;
+  }
+
+  /* Under its own label, not floating between two of them: a bar the reader has to
+     guess the owner of is worse than no bar. */
+  .bar-track {
+    grid-column: 1 / -1;
+    order: 1;
+  }
+}
