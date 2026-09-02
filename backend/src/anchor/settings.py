@@ -56,9 +56,14 @@ class Settings(BaseSettings):
     """
 
     readiness_ready_films: int = 50
-    readiness_ready_explicit_share: float = 0.5
-    """Ready: a real library, half of it settled by the owner's own comparisons rather
-    than by a seed import or an early bail, so the vector is not dominated by guesses."""
+    readiness_ready_comparisons_per_film: float = 3.0
+    readiness_ready_settled_share: float = 0.5
+    """Ready: a real library that the owner has actually answered their way through.
+
+    The two bars are the two halves of the spec's sentence - the vector must not be
+    dominated by implied pairs (so answers have to accumulate faster than films do) nor
+    by provisional ones (so half the library must rest on real judgments).
+    """
 
     rate_limit_window_seconds: float = 15 * 60
     """The sliding window the per-IP limits below count within."""

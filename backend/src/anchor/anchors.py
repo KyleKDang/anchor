@@ -232,13 +232,18 @@ async def retire(band: float, account: CurrentAccount, db: DbSession, queue: App
     those judgments gave them, so the band survives losing its exemplar intact.
     """
     _check_band(band)
-    await db.execute(
-        delete(AnchorDesignation).where(
+    designation = await db.scalar(
+        select(AnchorDesignation).where(
             AnchorDesignation.account_id == account.id,
             AnchorDesignation.band == band,
             AnchorDesignation.status == AnchorStatus.current,
         )
     )
+    # Retiring a band that has no anchor is a no-op the owner is allowed to ask for, and
+    # a retrain over an exemplar set that did not change is work nobody needs done.
+    if designation is None:
+        return
+    await db.delete(designation)
     await jobs.schedule_retrain(db, queue, account.id)
     await db.commit()
 

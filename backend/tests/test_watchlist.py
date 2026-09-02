@@ -7,6 +7,7 @@ the whole surface here. The ranked tier above it arrives with #33.
 import pytest
 
 from faketmdb import FilmFixture
+from flows import backlog
 from invariants import assert_nothing_rating_shaped
 
 HEAT = FilmFixture(949, "Heat", release_date="1995-12-15", genres=("Crime", "Drama"))
@@ -20,12 +21,6 @@ CATALOG = (HEAT, AMELIE, ZODIAC, SUNRISE)
 @pytest.fixture(autouse=True)
 def stocked(tmdb):
     return tmdb.with_films(*CATALOG)
-
-
-async def backlog(client, **params):
-    response = await client.get("/api/watchlist/backlog", params=params)
-    assert response.status_code == 200, response.text
-    return response.json()
 
 
 async def add(client, *films):

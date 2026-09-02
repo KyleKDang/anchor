@@ -24,7 +24,7 @@ import zlib
 from collections.abc import Sequence
 
 import numpy as np
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -87,7 +87,7 @@ async def retrain(db: AsyncSession, account_id: uuid.UUID) -> None:
             evidence=await readiness.evidence(db, account_id),
             accuracy=accuracy,
             held_out=len(held_out),
-            training=len(pairs),
+            training=len(training),
         )
     )
 
@@ -112,13 +112,19 @@ async def _store_vector(
     weights: np.ndarray,
     training_pairs: int,
 ) -> None:
-    """Replace the account's fit. Current-only, so there is one row and it is overwritten."""
+    """Replace the account's fit. Current-only, so there is one row and it is overwritten.
+
+    ``trained_at`` is written on the update as well as the insert. Left to its server
+    default it would record when the account *first* trained and never move again, which
+    is the one thing the marker exists not to say.
+    """
     values = {
         "weights": {
             column: float(weight) for column, weight in zip(space.columns, weights, strict=True)
         },
         "space": space.to_json(),
         "training_pairs": training_pairs,
+        "trained_at": func.now(),
     }
     await db.execute(
         insert(WeightVector)
@@ -159,14 +165,14 @@ async def _store_exemplars(
 
 
 def _extremes(
-    account_id: uuid.UUID, library: int, role: ExemplarRole, films: Sequence[int]
+    account_id: uuid.UUID, rated: int, role: ExemplarRole, films: Sequence[int]
 ) -> list[Exemplar]:
     """One end of the ordering, closest to the end first, and never the same film twice.
 
     A library shorter than twice :data:`EXTREMES` would otherwise have its middle films
     standing for both ends at once, which says nothing about anything.
     """
-    keep = films if library >= 2 * EXTREMES else films[: library // 2]
+    keep = films if rated >= 2 * EXTREMES else films[: rated // 2]
     return [
         Exemplar(account_id=account_id, film_id=film_id, role=role, band=None, rank=rank)
         for rank, film_id in enumerate(keep)
@@ -181,7 +187,12 @@ def _metrics_row(
     held_out: int,
     training: int,
 ) -> TasteMetrics:
-    """One retrain, as the append-only log records it."""
+    """One retrain, as the append-only log records it.
+
+    ``training`` is the fit the accuracy was earned on - the pairs minus the held-out
+    slice - so the two counts partition the evidence rather than overlapping. The stored
+    vector sees more than this, and carries its own count.
+    """
     return TasteMetrics(
         account_id=account_id,
         held_out_accuracy=accuracy,

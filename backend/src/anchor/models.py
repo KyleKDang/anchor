@@ -573,6 +573,8 @@ class TasteMetrics(Base):
     """None where the account had no answered comparisons to hold any back from."""
     held_out_pairs: Mapped[int] = mapped_column(Integer, nullable=False)
     training_pairs: Mapped[int] = mapped_column(Integer, nullable=False)
+    """The fit the accuracy was earned on. With ``held_out_pairs`` this partitions the
+    evidence; the stored vector is trained on both halves and carries its own count."""
     rated_films: Mapped[int] = mapped_column(Integer, nullable=False)
     explicit_comparisons: Mapped[int] = mapped_column(Integer, nullable=False)
     settled_films: Mapped[int] = mapped_column(Integer, nullable=False)

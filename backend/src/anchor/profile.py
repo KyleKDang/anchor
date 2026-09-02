@@ -8,13 +8,13 @@ to guess what went wrong (onboarding-and-import.md).
 
 So the payload is the state *and its arithmetic*: each bar the next state needs, what the
 account has against it, and what it needs. The screen can then say "eleven more films"
-instead of "not yet", and the number it says is the one the engine actually uses.
+instead of "not yet", and the number it says is the one the engine actually uses - the
+bars come from :mod:`anchor.readiness`, so the screen cannot show a threshold the engine
+is not gating on.
 
 Nothing rating-shaped is here and nothing ever can be: readiness is counts, and ADR 0005
 keeps scores off every surface anyway.
 """
-
-from typing import Literal
 
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -22,13 +22,9 @@ from pydantic import BaseModel
 from anchor import readiness as readiness_module
 from anchor.accounts import CurrentAccount
 from anchor.deps import AppSettings, DbSession
-from anchor.readiness import Readiness
-from anchor.settings import Settings
+from anchor.readiness import Bar, Dimension, Readiness
 
 router = APIRouter(prefix="/api/profile")
-
-Dimension = Literal["rated_films", "explicit_share", "bands_spanned"]
-"""The gating dimensions taste-profile.md names. The numbers behind them are tuning."""
 
 
 class Evidence(BaseModel):
@@ -38,7 +34,8 @@ class Evidence(BaseModel):
     explicit_comparisons: int
     settled_films: int
     """Rated films the owner's own comparisons settled, rather than a seed or an early bail."""
-    explicit_share: float
+    settled_share: float
+    comparisons_per_film: float
     bands_spanned: int
 
 
@@ -49,9 +46,9 @@ class Threshold(BaseModel):
     have: float
     need: float
 
-    @property
-    def cleared(self) -> bool:
-        return self.have >= self.need
+    @classmethod
+    def of(cls, bar: Bar) -> "Threshold":
+        return cls(dimension=bar.dimension, have=bar.have, need=bar.need)
 
 
 class Stage(BaseModel):
@@ -72,66 +69,27 @@ class Profile(BaseModel):
 
 @router.get("")
 async def profile(account: CurrentAccount, db: DbSession, settings: AppSettings) -> Profile:
-    evidence = await readiness_module.evidence(db, account.id)
-    state = readiness_module.classify(evidence, settings)
+    counted = await readiness_module.evidence(db, account.id)
+    state = readiness_module.classify(counted, settings)
+    reachable = readiness_module.bars(counted, settings)
+    order = list(Readiness)
     return Profile(
         readiness=state,
         evidence=Evidence(
-            rated_films=evidence.rated_films,
-            explicit_comparisons=evidence.explicit_comparisons,
-            settled_films=evidence.settled_films,
-            explicit_share=evidence.explicit_share,
-            bands_spanned=evidence.bands_spanned,
+            rated_films=counted.rated_films,
+            explicit_comparisons=counted.explicit_comparisons,
+            settled_films=counted.settled_films,
+            settled_share=counted.settled_share,
+            comparisons_per_film=counted.comparisons_per_film,
+            bands_spanned=counted.bands_spanned,
         ),
         stages=[
-            _stage(Readiness.forming, _forming(evidence, settings), state),
-            _stage(Readiness.ready, _ready(evidence, settings), state),
+            Stage(
+                state=reachable_state,
+                # A stage counts as reached once the account is at it or past it.
+                reached=order.index(state) >= order.index(reachable_state),
+                thresholds=[Threshold.of(bar) for bar in state_bars],
+            )
+            for reachable_state, state_bars in reachable.items()
         ],
     )
-
-
-def _stage(state: Readiness, thresholds: list[Threshold], reached: Readiness) -> Stage:
-    """A stage counts as reached once the account is at it or past it."""
-    order = list(Readiness)
-    return Stage(
-        state=state,
-        reached=order.index(reached) >= order.index(state),
-        thresholds=thresholds,
-    )
-
-
-def _forming(evidence: readiness_module.Evidence, settings: Settings) -> list[Threshold]:
-    return [
-        Threshold(
-            dimension="rated_films",
-            have=evidence.rated_films,
-            need=settings.readiness_forming_films,
-        ),
-        Threshold(
-            dimension="bands_spanned",
-            have=evidence.bands_spanned,
-            need=settings.readiness_forming_bands,
-        ),
-    ]
-
-
-def _ready(evidence: readiness_module.Evidence, settings: Settings) -> list[Threshold]:
-    return [
-        Threshold(
-            dimension="rated_films",
-            have=evidence.rated_films,
-            need=settings.readiness_ready_films,
-        ),
-        Threshold(
-            dimension="explicit_share",
-            have=evidence.explicit_share,
-            need=settings.readiness_ready_explicit_share,
-        ),
-        # Restated from forming: a big library with no band structure clears the other
-        # two bars, and a row of full bars over "not yet" would explain nothing.
-        Threshold(
-            dimension="bands_spanned",
-            have=evidence.bands_spanned,
-            need=settings.readiness_forming_bands,
-        ),
-    ]

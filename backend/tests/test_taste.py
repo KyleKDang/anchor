@@ -38,6 +38,7 @@ from invariants import (
     exemplars,
     ordering_snapshot,
     taste_metrics,
+    trained_at,
     weight_vector,
 )
 
@@ -171,6 +172,19 @@ async def test_a_library_too_short_to_have_two_ends_never_uses_a_film_twice(owne
     assert len(films) == len(set(films))
 
 
+async def test_the_trained_at_marker_moves_with_every_retrain(owner, db, run_jobs):
+    """Current-only means one row overwritten, and a marker that never moves says nothing."""
+    await build_ordering(owner, LIBRARY[:4])
+    await run_jobs()
+    account = await owner_id(owner)
+    first = await trained_at(db, account)
+
+    await place(owner, LIBRARY[4], "b")
+    await run_jobs()
+
+    assert await trained_at(db, account) > first
+
+
 # --- The metrics log ---
 
 
@@ -207,6 +221,22 @@ async def test_a_metrics_row_carries_the_counts_that_contextualise_its_accuracy(
     assert accuracy is None or (0.0 <= accuracy <= 1.0 and held_out > 0)
 
 
+async def test_the_metrics_row_counts_the_fit_its_accuracy_came_from(owner, db, run_jobs):
+    """Held-out and training partition the evidence; the stored vector carries its own count.
+
+    An accuracy reported beside a count that includes the pairs it was measured on would
+    overstate what it was earned from.
+    """
+    await build_ordering(owner, LIBRARY[:8])
+    await run_jobs()
+    account = await owner_id(owner)
+
+    (_, _, held_out, training, *_) = (await taste_metrics(db, account))[-1]
+    stored = await weight_vector(db, account)
+    assert stored is not None
+    assert held_out + training == stored["training_pairs"]
+
+
 # --- Readiness ---
 
 
@@ -218,7 +248,8 @@ async def test_a_fresh_account_is_cold_and_says_what_would_change_that(owner):
         "rated_films": 0,
         "explicit_comparisons": 0,
         "settled_films": 0,
-        "explicit_share": 0.0,
+        "settled_share": 0.0,
+        "comparisons_per_film": 0.0,
         "bands_spanned": 0,
     }
     forming = stage_of(payload, "forming")
@@ -247,7 +278,8 @@ async def test_evidence_carries_an_account_into_forming(owner):
     readiness_forming_films=4,
     readiness_forming_bands=1,
     readiness_ready_films=5,
-    readiness_ready_explicit_share=0.5,
+    readiness_ready_settled_share=0.5,
+    readiness_ready_comparisons_per_film=1.0,
 )
 async def test_a_settled_library_reaches_ready(owner):
     await build_ordering(owner, LIBRARY[:5])
@@ -256,7 +288,32 @@ async def test_a_settled_library_reaches_ready(owner):
     payload = await profile(owner)
     assert payload["readiness"] == "ready"
     assert all(stage["reached"] for stage in payload["stages"])
-    assert payload["evidence"]["explicit_share"] == 1.0
+    assert payload["evidence"]["settled_share"] == 1.0
+
+
+@pytest.mark.settings(
+    readiness_forming_films=4,
+    readiness_forming_bands=1,
+    readiness_ready_films=5,
+    readiness_ready_settled_share=0.5,
+    readiness_ready_comparisons_per_film=99.0,
+)
+async def test_a_library_the_owner_barely_answered_is_not_ready(owner):
+    """The other half of the spec's bar: implied pairs must not outweigh real answers.
+
+    Every placement here completed, so the settled share is a perfect 100% - and the
+    account is still not ready, because that share says nothing about how much the owner
+    actually judged. The two bars are not interchangeable.
+    """
+    await build_ordering(owner, LIBRARY[:5])
+    await designate(owner, 4.0, LIBRARY[2])
+
+    payload = await profile(owner)
+    assert payload["evidence"]["settled_share"] == 1.0
+    assert payload["readiness"] == "forming"
+    bars = {bar["dimension"]: bar for bar in stage_of(payload, "ready")["thresholds"]}
+    assert bars["settled_share"]["have"] >= bars["settled_share"]["need"]
+    assert bars["comparisons_per_film"]["have"] < bars["comparisons_per_film"]["need"]
 
 
 @pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=1)

@@ -9,25 +9,7 @@ priors - and never the particular numbers a fit happens to land on.
 import math
 
 from anchor import features
-from anchor.models import Film
-
-
-def film(tmdb_id, *, genres=(), directors=(), cast=(), keywords=(), vote=7.0, votes=1000):
-    return Film(
-        tmdb_id=tmdb_id,
-        title=f"Film {tmdb_id}",
-        release_year=2000,
-        overview="",
-        genres=list(genres),
-        keywords=list(keywords),
-        credits={
-            "directors": [{"name": name} for name in directors],
-            "cast": [{"name": name} for name in cast],
-        },
-        vote_average=vote,
-        vote_count=votes,
-    )
-
+from library import film
 
 CORPUS = [
     film(
