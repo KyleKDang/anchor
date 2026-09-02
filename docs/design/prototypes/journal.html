@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Anchor · Journal</title><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..700;1,9..144,300..700&display=swap"><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500;600&display=swap"><style>/* ------------------------------------------------------------------------------------
+   JOURNAL
+   A beautifully typeset personal film diary. Warm paper and ink, a serif for anything
+   that carries judgment (titles, band numerals, the nudge's voice), a quiet sans for
+   the controls. Hairline rules instead of cards; one oxblood for actions and stars.
+   ------------------------------------------------------------------------------------ */
+
+:root {
+  color-scheme: light;
+  --bg: #f6f1e8;
+  --surface: #fbf8f2;
+  --raised: #fffdf9;
+  --border: #ded5c6;
+  --border-strong: #b9ae9c;
+  --text: #1f1a15;
+  --muted: #675d51;
+  --faint: #766b5e;
+  --accent: #a2372a;
+  --on-accent: #fbf6ee;
+  --star: #a2372a;
+  --attention-bg: #f3e6dc;
+  --danger: #a2372a;
+  --focus: #a2372a;
+  --selection: #efd9c8;
+
+  --font: "Instrument Sans", "Helvetica Neue", system-ui, sans-serif;
+  --font-display: "Fraunces", "Iowan Old Style", Georgia, serif;
+  --text-xs: 0.75rem;
+  --text-sm: 0.875rem;
+  --text-base: 1rem;
+  --text-md: 1.125rem;
+  --text-lg: 1.5rem;
+  --text-xl: 2rem;
+  --text-2xl: 2.75rem;
+  --leading: 1.55;
+  --leading-tight: 1.15;
+
+  --s1: 0.25rem; --s2: 0.5rem; --s3: 0.75rem; --s4: 1rem; --s5: 1.5rem; --s6: 2rem; --s7: 3rem; --s8: 4rem;
+  --r-sm: 2px; --r-md: 3px; --r-lg: 6px; --r-pill: 999px;
+  --hairline: 1px solid var(--border);
+  --rule: 1px solid var(--border-strong);
+  --shadow-1: 0 1px 0 rgba(31, 26, 21, 0.06);
+  --shadow-2: 0 18px 40px rgba(31, 26, 21, 0.18);
+  --fast: 140ms; --base: 220ms; --ease: cubic-bezier(0.25, 0.6, 0.3, 1);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --bg: #17140f; --surface: #1e1a15; --raised: #26211b; --border: #34302a; --border-strong: #4d473e;
+    --text: #efe8dc; --muted: #a99f90; --faint: #8b8174; --accent: #e07a62; --on-accent: #17140f; --star: #e07a62;
+    --attention-bg: #2a1f19; --danger: #e07a62; --focus: #e07a62; --selection: #4a2e23;
+    --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.4); --shadow-2: 0 18px 40px rgba(0, 0, 0, 0.6);
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #17140f; --surface: #1e1a15; --raised: #26211b; --border: #34302a; --border-strong: #4d473e;
+  --text: #efe8dc; --muted: #a99f90; --faint: #8b8174; --accent: #e07a62; --on-accent: #17140f; --star: #e07a62;
+  --attention-bg: #2a1f19; --danger: #e07a62; --focus: #e07a62; --selection: #4a2e23;
+  --shadow-1: 0 1px 0 rgba(0, 0, 0, 0.4); --shadow-2: 0 18px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* Base ------------------------------------------------------------------------------ */
+*, *::before, *::after { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--text); font: 400 var(--text-base) / var(--leading) var(--font); -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility; }
+::selection { background: var(--selection); }
+a { color: inherit; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.18em; text-decoration-thickness: 1px; transition: text-decoration-color var(--fast) var(--ease), color var(--fast) var(--ease); }
+a:hover { text-decoration-color: var(--accent); }
+p { margin: 0 0 var(--s3); }
+h1, h2, h3 { margin: 0; font-family: var(--font-display); font-weight: 400; line-height: var(--leading-tight); letter-spacing: -0.01em; font-variation-settings: "opsz" 144; }
+h1 { font-size: var(--text-2xl); margin: var(--s6) 0 var(--s3); }
+h2 { font-size: var(--text-lg); margin: var(--s7) 0 var(--s3); display: flex; align-items: baseline; gap: var(--s3); }
+h3 { font-size: var(--text-md); font-variation-settings: "opsz" 48; }
+.muted { color: var(--muted); }
+strong { font-weight: 600; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+button, input, select { font: inherit; color: inherit; }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { transition: none !important; } }
+
+.viewport { container: app / inline-size; }
+.app { max-width: 62rem; min-height: 100dvh; margin: 0 auto; padding: 0 var(--s5) var(--s8); display: flex; flex-direction: column; }
+.main { flex: 1; }
+
+/* Nav: a masthead. ---------------------------------------------------------------------- */
+.nav { display: flex; align-items: baseline; gap: var(--s5); padding: var(--s4) 0 var(--s3); border-bottom: 2px solid var(--text); }
+.nav a { text-decoration: none; color: var(--muted); font-size: var(--text-sm); font-weight: 500; letter-spacing: 0.02em; padding-bottom: 0.15rem; border-bottom: 1px solid transparent; transition: color var(--fast) var(--ease), border-color var(--fast) var(--ease); }
+.nav a:hover { color: var(--text); }
+.nav a.active { color: var(--text); border-bottom-color: var(--accent); }
+.nav .wordmark { margin-right: auto; color: var(--text); font-family: var(--font-display); font-style: italic; font-weight: 500; font-size: var(--text-lg); letter-spacing: -0.01em; border: 0; font-variation-settings: "opsz" 48; }
+
+/* Buttons ---------------------------------------------------------------------------- */
+.button {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem;
+  min-height: 2.375rem; padding: 0.45rem 1.05rem; border-radius: var(--r-md);
+  background: var(--accent); color: var(--on-accent); border: 1px solid var(--accent);
+  font-size: var(--text-sm); font-weight: 600; letter-spacing: 0.01em; text-decoration: none; white-space: nowrap; cursor: pointer;
+  transition: background-color var(--fast) var(--ease), border-color var(--fast) var(--ease), color var(--fast) var(--ease);
+}
+.button:hover { background: color-mix(in srgb, var(--accent) 86%, var(--text)); border-color: color-mix(in srgb, var(--accent) 86%, var(--text)); }
+.button.secondary { background: transparent; color: var(--text); border-color: var(--border-strong); }
+.button.secondary:hover { border-color: var(--text); background: color-mix(in srgb, var(--text) 4%, transparent); }
+.button.danger { background: transparent; color: var(--danger); border-color: color-mix(in srgb, var(--danger) 50%, transparent); }
+.button.danger:hover { background: color-mix(in srgb, var(--danger) 8%, transparent); border-color: var(--danger); }
+.button:disabled { opacity: 0.45; cursor: default; }
+.link-button { background: none; border: 0; padding: 0; color: var(--muted); font-size: var(--text-sm); font-weight: 500; cursor: pointer; text-decoration: underline; text-decoration-color: var(--border-strong); text-underline-offset: 0.18em; transition: color var(--fast) var(--ease), text-decoration-color var(--fast) var(--ease); }
+.link-button:hover { color: var(--text); text-decoration-color: var(--accent); }
+
+/* Fields: underlined, the label set small above. --------------------------------------- */
+.filters { display: flex; flex-wrap: wrap; gap: var(--s3) var(--s5); }
+.field { display: flex; flex-direction: column; gap: 0.1rem; min-width: 6rem; }
+.field > span:first-child { color: var(--muted); font-size: var(--text-xs); font-weight: 500; letter-spacing: 0.08em; text-transform: uppercase; }
+.field select, .field input { border: 0; border-bottom: var(--rule); background: transparent; padding: 0.3rem 0; font-size: var(--text-base); color: var(--text); outline: none; border-radius: 0; transition: border-color var(--fast) var(--ease); }
+.field select { appearance: none; -webkit-appearance: none; padding-right: 1.4rem; cursor: pointer;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%238f8477" stroke-width="1.4"/></svg>') no-repeat right 0.2rem center; }
+.field select:hover, .field input:hover { border-bottom-color: var(--text); }
+.field select:focus, .field input:focus { border-bottom-color: var(--accent); box-shadow: 0 1px 0 var(--accent); }
+.field input::placeholder { color: var(--faint); }
+.field-search { flex: 1 1 14rem; }
+.field .error { color: var(--danger); font-size: var(--text-xs); margin-top: 0.2rem; }
+.field:has(.error) input { border-bottom-color: var(--danger); }
+
+/* Badges, chips, flags ---------------------------------------------------------------- */
+.anchor-badge, .provisional-mark, .state-flag, .chip { display: inline-flex; align-items: center; white-space: nowrap; vertical-align: middle; line-height: 1; border-radius: var(--r-sm); }
+.anchor-badge { padding: 0.25rem 0.45rem; color: var(--accent); border: 1px solid currentColor; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+.provisional-mark { padding: 0.25rem 0.45rem; color: var(--muted); border: 1px dashed var(--border-strong); font-size: var(--text-xs); font-family: var(--font-display); font-style: italic; font-variation-settings: "opsz" 9; }
+.state-flag { padding: 0.25rem 0.5rem; color: var(--muted); border: var(--hairline); font-size: var(--text-xs); font-weight: 500; letter-spacing: 0.02em; }
+.state-flag-rated { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+.chip { padding: 0.35rem 0.7rem; border: var(--rule); font-size: var(--text-sm); font-weight: 500; color: var(--text); }
+.chip.selected { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+/* Bands: serif numerals, the stars set small beneath or beside. ------------------------- */
+.band { display: inline-flex; flex-direction: row-reverse; align-items: baseline; gap: 0.55rem; font-family: var(--font-display); }
+.band-value { font-weight: 500; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.band-stars { color: var(--star); font-size: 0.72em; letter-spacing: 0.12em; }
+.band-pending { font-style: italic; font-weight: 400; color: var(--muted); }
+
+/* Cards, rows, empties, nudges, dialog ---------------------------------------------------- */
+.card { padding: var(--s4) var(--s5); border: var(--rule); border-radius: var(--r-md); background: var(--surface); }
+.card h3 { margin-bottom: var(--s1); }
+.card p:last-child { margin: 0; }
+.film-list { list-style: none; margin: 0; padding: 0; border-top: var(--hairline); }
+.film-row { display: grid; grid-template-columns: auto 1fr auto; gap: var(--s4); align-items: center; padding: var(--s3) 0; border-bottom: var(--hairline); }
+.film-row .poster { width: 3.25rem; }
+.film-row-title { font-family: var(--font); font-weight: 600; font-size: var(--text-base); }
+.film-row-title a { text-decoration: none; }
+.film-row-title a:hover { text-decoration: underline; }
+.film-row-meta { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin: 0.15rem 0 0; font-size: var(--text-sm); }
+.film-row-actions { display: flex; flex-direction: column; align-items: flex-end; gap: var(--s2); }
+.empty { padding: var(--s7) var(--s4); border-top: var(--rule); border-bottom: var(--rule); text-align: center; }
+.empty p:first-child { font-family: var(--font-display); font-style: italic; font-size: var(--text-lg); margin-bottom: var(--s1); }
+.empty .button { margin-top: var(--s3); }
+.nudge { margin: 0 0 var(--s4); padding: var(--s3) 0 var(--s3) var(--s4); border-left: 2px solid var(--accent); font-family: var(--font-display); font-style: italic; font-size: var(--text-md); line-height: 1.45; font-variation-settings: "opsz" 24; }
+.nudge a { font-style: normal; font-family: var(--font); font-size: var(--text-sm); font-weight: 600; text-decoration-color: var(--accent); }
+.dialog { margin: 0; padding: var(--s5) var(--s5) var(--s4); max-width: 26rem; border: var(--rule); border-radius: var(--r-lg); background: var(--surface); color: var(--text); box-shadow: var(--shadow-2); }
+.dialog h2 { margin: 0 0 var(--s2); font-size: var(--text-lg); }
+.dialog .actions { display: flex; justify-content: flex-end; gap: var(--s2); margin-top: var(--s4); }
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); }
+.spoiler { margin: 0 0 var(--s3); border-top: var(--hairline); border-bottom: var(--hairline); padding: var(--s2) 0; }
+.spoiler summary { cursor: pointer; font-family: var(--font-display); font-style: italic; color: var(--muted); list-style: none; display: flex; align-items: center; justify-content: space-between; }
+.spoiler summary::-webkit-details-marker { display: none; }
+.spoiler summary::after { content: "+"; font-style: normal; font-family: var(--font); color: var(--faint); }
+.spoiler[open] summary::after { content: "–"; }
+.spoiler summary:hover { color: var(--text); }
+.spoiler p { margin: var(--s2) 0 0; max-width: 62ch; }
+.error { color: var(--danger); }
+
+/* Posters: mounted on paper. ---------------------------------------------------------- */
+.poster { display: block; aspect-ratio: 2 / 3; height: auto; object-fit: cover; border-radius: var(--r-sm); background: var(--border); box-shadow: 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent), var(--shadow-1); }
+.poster-link { flex: none; display: block; }
+
+/* Rated: needs-attention, controls, jump rail ------------------------------------------- */
+.attention { margin: 0 0 var(--s5); border-top: var(--rule); border-bottom: var(--rule); font-family: var(--font-display); font-style: italic; font-size: var(--text-md); font-variation-settings: "opsz" 24; }
+.attention summary { display: flex; align-items: center; gap: 0.7rem; padding: 0.7rem 0; cursor: pointer; list-style: none; }
+.attention summary::-webkit-details-marker { display: none; }
+.attention summary::before { content: ""; width: 0.5rem; height: 0.5rem; background: var(--accent); }
+.attention summary::after { content: "+"; margin-left: auto; font-style: normal; font-family: var(--font); color: var(--faint); }
+.attention[open] summary::after { content: "–"; }
+.attention-count { color: var(--accent); }
+.attention-list { list-style: none; margin: 0; padding: 0 0 var(--s3) 1.2rem; font-family: var(--font); font-style: normal; font-size: var(--text-sm); }
+.attention-list li { display: flex; gap: var(--s3); align-items: flex-start; }
+.attention-list .poster { width: 2.25rem; }
+.attention-list p { margin: 0.1rem 0 0; }
+.attention-list .film-title { font-weight: 600; text-decoration: none; }
+.rated-controls { margin-bottom: var(--s4); }
+.jump-to-band { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--s4); margin-top: var(--s4); font-family: var(--font-display); font-size: var(--text-md); }
+.jump-to-band .muted { font-family: var(--font); font-size: var(--text-xs); letter-spacing: 0.08em; text-transform: uppercase; }
+.jump-to-band a { text-decoration: none; font-variant-numeric: tabular-nums; color: var(--muted); border-bottom: 1px solid transparent; }
+.jump-to-band a:hover { color: var(--text); border-bottom-color: var(--accent); }
+.section > h2 { padding-bottom: var(--s2); border-bottom: var(--rule); }
+.count { font-family: var(--font); font-size: var(--text-sm); color: var(--muted); }
+.count::before { content: "("; } .count::after { content: ")"; }
+
+/* Rated: the ordering, banded, the numeral in the margin ------------------------------- */
+.band-group { display: grid; grid-template-columns: 7.5rem 1fr; gap: 0 var(--s5); margin: var(--s5) 0; scroll-margin-top: var(--s4); }
+.band-header { position: sticky; top: var(--s4); align-self: start; display: flex; flex-direction: column; gap: 0.15rem; padding-top: var(--s2); }
+.band-header h3 { font-size: 2.5rem; font-weight: 300; line-height: 1; letter-spacing: -0.03em; font-variation-settings: "opsz" 144; }
+.band-header .band { flex-direction: column-reverse; align-items: flex-start; gap: 0.35rem; }
+.band-header .band-stars { font-size: 0.85rem; letter-spacing: 0.14em; }
+.band-header .band-pending { font-size: var(--text-md); font-weight: 400; letter-spacing: 0; line-height: 1.25; }
+.anchor-control { text-align: left; font-size: var(--text-xs); margin-top: var(--s2); line-height: 1.4; }
+.ordering { list-style: none; margin: 0; padding: 0; border-top: var(--rule); }
+.ordering-slot { display: grid; grid-template-columns: 2rem 1fr; align-items: center; padding: 0.6rem 0; border-bottom: var(--hairline); }
+.ordering-rank { align-self: start; padding-top: 0.75rem; color: var(--faint); font-family: var(--font-display); font-size: var(--text-base); font-variant-numeric: tabular-nums; }
+.ordering-slot[data-tie] .ordering-rank::after { content: "tie"; display: block; font-family: var(--font); font-size: 0.6rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--accent); }
+.ordering-films { display: flex; flex-wrap: wrap; gap: 0 var(--s5); }
+.ordering-slot[data-tie] .ordering-films { border-left: 1px solid var(--accent); padding-left: var(--s3); }
+.ordering-film { display: flex; align-items: center; gap: var(--s3); min-width: 0; flex: 1 1 16rem; padding: 0.15rem 0; }
+.ordering-film .poster { width: 2.75rem; }
+.ordering-film-body { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.2rem 0.55rem; min-width: 0; }
+.film-title { font-weight: 600; text-decoration: none; }
+.film-title:hover { text-decoration: underline; }
+.film-year { font-family: var(--font-display); font-style: italic; font-size: var(--text-sm); font-variation-settings: "opsz" 9; }
+
+/* The film page --------------------------------------------------------------------------- */
+.back-link { margin: var(--s4) 0 0; font-size: var(--text-sm); }
+.back-link a { text-decoration: none; }
+.back-link a::before { content: "←"; margin-right: 0.35rem; }
+.film-page { display: grid; grid-template-columns: 15rem 1fr; gap: var(--s7); align-items: start; margin-top: var(--s5); }
+.film-page > .poster { width: 100%; padding: 0.4rem; background: var(--raised); border-radius: var(--r-sm); box-shadow: 0 0 0 1px var(--border-strong), var(--shadow-2); position: sticky; top: var(--s5); }
+.film-page h1 { margin-top: 0; font-size: 3.25rem; }
+.genres { font-size: var(--text-sm); }
+.rating-panel { margin-top: var(--s5); padding-top: var(--s3); border-top: 2px solid var(--text); }
+.rating-panel > h2, .history > h2 { margin: 0 0 var(--s3); font-family: var(--font); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+.film-page-band { margin: 0; }
+.film-page-band .band-value { font-size: 3.5rem; font-weight: 300; line-height: 1; font-variation-settings: "opsz" 144; }
+.film-page-band .band-stars { font-size: var(--text-md); }
+.film-page-band .anchor-badge { margin-left: var(--s2); }
+.position { margin: 0.35rem 0 var(--s3); font-family: var(--font-display); font-style: italic; color: var(--muted); }
+.position strong { color: var(--text); font-weight: 500; font-style: normal; }
+.neighbours { list-style: none; margin: 0 0 var(--s4); padding: 0; border-top: var(--hairline); }
+.neighbours li { display: grid; grid-template-columns: 2rem auto 1fr; align-items: center; gap: var(--s2); padding: 0.4rem 0; font-size: var(--text-sm); border-bottom: var(--hairline); }
+.neighbours .ordering-rank { padding: 0; font-size: var(--text-sm); }
+.neighbours .poster { width: 1.75rem; }
+.neighbours .self .film-title { font-weight: 600; }
+.neighbours .self .ordering-rank { color: var(--accent); }
+.neighbours .anchor-badge { margin-left: var(--s2); }
+.drift-flag { padding-right: var(--s4); }
+.drift-flag h3 { margin: 0 0 0.2rem; font-family: var(--font); font-style: normal; font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+.drift-flag .actions { margin-top: var(--s3); font-style: normal; font-family: var(--font); }
+.drift-flag .hint { margin: var(--s2) 0 0; font-size: var(--text-sm); }
+.film-actions { display: flex; flex-wrap: wrap; gap: var(--s2); margin-top: var(--s4); }
+.designate { display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--s3); margin: var(--s4) 0; }
+.history { margin-top: var(--s5); }
+.ledger { list-style: none; margin: 0; padding: 0; border-top: var(--rule); }
+.ledger li { display: grid; grid-template-columns: 1fr auto auto; gap: var(--s3); padding: 0.6rem 0; border-bottom: var(--hairline); font-size: var(--text-sm); }
+.ledger time { color: var(--faint); font-family: var(--font-display); font-style: italic; font-variation-settings: "opsz" 9; }
+.ledger .tension > span:first-child::after { content: "in tension"; margin-left: 0.5rem; color: var(--accent); font-family: var(--font-display); font-style: italic; }
+
+/* Kit ----------------------------------------------------------------------------------- */
+.kit-section { margin-top: var(--s6); }
+.kit-section > h2 { font-family: var(--font); font-size: var(--text-xs); font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border-bottom: var(--rule); padding-bottom: var(--s2); margin-top: var(--s6); }
+.kit-row { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2); margin-bottom: var(--s3); }
+.kit-dialog-stage { display: grid; place-items: center; padding: var(--s6); background: color-mix(in srgb, var(--text) 45%, var(--bg)); }
+
+/* Phone ---------------------------------------------------------------------------------- */
+@container app (max-width: 640px) {
+  .app { padding: 0 var(--s4) var(--s7); }
+  .nav { flex-wrap: wrap; gap: var(--s3) var(--s4); padding-top: var(--s3); }
+  .nav .wordmark { flex-basis: 100%; margin: 0; }
+  h1 { font-size: 2.25rem; margin-top: var(--s5); }
+  .band-group { grid-template-columns: 1fr; gap: 0; }
+  .band-header { position: static; flex-direction: row; align-items: baseline; justify-content: space-between; flex-wrap: wrap; gap: var(--s3); padding: var(--s2) 0 var(--s2); }
+  .band-header h3 { font-size: 1.75rem; }
+  .band-header .band { flex-direction: row-reverse; align-items: baseline; gap: 0.5rem; }
+  .band-header .band-stars { font-size: 0.75rem; }
+  .anchor-control { margin: 0; }
+  .ordering-slot { grid-template-columns: 1.75rem 1fr; }
+  .ordering-film { flex-basis: 100%; }
+  .ordering-film .poster { width: 3rem; }
+  .ordering-film-body { flex-direction: column; align-items: flex-start; gap: 0.1rem; }
+  .field-search { flex-basis: 100%; }
+  .filters { gap: var(--s3) var(--s4); }
+  .film-row { grid-template-columns: auto 1fr; }
+  .film-row-actions { grid-column: 2; flex-direction: row; align-items: center; }
+  .film-page { grid-template-columns: 7.5rem 1fr; gap: var(--s4); margin-top: var(--s4); }
+  .film-page > .poster { position: static; grid-row: 1 / span 3; padding: 0.25rem; }
+  .film-page-body { display: contents; }
+  .film-page-body > * { grid-column: 2; }
+  .film-page-body > :nth-child(n + 4) { grid-column: 1 / -1; }
+  .film-page h1 { font-size: 2rem; }
+  .film-page-band .band-value { font-size: 2.75rem; }
+  .ledger li { grid-template-columns: 1fr auto; row-gap: 0.1rem; }
+  .ledger li time { grid-row: 1; grid-column: 2; }
+  .ledger li .muted { grid-row: 2; grid-column: 1 / -1; font-size: var(--text-xs); }
+}
+
+
+.proto-bar{position:fixed;right:14px;bottom:14px;z-index:1000;display:flex;gap:10px;align-items:center;padding:6px 10px;border-radius:999px;background:#1b1b1f;color:#e9e9ec;font:12px/1 -apple-system,system-ui,sans-serif;box-shadow:0 8px 30px rgba(0,0,0,.35);white-space:nowrap}
+.proto-bar .seg{display:flex;gap:2px;padding:2px;border-radius:999px;background:#2a2a30}
+.proto-bar button{all:unset;cursor:pointer;padding:6px 10px;border-radius:999px;color:#c7c7cc}
+.proto-bar button[aria-pressed=true]{background:#f2f2f5;color:#111}
+.proto-bar .lbl{opacity:.55;margin-left:4px}
+@media (max-width:700px){.proto-bar .seg-width,.proto-bar .lbl-width{display:none}.proto-bar{top:8px;right:8px;bottom:auto;font-size:11px;gap:6px;padding:5px 8px}}
+html.phone .viewport{width:390px;margin:24px auto;border:1px solid #8886;border-radius:28px;overflow:clip;min-height:820px;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.screen[hidden]{display:none}
+</style></head><body><div class="viewport"><div class="screen" data-screen="rated"><div class="app"><nav class="nav" aria-label="Main">
+  <a class="wordmark" href="#rated" aria-label="Anchor">Anchor</a>
+  <a href="#rated">Watchlist</a><a href="#rated">Discovery</a><a class="active" aria-current="page" href="#rated">Rated</a><a href="#rated">Search</a><a href="#rated">Profile</a>
+</nav><main class="main">
+<h1>Rated</h1>
+<details class="attention" aria-label="Needs attention">
+  <summary><span class="attention-count">1</span> film needs attention</summary>
+  <ul class="attention-list">
+    <li><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w92/gKaePbkEkaqvMtw74EyhhkfCKKh.jpg" alt="" width="2" height="3"></a>
+      <div><a class="film-title" href="#film">Heat</a>
+      <p class="muted">Your recent answers put it above Arrival, the band's anchor. Open it to resolve.</p></div></li>
+  </ul>
+</details>
+<div class="rated-controls">
+  <div class="filters">
+    <label class="field"><span>Sort</span>
+      <select><option>Your ordering</option><option>Recently rated</option><option>Recently watched</option><option>Title</option><option>Release year</option></select></label>
+    <label class="field"><span>From</span><select><option>Best</option><option>5.0</option><option>4.5</option></select></label>
+    <label class="field"><span>To</span><select><option>Worst</option><option>1.0</option><option>0.5</option></select></label>
+    <label class="field"><span>Genre</span><select><option>Any</option><option>Crime</option><option>Drama</option><option>Science Fiction</option></select></label>
+    <label class="field"><span>Decade</span><select><option>Any</option><option>2020s</option><option>2010s</option><option>2000s</option><option>1990s</option></select></label>
+    <label class="field field-search"><span>Search</span><input type="search" placeholder="Search your rated films"></label>
+  </div>
+  <nav class="jump-to-band" aria-label="Jump to band"><span class="muted">Jump to</span><a href="#band-5-0">5.0</a><a href="#band-4-5">4.5</a><a href="#band-4-0">4.0</a><a href="#band-3-5">3.5</a><a href="#band-3-0">3.0</a><a href="#band-1-0">1.0</a><a href="#band-0-5">0.5</a></nav>
+</div>
+<section class="section" aria-labelledby="ordering-heading">
+  <h2 id="ordering-heading">Your ordering</h2>
+  <section class="band-group" id="band-5-0" aria-label="5.0 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">★★★★★</span><span class="band-value">5.0<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Anchor: Parasite</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">1</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/7IiTTgloJzvGI1TAYymCfbfl3vT.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Parasite</a><span class="film-year muted">2019</span><span class="anchor-badge" title="The canonical exemplar of its band">Anchor</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">2</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/fa0RDkAlCec0STeMNAhPaF89q6U.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">There Will Be Blood</a><span class="film-year muted">2007</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">3</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/iYypPT4bhqXfq1b6EnmxvRt6b2Y.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">In the Mood for Love</a><span class="film-year muted">2000</span></div></div></div></li></ol></section><section class="band-group" id="band-4-5" aria-label="4.5 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">★★★★½</span><span class="band-value">4.5<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Anchor: Whiplash</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">4</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/7fn624j5lj3xTme2SgiLCeuedmO.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Whiplash</a><span class="film-year muted">2014</span><span class="anchor-badge" title="The canonical exemplar of its band">Anchor</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">5</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/6d5XOczc226jECq0LIX0siKtgHR.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">No Country for Old Men</a><span class="film-year muted">2007</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">6</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/43I9DcNoCzpyzK8JCkJYpHqHqGG.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Chungking Express</a><span class="film-year muted">1994</span></div></div></div></li><li class="ordering-slot" data-tie="true"><span class="ordering-rank">7</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/6YmeO4pB7XTh8P8F960O1uA14JO.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Zodiac</a><span class="film-year muted">2007</span></div></div><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/n0ybibhJtQ5icDqTp8eRytcIHJx.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">The Social Network</a><span class="film-year muted">2010</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">8</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/rUDuOKpkKBHxx41BScqKej72iT3.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Portrait of a Lady on Fire</a><span class="film-year muted">2019</span></div></div></div></li></ol></section><section class="band-group" id="band-4-0" aria-label="4.0 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">★★★★</span><span class="band-value">4.0<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Anchor: Arrival</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">9</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/gKaePbkEkaqvMtw74EyhhkfCKKh.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Heat</a><span class="film-year muted">1995</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">10</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/pEzNVQfdzYDzVK0XqxERIw2x2se.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Arrival</a><span class="film-year muted">2016</span><span class="anchor-badge" title="The canonical exemplar of its band">Anchor</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">11</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/gajva2L0rPYkEWjzgFlBXCAVBE5.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Blade Runner 2049</a><span class="film-year muted">2017</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">12</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/evKz85EKouVbIr51zy5fOtpNRPg.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Aftersun</a><span class="film-year muted">2022</span><span class="provisional-mark" title="Still settling: fewer comparisons than usual">settling</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">13</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/ulcAi4dKpAjHwYGS08vNyx9H6I9.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Mad Max: Fury Road</a><span class="film-year muted">2015</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">14</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/k3waqVXSnvCZWfJYNtdamTgTtTA.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Past Lives</a><span class="film-year muted">2023</span></div></div></div></li></ol></section><section class="band-group" id="band-3-5" aria-label="3.5 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">★★★½</span><span class="band-value">3.5<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Anchor: Inception</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">15</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/xlaY2zyzMfkhk0HSC5VUwzoZPU1.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Inception</a><span class="film-year muted">2010</span><span class="anchor-badge" title="The canonical exemplar of its band">Anchor</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">16</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/uhviyknTT5cEQXbn6vWIqfM4vGm.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Prisoners</a><span class="film-year muted">2013</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">17</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/eWdyYQreja6JGCzqHWXpWHDrrPo.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">The Grand Budapest Hotel</a><span class="film-year muted">2014</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">18</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/eCOtqtfvn7mxGl6nfmq4b1exJRc.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Her</a><span class="film-year muted">2013</span></div></div></div></li><li class="ordering-slot" data-tie="true"><span class="ordering-rank">19</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/v1tRXZ4JtD2Iv6fjkPvT4GiwslV.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Dune</a><span class="film-year muted">2021</span></div></div><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/lz8vNyXeidqqOdJW9ZjnDAMb5Vr.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Sicario</a><span class="film-year muted">2015</span></div></div></div></li></ol></section><section class="band-group" id="band-3-0" aria-label="3.0 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">★★★</span><span class="band-value">3.0<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Anchor: Interstellar</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">20</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/yQvGrMoipbRoddT0ZR8tPoR7NfX.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Interstellar</a><span class="film-year muted">2014</span><span class="anchor-badge" title="The canonical exemplar of its band">Anchor</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">21</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/8Gxv8gSFCU0XGDykEGv7zR1n2ua.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Oppenheimer</a><span class="film-year muted">2023</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">22</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/tFXcEccSQMf3lfhfXKSU9iRBpa3.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Get Out</a><span class="film-year muted">2017</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">23</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/uDO8zWDhfWwoFdKS4fzkUJt0Rf0.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">La La Land</a><span class="film-year muted">2016</span></div></div></div></li></ol></section><section class="band-group" aria-label="Rating pending"><header class="band-header"><h3><span class="band band-pending">Rating pending</span></h3></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">24</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/aCIFMriQh8rvhxpN1IWGgvH0Tlg.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Tenet</a><span class="film-year muted">2020</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">25</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/AcKVlWaNVVVFQwro3nLXqPljcYA.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Nope</a><span class="film-year muted">2022</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">26</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/n0YuM4f5lvGAP6MAW2kBIzugXnc.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Top Gun: Maverick</a><span class="film-year muted">2022</span><span class="provisional-mark" title="Still settling: fewer comparisons than usual">settling</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">27</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/udDclJoHjfjb8Ekgsd4FDteOkCU.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Joker</a><span class="film-year muted">2019</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">28</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/iuFNMS8U5cb6xfzi51Dbkovj7vM.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Barbie</a><span class="film-year muted">2023</span></div></div></div></li><li class="ordering-slot"><span class="ordering-rank">29</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/gKY6q7SjCkAU6FqvqWybDYgUKIF.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Avatar</a><span class="film-year muted">2009</span></div></div></div></li></ol></section><section class="band-group" id="band-1-0" aria-label="1.0 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">★</span><span class="band-value">1.0<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Anchor: Batman v Superman</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">30</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/5UsK3grJvtQrtzEgqNlDljJW96w.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Batman v Superman: Dawn of Justice</a><span class="film-year muted">2016</span><span class="anchor-badge" title="The canonical exemplar of its band">Anchor</span></div></div></div></li></ol></section><section class="band-group" id="band-0-5" aria-label="0.5 stars"><header class="band-header"><h3><span class="band"><span class="band-stars" aria-hidden="true">½</span><span class="band-value">0.5<span class="visually-hidden"> stars</span></span></span></h3><button type="button" class="link-button anchor-control">Set this band's anchor</button></header><ol class="ordering"><li class="ordering-slot"><span class="ordering-rank">31</span><div class="ordering-films"><div class="ordering-film"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/Av8Z2jZhEm1FLkFzMThzz9hndJF.jpg" alt="" width="2" height="3"></a><div class="ordering-film-body"><a class="film-title" href="#film">Morbius</a><span class="film-year muted">2022</span></div></div></div></li></ol></section>
+</section>
+<section class="section" aria-labelledby="rate-later-heading">
+  <h2 id="rate-later-heading">Rate later <span class="count">3</span></h2>
+  <ul class="film-list"><li class="film-row"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/602vevIURmpDfzbnv5Ubi6wIkQm.jpg" alt="" width="2" height="3"></a><div class="film-row-body"><h3 class="film-row-title"><a href="#film">Drive</a></h3><p class="film-row-meta"><span class="muted">2011</span></p></div><div class="film-row-actions"><a class="button" href="#film">Place it now</a><button type="button" class="link-button">Not rating this one</button></div></li><li class="film-row"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/39wmItIWsg5sZMyRUHLkWBcuVCM.jpg" alt="" width="2" height="3"></a><div class="film-row-body"><h3 class="film-row-title"><a href="#film">Spirited Away</a></h3><p class="film-row-meta"><span class="muted">2001</span></p></div><div class="film-row-actions"><a class="button" href="#film">Place it now</a><button type="button" class="link-button">Not rating this one</button></div></li><li class="film-row"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/vuza0WqY239yBXOadKlGwJsZJFE.jpg" alt="" width="2" height="3"></a><div class="film-row-body"><h3 class="film-row-title"><a href="#film">The Truman Show</a></h3><p class="film-row-meta"><span class="muted">1998</span></p></div><div class="film-row-actions"><a class="button" href="#film">Place it now</a><button type="button" class="link-button">Not rating this one</button></div></li></ul>
+</section>
+</main></div></div><div class="screen" data-screen="film"><div class="app"><nav class="nav" aria-label="Main">
+  <a class="wordmark" href="#rated" aria-label="Anchor">Anchor</a>
+  <a href="#rated">Watchlist</a><a href="#rated">Discovery</a><a class="active" aria-current="page" href="#rated">Rated</a><a href="#rated">Search</a><a href="#rated">Profile</a>
+</nav><main class="main">
+<p class="muted back-link"><a href="#rated">Back to search</a></p>
+<article class="film-page">
+  <img class="poster poster-w342" src="https://image.tmdb.org/t/p/w342/gKaePbkEkaqvMtw74EyhhkfCKKh.jpg" alt="" width="2" height="3">
+  <div class="film-page-body">
+    <h1>Heat</h1>
+    <p class="film-row-meta"><span class="muted">1995 · 170 min</span><span class="state-flag state-flag-rated">Rated</span></p>
+    <p class="muted genres">Crime, Drama, Action</p>
+    <p><strong>Directed by</strong> Michael Mann</p>
+    <p><strong>Starring</strong> Al Pacino, Robert De Niro, Val Kilmer, Jon Voight</p>
+    <details class="spoiler"><summary>Plot summary</summary><p>Obsessive master thief Neil McCauley leads a top-notch crew on various daring heists throughout Los Angeles while determined detective Vincent Hanna pursues him without rest. Each man recognizes and respects the ability and the dedication of the other even though they are aware their cat-and-mouse game may end in violence.</p></details>
+
+    <section class="rating-panel" aria-labelledby="your-rating-heading">
+      <h2 id="your-rating-heading">Your rating</h2>
+      <p class="film-page-band"><span class="band"><span class="band-stars" aria-hidden="true">★★★★</span><span class="band-value">4.0<span class="visually-hidden"> stars</span></span></span></p>
+      <p class="position">Position <strong>9</strong> of 31</p>
+      <ol class="neighbours" aria-label="Immediate neighbours">
+        <li><span class="ordering-rank">8</span><img class="poster " src="https://image.tmdb.org/t/p/w92/rUDuOKpkKBHxx41BScqKej72iT3.jpg" alt="" width="2" height="3"><span class="film-title">Portrait of a Lady on Fire</span></li>
+        <li class="self" aria-current="true"><span class="ordering-rank">9</span><img class="poster " src="https://image.tmdb.org/t/p/w92/gKaePbkEkaqvMtw74EyhhkfCKKh.jpg" alt="" width="2" height="3"><span class="film-title">Heat</span></li>
+        <li><span class="ordering-rank">10</span><img class="poster " src="https://image.tmdb.org/t/p/w92/pEzNVQfdzYDzVK0XqxERIw2x2se.jpg" alt="" width="2" height="3"><span class="film-title">Arrival<span class="anchor-badge">Anchor</span></span></li>
+      </ol>
+
+      <div class="drift-flag nudge" role="group" aria-labelledby="drift-heading">
+        <h3 id="drift-heading">Needs attention</h3>
+        <p>Twice now your answers have put Heat above Arrival, the 4.0 anchor, which is not where it sits. Which is it?</p>
+        <div class="actions">
+          <button type="button" class="button">Re-place it</button>
+          <button type="button" class="button secondary">Keep it here</button>
+          <button type="button" class="link-button">Not now</button>
+        </div>
+        <p class="muted hint">Re-place means your opinion changed; keep means those judgments were noise.</p>
+      </div>
+
+      <div class="film-actions">
+        <button type="button" class="button">Log a rewatch</button>
+        <button type="button" class="button secondary">Re-place</button>
+      </div>
+      <div class="designate">
+        <label class="field"><span>Make this my canonical…</span>
+          <select><option>5.0</option><option>4.5</option><option selected>4.0</option><option>3.5</option><option>3.0</option><option>2.5</option><option>2.0</option><option>1.5</option><option>1.0</option><option>0.5</option></select></label>
+        <button type="button" class="button secondary">Designate</button>
+      </div>
+      <p class="muted"><a href="#rated">See where it sits in your ordering</a></p>
+    </section>
+
+    <section class="history" aria-labelledby="watches-heading">
+      <h2 id="watches-heading">Watch history</h2>
+      <ul class="ledger">
+        <li><span>Rewatch</span><time>12 days ago</time></li>
+        <li><span>First watch</span><time>March 2024</time></li>
+      </ul>
+    </section>
+    <section class="history" aria-labelledby="judgments-heading">
+      <h2 id="judgments-heading">Judgment history</h2>
+      <ul class="ledger">
+        <li class="tension"><span>Better than <a href="#film">Arrival</a></span><span class="muted">drift check</span><time>3 days ago</time></li>
+        <li class="tension"><span>Better than <a href="#film">Arrival</a></span><span class="muted">while placing Past Lives</span><time>2 weeks ago</time></li>
+        <li><span>Better than <a href="#film">Blade Runner 2049</a></span><span class="muted">while placing Blade Runner 2049</span><time>June</time></li>
+        <li><span>Worse than <a href="#film">Whiplash</a></span><span class="muted">its own placement</span><time>March 2024</time></li>
+        <li><span>Better than <a href="#film">Inception</a></span><span class="muted">its own placement</span><time>March 2024</time></li>
+      </ul>
+    </section>
+  </div>
+</article>
+</main></div></div><div class="screen" data-screen="kit"><div class="app"><nav class="nav" aria-label="Main">
+  <a class="wordmark" href="#rated" aria-label="Anchor">Anchor</a>
+  <a href="#rated">Watchlist</a><a href="#rated">Discovery</a><a class="active" aria-current="page" href="#rated">Rated</a><a href="#rated">Search</a><a href="#rated">Profile</a>
+</nav><main class="main">
+<h1>Kit</h1>
+<p class="muted">The shared primitives, each once, so the direction can be judged as a system.</p>
+<section class="kit-section"><h2>Buttons</h2>
+  <div class="kit-row">
+    <button type="button" class="button">Place it now</button>
+    <button type="button" class="button secondary">Re-place</button>
+    <button type="button" class="link-button">Not rating this one</button>
+    <button type="button" class="button" disabled>Working…</button>
+    <button type="button" class="button danger">Retire this anchor</button>
+  </div>
+</section>
+<section class="kit-section"><h2>Badges and chips</h2>
+  <div class="kit-row">
+    <span class="anchor-badge">Anchor</span>
+    <span class="provisional-mark">settling</span>
+    <span class="state-flag state-flag-backlog">In your backlog</span>
+    <span class="state-flag state-flag-watched_unrated">Watched, not rated</span>
+    <span class="state-flag state-flag-rated">Rated 4.0</span>
+    <span class="chip">Crime</span><span class="chip">Drama</span><span class="chip selected">1990s</span>
+  </div>
+  <p class="film-page-band"><span class="band"><span class="band-stars" aria-hidden="true">★★★★½</span><span class="band-value">4.5<span class="visually-hidden"> stars</span></span></span> <span class="band band-pending">Rating pending</span></p>
+</section>
+<section class="kit-section"><h2>Fields</h2>
+  <div class="filters">
+    <label class="field"><span>Find a film</span><input type="search" placeholder="Title"></label>
+    <label class="field"><span>Sort</span><select><option>Your ordering</option></select></label>
+    <label class="field"><span>Email</span><input type="email" value="not-an-email"><span class="error">Enter a valid email address.</span></label>
+  </div>
+</section>
+<section class="kit-section"><h2>Card and list row</h2>
+  <ul class="film-list">
+    <li class="film-row"><a class="poster-link" href="#film" tabindex="-1" aria-hidden="true"><img class="poster " src="https://image.tmdb.org/t/p/w154/602vevIURmpDfzbnv5Ubi6wIkQm.jpg" alt="" width="2" height="3"></a>
+      <div class="film-row-body"><h3 class="film-row-title"><a href="#film">Drive</a></h3>
+        <p class="film-row-meta"><span class="muted">2011</span><span class="state-flag state-flag-watched_unrated">Watched, not rated</span></p>
+        <p class="film-row-meta muted">Nicolas Winding Refn · Crime, Drama</p></div>
+      <div class="film-row-actions"><a class="button" href="#film">Place it now</a><button type="button" class="link-button">Not rating this one</button></div></li>
+  </ul>
+  <div class="card"><h3>Readiness</h3><p class="muted">Forming. 31 placed, 9 of 10 bands anchored. Discovery unlocks at 40 placed films.</p></div>
+</section>
+<section class="kit-section"><h2>Empty state</h2>
+  <div class="empty"><p>Nothing placed yet.</p><p class="muted">Mark a film watched and rate it now to start your ordering.</p><a class="button" href="#rated">Find a film</a></div>
+</section>
+<section class="kit-section"><h2>Nudge</h2>
+  <p class="nudge">Your films are in order, but they have no star ratings yet. Pick a film you know cold and say what band it is - that is what half-stars are measured against. <a href="#film">Start with Parasite</a></p>
+</section>
+<section class="kit-section"><h2>Dialog</h2>
+  <div class="kit-dialog-stage">
+    <dialog class="dialog" open>
+      <h2>Retire this anchor?</h2>
+      <p>Arrival stops standing for 4.0. Films in the band keep their positions; their stars go pending until another anchor exists.</p>
+      <div class="actions"><button type="button" class="button">Retire</button><button type="button" class="button secondary">Keep it</button></div>
+    </dialog>
+  </div>
+</section>
+</main></div></div></div><div class="proto-bar" aria-label="Prototype controls"><span class="seg "><button type="button" data-k="screen" data-v="rated">Rated</button><button type="button" data-k="screen" data-v="film">Film</button><button type="button" data-k="screen" data-v="kit">Kit</button></span><span class="lbl">theme</span><span class="seg "><button type="button" data-k="theme" data-v="light">Light</button><button type="button" data-k="theme" data-v="dark">Dark</button><button type="button" data-k="theme" data-v="auto">Auto</button></span><span class="lbl lbl-width">width</span><span class="seg seg-width"><button type="button" data-k="width" data-v="phone">Phone</button><button type="button" data-k="width" data-v="desktop">Desktop</button></span></div><script>
+(function(){
+  var root=document.documentElement, state={screen:'rated',theme:'auto',width:'desktop'};
+  try{ var s=JSON.parse(localStorage.getItem('proto')||'{}'); Object.assign(state,s);}catch(e){}
+  var h=location.hash.slice(1); if(['rated','film','kit'].indexOf(h)>=0) state.screen=h;
+  function apply(){
+    document.querySelectorAll('.screen').forEach(function(el){ el.hidden = el.dataset.screen!==state.screen; });
+    if(state.theme==='auto') root.removeAttribute('data-theme'); else root.setAttribute('data-theme',state.theme);
+    root.classList.toggle('phone', state.width==='phone');
+    document.querySelectorAll('.proto-bar button').forEach(function(b){ b.setAttribute('aria-pressed', String(state[b.dataset.k]===b.dataset.v)); });
+    try{ localStorage.setItem('proto', JSON.stringify(state)); }catch(e){}
+  }
+  document.querySelectorAll('.proto-bar button').forEach(function(b){ b.addEventListener('click', function(){ state[b.dataset.k]=b.dataset.v; if(b.dataset.k==='screen'){ history.replaceState(null,'','#'+b.dataset.v); window.scrollTo(0,0);} apply(); }); });
+  document.addEventListener('click', function(e){ var a=e.target.closest('a[href^="#"]'); if(!a) return; var t=a.getAttribute('href').slice(1);
+    if(t==='film'||t==='rated'||t==='kit'){ e.preventDefault(); state.screen=t; history.replaceState(null,'','#'+t); window.scrollTo(0,0); apply(); } });
+  var q=new URLSearchParams(location.search); ['screen','theme','width'].forEach(function(k){ if(q.get(k)) state[k]=q.get(k); });
+  apply();
+})();
+</script></body></html>
