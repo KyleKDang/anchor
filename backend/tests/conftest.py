@@ -148,7 +148,20 @@ def tmdb() -> FakeTmdb:
 async def app(settings: Settings, resend: FakeResend, tmdb: FakeTmdb) -> AsyncIterator[FastAPI]:
     app = create_app(settings, resend_transport=resend.transport(), tmdb_transport=tmdb.transport())
     async with LifespanManager(app):
+        _silence_the_cron(app.state.jobs)
         yield app
+
+
+def _silence_the_cron(jobs_app: procrastinate.App) -> None:
+    """Stop the worker enqueueing nightly jobs the test did not ask for.
+
+    Every worker run starts a periodic deferrer, which enqueues any nightly task whose
+    cron has just come due - so a suite running through 04:30 UTC quietly gets a second
+    re-sync alongside the one the test deferred itself, and the test sees twice the work
+    it scripted. Tests drive the nightly tasks explicitly through the ``defer`` fixture,
+    which is the whole point of them, so the schedule has no business running here.
+    """
+    jobs_app.periodic_registry.periodic_tasks.clear()
 
 
 PASSWORD = "correct horse battery staple"
