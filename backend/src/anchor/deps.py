@@ -3,6 +3,7 @@
 from collections.abc import AsyncIterator
 from typing import Annotated
 
+import procrastinate
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -24,6 +25,10 @@ def tmdb_of(request: Request) -> Tmdb:
     return request.app.state.tmdb  # type: ignore[no-any-return]
 
 
+def jobs_of(request: Request) -> procrastinate.App:
+    return request.app.state.jobs  # type: ignore[no-any-return]
+
+
 def rate_limiter_of(request: Request) -> RateLimiter:
     return request.app.state.rate_limiter  # type: ignore[no-any-return]
 
@@ -34,6 +39,7 @@ async def db_session(request: Request) -> AsyncIterator[AsyncSession]:
 
 
 AppSettings = Annotated[Settings, Depends(settings_of)]
+AppJobs = Annotated[procrastinate.App, Depends(jobs_of)]
 AppMailer = Annotated[Mailer, Depends(mailer_of)]
 AppTmdb = Annotated[Tmdb, Depends(tmdb_of)]
 DbSession = Annotated[AsyncSession, Depends(db_session)]

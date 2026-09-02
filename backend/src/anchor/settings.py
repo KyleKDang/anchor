@@ -47,6 +47,19 @@ class Settings(BaseSettings):
     cookie_secure: bool = True
     """Mark the session cookie Secure (browsers still accept it on http://localhost)."""
 
+    readiness_forming_films: int = 20
+    readiness_forming_bands: int = 3
+    """Forming: enough rated films across enough bands for a stable weight-vector fit.
+
+    The dimensions are spec (taste-profile.md); these numbers are its indicative ones,
+    and moving them is tuning rather than a design change.
+    """
+
+    readiness_ready_films: int = 50
+    readiness_ready_explicit_share: float = 0.5
+    """Ready: a real library, half of it settled by the owner's own comparisons rather
+    than by a seed import or an early bail, so the vector is not dominated by guesses."""
+
     rate_limit_window_seconds: float = 15 * 60
     """The sliding window the per-IP limits below count within."""
 

@@ -13,6 +13,7 @@ from anchor import (
     jobs,
     mail,
     placement,
+    profile,
     rated,
     sentry,
     tmdb,
@@ -58,6 +59,7 @@ def create_app(
     app.include_router(rated.router)
     app.include_router(placement.router)
     app.include_router(anchors.router)
+    app.include_router(profile.router)
     return app
 
 

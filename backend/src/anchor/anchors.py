@@ -30,12 +30,12 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import bands
+from anchor import bands, jobs
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.bands import Boundaries
 from anchor.catalog import FilmCard
-from anchor.deps import DbSession
+from anchor.deps import AppJobs, DbSession
 from anchor.errors import ApiError
 from anchor.models import (
     AccountFilm,
@@ -195,7 +195,7 @@ async def read(account: CurrentAccount, db: DbSession) -> Anchors:
 
 @router.post("/{band}")
 async def designate(
-    band: float, body: Designate, account: CurrentAccount, db: DbSession
+    band: float, body: Designate, account: CurrentAccount, db: DbSession, queue: AppJobs
 ) -> Designation:
     """Make a rated film the canonical exemplar of a band, or start the flow that could.
 
@@ -216,6 +216,7 @@ async def designate(
         return ReplacementNeeded(band=band, film=cards[body.tmdb_id])
 
     retired = await _designate(db, account.id, account_film, band, index, boundaries)
+    await jobs.schedule_retrain(db, queue, account.id)
     await db.commit()
     retired_cards = await ordering_module.cards(db, [retired] if retired else [])
     return Designated(
@@ -224,7 +225,7 @@ async def designate(
 
 
 @router.delete("/{band}", status_code=204)
-async def retire(band: float, account: CurrentAccount, db: DbSession) -> None:
+async def retire(band: float, account: CurrentAccount, db: DbSession, queue: AppJobs) -> None:
     """Retire a band's anchor. Changes no ratings and no dividers, by design.
 
     Dividers derive from judgments about ordinary films and go on holding the positions
@@ -238,6 +239,7 @@ async def retire(band: float, account: CurrentAccount, db: DbSession) -> None:
             AnchorDesignation.status == AnchorStatus.current,
         )
     )
+    await jobs.schedule_retrain(db, queue, account.id)
     await db.commit()
 
 

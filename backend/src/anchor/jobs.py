@@ -8,6 +8,7 @@ shared between apps.
 """
 
 import logging
+import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
@@ -59,17 +60,41 @@ def settings_of(context: JobContext) -> Settings:
 
 
 async def enqueue(
-    session: AsyncSession, jobs: procrastinate.App, task: TaskFunction, **kwargs: Any
+    session: AsyncSession,
+    jobs: procrastinate.App,
+    task: TaskFunction,
+    *,
+    lock: str | None = None,
+    **kwargs: Any,
 ) -> int:
     """Enqueue ``task`` in the session's open transaction.
 
     The job row commits or rolls back together with the session's data changes,
     so a data change can never be persisted with its follow-up job lost.
+
+    Jobs sharing a ``lock`` run one at a time, in the order they were enqueued.
     """
     connection = await session.connection()
     raw = await connection.get_raw_connection()
-    deferrer = jobs.configure_task(name=task_name(task), connection=raw.driver_connection)
+    deferrer = jobs.configure_task(
+        name=task_name(task), connection=raw.driver_connection, lock=lock
+    )
     return await deferrer.defer_async(**kwargs)
+
+
+async def schedule_retrain(
+    session: AsyncSession, jobs: procrastinate.App, account_id: uuid.UUID
+) -> None:
+    """Queue this account's retrain alongside the change that made it necessary.
+
+    Called from every flow that moves the ordering, a divider, or a designation, and
+    inside that flow's own transaction: a placement that lands with its retrain lost
+    would leave the taste profile quietly describing an ordering that no longer exists.
+    The account lock keeps two retrains from regenerating the same artifacts at once.
+    """
+    await enqueue(
+        session, jobs, retrain_taste_profile, lock=str(account_id), account_id=str(account_id)
+    )
 
 
 async def answer_probe(context: JobContext, probe_id: str) -> None:
@@ -78,6 +103,24 @@ async def answer_probe(context: JobContext, probe_id: str) -> None:
         await session.execute(
             update(WorkerProbe).where(WorkerProbe.id == probe_id).values(answered_at=func.now())
         )
+        await session.commit()
+
+
+async def retrain_taste_profile(context: JobContext, account_id: str) -> None:
+    """Regenerate the account's weight vector and exemplar set, and record the retrain.
+
+    Off the request path deliberately: the owner is answering the next comparison while
+    this runs, and nothing they can see is waiting on it.
+
+    The trainer is imported here rather than at the top of the module, so that only the
+    worker ever loads it. The web process imports this module to *enqueue*, and pulling
+    numpy and the whole feature pipeline into it for that would be a structural claim
+    nobody meant to make - the same rule architecture.md puts on the LLM module.
+    """
+    from anchor import taste
+
+    async with database_of(context).sessions() as session:
+        await taste.retrain(session, uuid.UUID(account_id))
         await session.commit()
 
 
@@ -125,6 +168,7 @@ async def resync_stale_films(context: JobContext, timestamp: int) -> None:
 def _declare_tasks() -> procrastinate.Blueprint:
     tasks = procrastinate.Blueprint()
     tasks.task(name=answer_probe.__name__, pass_context=True)(answer_probe)
+    tasks.task(name=retrain_taste_profile.__name__, pass_context=True)(retrain_taste_profile)
     nightly_tasks = [
         (remove_old_jobs, "0 4 * * *"),
         (prune_expired_sessions, "10 4 * * *"),

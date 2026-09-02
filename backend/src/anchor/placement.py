@@ -39,18 +39,19 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal
 
+import procrastinate
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
 from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands
+from anchor import bands, jobs
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.bands import Boundaries
 from anchor.catalog import FilmCard
-from anchor.deps import DbSession
+from anchor.deps import AppJobs, DbSession
 from anchor.errors import ApiError
 from anchor.models import (
     Account,
@@ -337,6 +338,7 @@ async def begin(
     tmdb_id: int,
     account: CurrentAccount,
     db: DbSession,
+    queue: AppJobs,
     seed: Seed = None,
     ballpark: Ballpark = None,
     ballpark_to: Ballpark = None,
@@ -352,12 +354,12 @@ async def begin(
     flow = await _flow(db, account, account_film)
     if flow.context is ComparisonContext.keep_comparing:
         return await _landed(db, account, account_film)
-    return await _advance(db, account, flow, seed, (ballpark, ballpark_to))
+    return await _advance(db, queue, account, flow, seed, (ballpark, ballpark_to))
 
 
 @router.post("/{tmdb_id}/answers")
 async def answer(
-    tmdb_id: int, body: Answer, account: CurrentAccount, db: DbSession
+    tmdb_id: int, body: Answer, account: CurrentAccount, db: DbSession, queue: AppJobs
 ) -> PlacementStep:
     """Record one comparison and ask the next question, or land the film."""
     account_film = await _placeable(db, account, tmdb_id)
@@ -365,18 +367,18 @@ async def answer(
     ordering = await ordering_module.load(db, account.id)
     reduced = ordering.without(tmdb_id)
     if flow.context is ComparisonContext.keep_comparing:
-        return await _extend(db, account, flow, ordering, reduced, body)
+        return await _extend(db, queue, account, flow, ordering, reduced, body)
 
     search = derive(tmdb_id, reduced, await _entries(db, account.id, flow))
     _check_answerable(reduced, search, body.opponent_tmdb_id)
     db.add(_comparison(account.id, flow, tmdb_id, body.opponent_tmdb_id, body.verdict))
     await db.flush()
-    return await _advance(db, account, flow, body.seed, (None, None))
+    return await _advance(db, queue, account, flow, body.seed, (None, None))
 
 
 @router.post("/{tmdb_id}/band")
 async def band_answer(
-    tmdb_id: int, body: BandAnswer, account: CurrentAccount, db: DbSession
+    tmdb_id: int, body: BandAnswer, account: CurrentAccount, db: DbSession, queue: AppJobs
 ) -> PlacementStep:
     """Record the band judgment that settles a landing sitting exactly on a divider."""
     account_film = await _placeable(db, account, tmdb_id)
@@ -406,6 +408,7 @@ async def band_answer(
         # The divider crossed the whole slot, so an anchor tied inside it changed band
         # too - and a canonical 4.0 among the 3.5s is a contradiction in terms.
         await anchors_module.retire_strays(db, account.id, ordering, moved)
+        await jobs.schedule_retrain(db, queue, account.id)
         await db.commit()
         return await _landed(db, account, account_film)
 
@@ -422,11 +425,13 @@ async def band_answer(
         )
     )
     await db.flush()
-    return await _advance(db, account, flow, body.seed, (None, None))
+    return await _advance(db, queue, account, flow, body.seed, (None, None))
 
 
 @router.post("/{tmdb_id}/bail")
-async def bail(tmdb_id: int, account: CurrentAccount, db: DbSession) -> PlacementStep:
+async def bail(
+    tmdb_id: int, account: CurrentAccount, db: DbSession, queue: AppJobs
+) -> PlacementStep:
     """Stop here: the band is locked, so land provisionally and let the rest settle later.
 
     Offered only once the stars cannot change, because bailing before that would leave a
@@ -442,7 +447,7 @@ async def bail(tmdb_id: int, account: CurrentAccount, db: DbSession) -> Placemen
     lifted = _as_reduced(ordering, await bands.load(db, account.id), tmdb_id)
     if locked_band(lifted, search) is None:
         raise ApiError(409, "band_not_locked", "Answer until the rating settles, then stop.")
-    return await _advance(db, account, flow, None, (None, None), bailing=True)
+    return await _advance(db, queue, account, flow, None, (None, None), bailing=True)
 
 
 @router.post("/{tmdb_id}/keep-comparing")
@@ -481,6 +486,7 @@ def _landing(search: Search, *, bailing: bool = False) -> Landing:
 
 async def _advance(
     db: AsyncSession,
+    queue: procrastinate.App,
     account: Account,
     flow: Flow,
     seed: int | None,
@@ -536,6 +542,7 @@ async def _advance(
     # answer was a judgment about both films, and it becomes evidence about the opponent
     # the moment this film has a slot for it to be read against (onboarding-and-import.md).
     await _graduate(db, account.id, [tmdb_id, *_opponents(entries, tmdb_id)])
+    await jobs.schedule_retrain(db, queue, account.id)
     await db.commit()
     return await _landed(db, account, flow.account_film, designated=designated)
 
@@ -632,6 +639,7 @@ async def _extension_question(
 
 async def _extend(
     db: AsyncSession,
+    queue: procrastinate.App,
     account: Account,
     flow: Flow,
     ordering: Ordering,
@@ -681,6 +689,7 @@ async def _extend(
             await bands.load(db, account.id),
         )
     await _graduate(db, account.id, [tmdb_id, body.opponent_tmdb_id])
+    await jobs.schedule_retrain(db, queue, account.id)
     await db.commit()
     return await _landed(db, account, flow.account_film)
 

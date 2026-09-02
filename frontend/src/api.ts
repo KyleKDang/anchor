@@ -202,6 +202,41 @@ export interface FilmDetail {
   rate_later: boolean;
 }
 
+/** What the account's evidence currently supports. There is no time component. */
+export type Readiness = "cold" | "forming" | "ready";
+
+/** The gating dimensions taste-profile.md names; the numbers behind them are tuning. */
+export type Dimension = "rated_films" | "explicit_share" | "bands_spanned";
+
+export interface Evidence {
+  rated_films: number;
+  explicit_comparisons: number;
+  /** Rated films the owner's own comparisons settled, not a seed import or an early bail. */
+  settled_films: number;
+  explicit_share: number;
+  bands_spanned: number;
+}
+
+/** One bar a readiness state needs cleared, and where the account stands against it. */
+export interface Threshold {
+  dimension: Dimension;
+  have: number;
+  need: number;
+}
+
+export interface Stage {
+  state: Readiness;
+  reached: boolean;
+  thresholds: Threshold[];
+}
+
+/** The Profile screen's engine section. `stages` omits cold: every account is already there. */
+export interface Profile {
+  readiness: Readiness;
+  evidence: Evidence;
+  stages: Stage[];
+}
+
 export interface BacklogFilm {
   tmdb_id: number;
   title: string;
@@ -307,6 +342,7 @@ export const api = {
   designate: (band: number, tmdbId: number) =>
     request<Designation>("POST", `/api/anchors/${band}`, { tmdb_id: tmdbId }),
   retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
+  profile: () => request<Profile>("GET", "/api/profile"),
   backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
 };
 

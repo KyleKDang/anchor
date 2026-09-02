@@ -267,6 +267,82 @@ async def anchors(db: Database, account_id: uuid.UUID) -> dict[float, int]:
     return {band: film_id for band, film_id in rows}
 
 
+# --- The taste profile ---
+
+
+async def weight_vector(db: Database, account_id: uuid.UUID) -> dict[str, Any] | None:
+    """The account's current fit, or None where no retrain has run for it yet."""
+    async with db.sessions() as session:
+        row = (
+            await session.execute(
+                text(
+                    """
+                    SELECT weights, space, training_pairs FROM weight_vectors
+                    WHERE account_id = :id
+                    """
+                ),
+                {"id": account_id},
+            )
+        ).first()
+    return {"weights": row[0], "space": row[1], "training_pairs": row[2]} if row else None
+
+
+async def exemplars(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """The exemplar set as (role, band, rank, film), in a stable reading order."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT role, band, rank, film_id FROM exemplars
+                WHERE account_id = :id ORDER BY role, rank
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def taste_metrics(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every retrain's row, oldest first: the append-only log evaluation.md specifies."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT id, held_out_accuracy, held_out_pairs, training_pairs, rated_films,
+                       explicit_comparisons, settled_films, bands_spanned, computed_at
+                FROM taste_metrics WHERE account_id = :id
+                ORDER BY computed_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def assert_readiness_not_stored(db: Database) -> None:
+    """Readiness is derived on every read, so there is no column for it to go stale in.
+
+    Structural rather than behavioural on purpose: the invariant is about what may
+    *exist*, and a column added in good faith by a later ticket is exactly the way a
+    derived classification quietly becomes a stored one.
+    """
+    async with db.sessions() as session:
+        columns = list(
+            await session.scalars(
+                text(
+                    """
+                    SELECT table_name || '.' || column_name FROM information_schema.columns
+                    WHERE table_schema = current_schema() AND column_name LIKE '%readiness%'
+                    """
+                )
+            )
+        )
+    assert columns == [], columns
+
+
+# --- Bands, dividers, and anchors ---
+
+
 def band_at(boundaries: dict[float, int], index: int) -> float | None:
     """The band a slot derives into, worked out here rather than asked of the code.
 

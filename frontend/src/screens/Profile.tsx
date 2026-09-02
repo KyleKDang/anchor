@@ -1,16 +1,142 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 
-import { api, messageOf } from "../api";
+import {
+  api,
+  messageOf,
+  type Dimension,
+  type Profile as ProfileData,
+  type Readiness,
+  type Stage,
+  type Threshold,
+} from "../api";
 import { useAuth } from "../auth";
 
 export function Profile() {
   return (
     <>
       <h1>Profile</h1>
+      <ReadinessSection />
       <AccountSection />
       <TmdbAttribution />
     </>
   );
+}
+
+/** What each state gives the owner, in their terms rather than the engine's. */
+const UNLOCKS: Record<Readiness, string> = {
+  cold: "Anchor is still learning. Discovery and the ranked watchlist stay off until it has enough to go on.",
+  forming: "Discovery is on: Anchor can suggest films you have never tracked.",
+  ready: "The ranked watchlist is on: your backlog is ordered by what you are most likely to love next.",
+};
+
+const STATE_LABEL: Record<Readiness, string> = {
+  cold: "Cold",
+  forming: "Forming",
+  ready: "Ready",
+};
+
+const DIMENSION_LABEL: Record<Dimension, string> = {
+  rated_films: "Films rated",
+  explicit_share: "Rated by your own comparisons",
+  bands_spanned: "Half-star bands your ratings span",
+};
+
+/**
+ * How ready the taste profile is, said plainly.
+ *
+ * Readiness is derived from evidence and has no time component, so the honest thing to
+ * show is the arithmetic: what each state needs, and what this account has against it.
+ * "Eleven more films" is something the owner can act on; "not yet" is not.
+ *
+ * Nothing here is rating-shaped, and nothing can become so: these are counts (ADR 0005).
+ */
+function ReadinessSection() {
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setProfile(await api.profile());
+        setError(null);
+      } catch (caught) {
+        setError(messageOf(caught));
+      }
+    })();
+  }, []);
+
+  return (
+    <section className="section readiness" aria-labelledby="readiness-heading">
+      <h2 id="readiness-heading">Taste profile</h2>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {profile !== null && (
+        <>
+          <p className="readiness-state">{STATE_LABEL[profile.readiness]}</p>
+          <p className="muted">{UNLOCKS[profile.readiness]}</p>
+          <ol className="stages">
+            {profile.stages.map((stage) => (
+              <StageRow key={stage.state} stage={stage} />
+            ))}
+          </ol>
+          <p className="muted">
+            {profile.evidence.explicit_comparisons} comparison
+            {profile.evidence.explicit_comparisons === 1 ? "" : "s"} answered so far.
+          </p>
+        </>
+      )}
+    </section>
+  );
+}
+
+function StageRow({ stage }: { stage: Stage }) {
+  return (
+    <li className={`stage${stage.reached ? " reached" : ""}`}>
+      <p className="stage-name">
+        {STATE_LABEL[stage.state]}
+        <span className="stage-mark">{stage.reached ? "reached" : "not yet"}</span>
+      </p>
+      <p className="muted">{UNLOCKS[stage.state]}</p>
+      <ul className="bars">
+        {stage.thresholds.map((threshold) => (
+          <Bar key={threshold.dimension} threshold={threshold} />
+        ))}
+      </ul>
+    </li>
+  );
+}
+
+/**
+ * One bar, with the bar it has to clear written into its own label.
+ *
+ * The two numbers are deliberately not shown side by side: "100% / 50%" reads as a
+ * fraction of percentages rather than as a value against a target, so the target lives
+ * in the label and the figure column carries only where the account actually stands.
+ */
+function Bar({ threshold }: { threshold: Threshold }) {
+  const have = format(threshold.dimension, threshold.have);
+  const need = format(threshold.dimension, threshold.need);
+  const filled = Math.min(1, threshold.need === 0 ? 1 : threshold.have / threshold.need);
+  return (
+    <li className="bar">
+      <span className="bar-label">
+        {DIMENSION_LABEL[threshold.dimension]} <span className="bar-need">(needs {need})</span>
+      </span>
+      <span className="bar-track" role="img" aria-label={`${have} of ${need}`}>
+        <span className="bar-fill" style={{ inlineSize: `${filled * 100}%` }} />
+      </span>
+      <span className="bar-figures" aria-hidden="true">
+        {have}
+      </span>
+    </li>
+  );
+}
+
+function format(dimension: Dimension, value: number): string {
+  return dimension === "explicit_share" ? `${Math.round(value * 100)}%` : String(value);
 }
 
 function AccountSection() {
