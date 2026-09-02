@@ -114,10 +114,11 @@ async def mark_watched(
 ) -> FilmDetail:
     """Log a watch, and take the owner's answer to rate now or rate later.
 
-    Either answer makes the film watched-unrated and appends a watch event. "Later" also
-    seats the film in the rate-later queue; "now" leaves the seat to the placement flow,
-    which takes it the moment the flow begins, so an abandoned attempt still lands the
-    film in the queue.
+    Either answer makes the film watched-unrated, appends a watch event, and seats the
+    film in the rate-later queue. The seat is not the "later" branch's doing: it is the
+    resting state of any watched-unrated film, and taking it here is what makes walking
+    away safe at every point without the client having to signal that it happened.
+    Landing a placement clears it; so does the owner saying they will not rate this one.
     """
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
     account_film = await _account_film(db, account, tmdb_id)
@@ -130,7 +131,7 @@ async def mark_watched(
         # Marking a rated film watched is the rewatch flow, which arrives with #30.
         raise ApiError(409, "already_rated", "You have already rated this film.")
     account_film.state = LifecycleState.watched_unrated
-    account_film.rate_later = body.rate == "later"
+    account_film.rate_later = True
     db.add(_watch_event(account, tmdb_id))
     await db.commit()
     return FilmDetail.of(film, account_film)

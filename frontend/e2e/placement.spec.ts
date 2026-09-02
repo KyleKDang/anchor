@@ -1,12 +1,14 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
-import { verificationPath } from "./mail";
+import { signUpOwner } from "./owner";
 
-test("an owner watches two films, places them, and reads the ordering back", async ({
+const HEAT = 949;
+
+test("an owner watches films, places them, and reads the ordering and the queue back", async ({
   page,
   request,
 }) => {
-  await signUp(page, request, "place");
+  await signUpOwner(page, request, "place");
 
   // The first film has nothing to compare against, so it lands unasked.
   await markWatched(page, "Fight Club", "Rate now");
@@ -27,19 +29,12 @@ test("an owner watches two films, places them, and reads the ordering back", asy
   await expect(page.getByText("Number 1 of 2")).toBeVisible();
   await page.getByRole("button", { name: "Done" }).click();
 
-  const ordering = page.getByRole("list").first().getByRole("listitem");
+  const ordering = page.getByRole("region", { name: "Your ordering" }).getByRole("listitem");
   await expect(ordering.nth(0)).toContainText("Arrival");
   await expect(ordering.nth(1)).toContainText("Fight Club");
-});
 
-test("an owner rates a film later, then leaves the queue without unwatching it", async ({
-  page,
-  request,
-}) => {
-  await signUp(page, request, "later");
-
+  // The third is rated later, so it waits in the queue until the owner leaves it there.
   await markWatched(page, "Heat", "Later");
-
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
   const queued = page.getByRole("listitem").filter({ hasText: "Heat" });
   await expect(queued).toBeVisible();
@@ -47,7 +42,7 @@ test("an owner rates a film later, then leaves the queue without unwatching it",
   await expect(page.getByText("Nothing waiting to be rated.")).toBeVisible();
 
   // Leaving the queue never touches watched-ness: the film is still seen.
-  await page.goto("/films/949");
+  await page.goto(`/films/${HEAT}`);
   await expect(page.getByText("Watched, not rated")).toBeVisible();
   await expect(page.getByText("Waiting in your rate-later queue.")).toHaveCount(0);
 });
@@ -61,18 +56,8 @@ async function markWatched(page: Page, title: string, choice: "Rate now" | "Late
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "Mark watched" }).click();
   await row.getByRole("button", { name: choice, exact: true }).click();
-}
-
-async function signUp(page: Page, request: APIRequestContext, prefix: string): Promise<void> {
-  const email = `${prefix}-${Date.now()}@example.com`;
-  const password = "correct horse battery staple";
-  await page.goto("/signup");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your email");
-  await page.goto(await verificationPath(request, email));
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Verify and log in" }).click();
-  await expect(page).toHaveURL(/\/watchlist$/);
+  // "Rate now" leaves for the placement flow, which the caller waits on. "Later" stays
+  // here, so wait for the row to flag the film watched before navigating away - or a
+  // slower runner reads the rate-later queue before the watch has landed in it.
+  if (choice === "Later") await expect(row.getByText("Watched, not rated")).toBeVisible();
 }
