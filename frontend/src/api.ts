@@ -205,15 +205,20 @@ export interface FilmDetail {
 /** What the account's evidence currently supports. There is no time component. */
 export type Readiness = "cold" | "forming" | "ready";
 
-/** The gating dimensions taste-profile.md names; the numbers behind them are tuning. */
-export type Dimension = "rated_films" | "explicit_share" | "bands_spanned";
+/** What a bar measures. The last two are the two halves of the explicit-comparison share. */
+export type Dimension =
+  | "rated_films"
+  | "bands_spanned"
+  | "settled_share"
+  | "comparisons_per_film";
 
 export interface Evidence {
   rated_films: number;
   explicit_comparisons: number;
   /** Rated films the owner's own comparisons settled, not a seed import or an early bail. */
   settled_films: number;
-  explicit_share: number;
+  settled_share: number;
+  comparisons_per_film: number;
   bands_spanned: number;
 }
 

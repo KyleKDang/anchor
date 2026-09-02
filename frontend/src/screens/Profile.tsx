@@ -37,8 +37,9 @@ const STATE_LABEL: Record<Readiness, string> = {
 
 const DIMENSION_LABEL: Record<Dimension, string> = {
   rated_films: "Films rated",
-  explicit_share: "Rated by your own comparisons",
   bands_spanned: "Half-star bands your ratings span",
+  settled_share: "Rated by your own comparisons",
+  comparisons_per_film: "Comparisons answered per film",
 };
 
 /**
@@ -135,8 +136,11 @@ function Bar({ threshold }: { threshold: Threshold }) {
   );
 }
 
+/** A share reads as a percentage; a rate keeps one decimal; a count is just a count. */
 function format(dimension: Dimension, value: number): string {
-  return dimension === "explicit_share" ? `${Math.round(value * 100)}%` : String(value);
+  if (dimension === "settled_share") return `${Math.round(value * 100)}%`;
+  if (dimension === "comparisons_per_film") return value.toFixed(1);
+  return String(value);
 }
 
 function AccountSection() {

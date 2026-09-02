@@ -10,8 +10,6 @@ test itself invented. The particular numbers a fit lands on are never asserted.
 import random
 import uuid
 
-import pytest
-
 from anchor import features, trainer
 from anchor.ordering import Ordering, Slot
 from library import library, taste
@@ -220,23 +218,39 @@ def test_accuracy_is_unanswerable_where_nothing_directional_was_held_back():
     assert trainer.accuracy(weights, trainer.design(ties, space, rows)) is None
 
 
-@pytest.mark.parametrize("size", [200])
-def test_a_few_hundred_films_retrain_in_milliseconds(size):
-    """ADR 0004's whole premise: current on every ordering change, because it is that cheap."""
-    import time
+def test_a_film_is_vectorised_once_however_many_pairs_it_appears_in():
+    """What keeps a retrain in milliseconds, pinned as a fact rather than as a stopwatch.
 
-    ranked = taste(library(size))
+    ADR 0004's premise is that the fit is cheap enough to run on every ordering change,
+    and the way to lose that is to vectorise per appearance rather than per film - at
+    library scale each film sits in a dozen pairs, which is a fortyfold difference. A
+    wall-clock assertion would be the one non-deterministic thing in a seeded suite
+    (testing.md), so what is asserted is the property the clock was standing in for.
+    """
+    ranked = taste(library(60))
     rows = {film.tmdb_id: film for film in ranked}
     line = ordering(*([film.tmdb_id] for film in ranked))
-    answers = answered(line)
-
-    started = time.perf_counter()
-    extracted = trainer.extract(line, seed=3, explicit=answers)
+    extracted = trainer.extract(line, seed=3, explicit=answered(line))
     space = features.learn(list(rows.values()))
-    trainer.fit(trainer.design(extracted, space, rows))
-    elapsed = time.perf_counter() - started
+    counted = _CountingSpace(space)
 
-    # A second, not the tens of milliseconds this actually takes: the bar is "cheap
-    # enough to run on every ordering change", and a tight one would fail on a loaded
-    # CI runner for reasons that say nothing about the code.
-    assert elapsed < 1.0, elapsed
+    trainer.design(extracted, counted, rows)
+
+    appearances = 2 * len(extracted)
+    assert counted.calls == len({film for pair in extracted for film in (pair.a, pair.b)})
+    assert counted.calls < appearances / 5, (counted.calls, appearances)
+
+
+class _CountingSpace:
+    """A feature space that records how often it was asked to vectorise a film."""
+
+    def __init__(self, space):
+        self._space = space
+        self.calls = 0
+
+    def __len__(self):
+        return len(self._space)
+
+    def vector(self, film):
+        self.calls += 1
+        return self._space.vector(film)

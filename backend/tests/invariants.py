@@ -287,6 +287,15 @@ async def weight_vector(db: Database, account_id: uuid.UUID) -> dict[str, Any] |
     return {"weights": row[0], "space": row[1], "training_pairs": row[2]} if row else None
 
 
+async def trained_at(db: Database, account_id: uuid.UUID) -> Any:
+    """When the account's current fit was trained: the marker a retrain has to move."""
+    async with db.sessions() as session:
+        return await session.scalar(
+            text("SELECT trained_at FROM weight_vectors WHERE account_id = :id"),
+            {"id": account_id},
+        )
+
+
 async def exemplars(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
     """The exemplar set as (role, band, rank, film), in a stable reading order."""
     async with db.sessions() as session:

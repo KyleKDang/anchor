@@ -206,9 +206,10 @@ def design(pairs: Sequence[Pair], space: FeatureSpace, films: Mapping[int, Film]
     # Vectorised once per film rather than once per appearance: at library scale each
     # film sits in a dozen pairs, and this is the difference between a retrain that
     # costs milliseconds and one that costs most of a second.
-    vectors = {
-        film_id: space.vector(films[film_id]) for pair in usable for film_id in (pair.a, pair.b)
-    }
+    # The distinct films first: keying the comprehension on the pairs would evaluate the
+    # vector once per appearance and overwrite, which is the cost this exists to avoid.
+    appearing = {film_id for pair in usable for film_id in (pair.a, pair.b)}
+    vectors = {film_id: space.vector(films[film_id]) for film_id in appearing}
     rows = [vectors[pair.a] - vectors[pair.b] for pair in usable]
     return Design(
         x=np.array(rows).reshape(len(usable), len(space)),

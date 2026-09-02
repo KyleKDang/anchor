@@ -9,6 +9,7 @@ from sqlalchemy import select, update
 
 from anchor.models import AccountFilm, Film, LifecycleState
 from faketmdb import ARRIVAL, FIGHT_CLUB, NOSFERATU, FilmFixture
+from flows import add_to_backlog
 from invariants import assert_nothing_rating_shaped
 
 CATALOG = (FIGHT_CLUB, ARRIVAL, NOSFERATU)
@@ -28,12 +29,6 @@ async def search(client, query="fight"):
 
 async def open_film(client, film=FIGHT_CLUB):
     response = await client.get(f"/api/films/{film.tmdb_id}")
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def add_to_backlog(client, film=FIGHT_CLUB):
-    response = await client.post(f"/api/films/{film.tmdb_id}/backlog")
     assert response.status_code == 200, response.text
     return response.json()
 
