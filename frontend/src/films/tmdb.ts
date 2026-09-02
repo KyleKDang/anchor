@@ -1,4 +1,8 @@
-/** TMDB's image CDN. Only paths are ever stored; the browser hotlinks the bytes (ADR 0003). */
+/**
+ * Film addressing: TMDB's image CDN, and the in-app routes that lead to one film.
+ *
+ * Only image paths are ever stored; the browser hotlinks the bytes (ADR 0003).
+ */
 
 const IMAGE_BASE = "https://image.tmdb.org/t/p";
 

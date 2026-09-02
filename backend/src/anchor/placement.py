@@ -46,6 +46,7 @@ from anchor.models import (
     ComparisonStatus,
     ComparisonVerdict,
     LifecycleState,
+    PlacementProvenance,
 )
 from anchor.ordering import Ordering
 
@@ -59,9 +60,14 @@ router = APIRouter(prefix="/api/placements")
 class Search:
     """Where the owner's answers so far have narrowed the film's landing to.
 
-    ``lo`` and ``hi`` are slot indices bounding the landing inclusively: the film sits
-    somewhere in ``[lo, hi]``, and ``lo == hi`` means the search is over and the film
-    belongs in a new slot at that index.
+    ``lo`` and ``hi`` are *insertion* indices, not slot indices, and they bound the
+    landing inclusively: the film belongs at some index in ``[lo, hi]``, where 0 is
+    above everything and ``len(ordering)`` is below everything. ``lo == hi`` means the
+    answers have settled on one index and the search is over.
+
+    The slots still worth asking about are therefore ``[lo, hi)`` - inserting at index
+    ``i`` sits above the slot at ``i``, so the slot at ``hi`` is already known to be
+    below the film and has nothing left to tell us.
     """
 
     lo: int
@@ -75,7 +81,8 @@ class Search:
 
     @property
     def settled(self) -> bool:
-        return self.tied_with is not None or self.lo == self.hi
+        """The answers have narrowed the landing to exactly one index."""
+        return self.lo == self.hi
 
     @property
     def midpoint(self) -> int:
@@ -193,14 +200,13 @@ async def begin(
 ) -> PlacementStep:
     """Start or resume placing a watched-unrated film; a rated one just shows where it sits.
 
-    Beginning seats the film in the rate-later queue, which is what makes abandonment
-    safe: the owner can walk away at any point and the film is waiting for them, with
-    every answer they gave still standing.
+    Safe to call again at any time, and the placement screen does exactly that on every
+    mount: with no state of its own to rebuild, resuming is just re-reading the log, and
+    a film that has already landed simply shows where it landed.
     """
     account_film = await _placeable(db, account, tmdb_id)
     if account_film.state is LifecycleState.rated:
         return await _landed(db, account, account_film)
-    account_film.rate_later = True
     return await _advance(db, account, account_film, seed)
 
 
@@ -238,33 +244,32 @@ async def _advance(
     tmdb_id = account_film.film_id
     ordering = await ordering_module.load(db, account.id)
     search = derive(tmdb_id, ordering, await _entries(db, account.id, tmdb_id))
+    provenance = PlacementProvenance.completed
 
     if search.tied_with is not None:
         index = ordering.index_of(search.tied_with)
         assert index is not None  # derive only ties against a film it found in the ordering
         slot = await ordering_module.slot_by_id(db, ordering.slots[index].id)
+    elif search.settled:
+        slot = await ordering_module.new_slot(db, account.id, search.lo)
     elif (
-        search.settled
-        or (opponent := _next_opponent(ordering, search, account, tmdb_id, seed)) is None
-    ):
-        # Either the bounds have closed on one index, or every film still in range has
-        # been skipped and there is no question left to ask. Both land the film at an
-        # index consistent with every judgment given; the midpoint is that index when
-        # the range never fully closed.
-        slot = await ordering_module.new_slot(db, account.id, search.midpoint)
-    else:
+        opponent := choose_opponent(ordering, search, _seed(account.id, tmdb_id, seed))
+    ) is not None:
         await db.commit()
         return await _question(db, tmdb_id, opponent, search.answered)
+    else:
+        # Every film still in range has been skipped, so there is no question left to
+        # ask. The owner's answers still hold - the film belongs somewhere in the
+        # remaining range - but none of them picked the exact spot, so it lands
+        # mid-range and is trusted less. That is the standing the spec gives an early
+        # bail, and it is what makes confidence graduation (#28) come back to it later
+        # rather than treating a guessed position as a settled judgment.
+        slot = await ordering_module.new_slot(db, account.id, search.midpoint)
+        provenance = PlacementProvenance.early_bail
 
-    await ordering_module.land(db, account_film, slot=slot)
+    ordering_module.land(db, account_film, slot=slot, provenance=provenance)
     await db.commit()
     return await _landed(db, account, account_film)
-
-
-def _next_opponent(
-    ordering: Ordering, search: Search, account: Account, tmdb_id: int, seed: int | None
-) -> int | None:
-    return choose_opponent(ordering, search, _seed(account.id, tmdb_id, seed))
 
 
 def _seed(account_id: uuid.UUID, tmdb_id: int, given: int | None) -> int:

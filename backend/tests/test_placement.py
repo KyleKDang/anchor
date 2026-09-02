@@ -12,7 +12,14 @@ import uuid
 import pytest
 from sqlalchemy import select
 
-from anchor.models import AccountFilm, LifecycleState, WatchEvent
+from anchor.models import (
+    AccountFilm,
+    LifecycleState,
+    Placement,
+    PlacementProvenance,
+    PlacementTrust,
+    WatchEvent,
+)
 from faketmdb import FilmFixture
 from invariants import (
     assert_appended_only,
@@ -111,13 +118,14 @@ async def test_rating_later_seats_the_film_in_the_rate_later_queue(owner):
     assert queue_of(await rated(owner)) == [FIRST.tmdb_id]
 
 
-async def test_rating_now_leaves_the_seat_to_the_flow_that_is_about_to_take_it(owner, db):
+async def test_rating_now_seats_the_film_too_so_walking_away_is_always_safe(owner):
+    """The owner who says "rate now" and then closes the tab has still watched the film."""
     await build_ordering(owner, [FIRST])
 
     await mark_watched(owner, SECOND, "now")
-    assert queue_of(await rated(owner)) == []
 
-    # Beginning takes the seat, so walking away from here still leaves the film waiting.
+    # Not one round trip later, when the flow begins: from the moment the watch is logged.
+    assert queue_of(await rated(owner)) == [SECOND.tmdb_id]
     await begin(owner, SECOND)
     assert queue_of(await rated(owner)) == [SECOND.tmdb_id]
 
@@ -239,7 +247,7 @@ async def test_skip_records_no_judgment_and_swaps_in_another_opponent(owner, db)
     assert [entry[5] for entry in log] == ["skip"]
 
 
-async def test_a_skipped_opponent_is_never_offered_again(owner):
+async def test_skipping_every_opponent_lands_the_film_but_trusts_it_less(owner, db):
     await build_ordering(owner, LIBRARY[:4])
 
     await mark_watched(owner, LIBRARY[4], "now")
@@ -249,10 +257,38 @@ async def test_a_skipped_opponent_is_never_offered_again(owner):
         skipped.add(step["b"]["tmdb_id"])
         step = await answer(owner, LIBRARY[4], step["b"]["tmdb_id"], "skip")
 
-    # Skipping every film in range leaves no question to ask, so the film lands on the
-    # bounds its answers left, rather than the flow dead-ending on the owner.
+    # Skipping every film in range leaves no question to ask, so the flow lands the film
+    # rather than dead-ending on the owner...
     assert step["done"] is True
     assert len(skipped) == 4
+
+    # ...but no answer picked that spot, so it is not a settled judgment and must not be
+    # stamped as one, or graduation would never come back to it.
+    async with db.sessions() as session:
+        placement = await session.scalar(
+            select(Placement)
+            .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
+            .where(AccountFilm.film_id == LIBRARY[4].tmdb_id)
+        )
+    assert placement is not None
+    assert placement.provenance is PlacementProvenance.early_bail
+    assert placement.trust is PlacementTrust.provisional
+
+
+async def test_a_placement_the_owner_answered_through_is_fully_trusted(owner, db):
+    await build_ordering(owner, LIBRARY[:4])
+
+    await place(owner, LIBRARY[4], "b")
+
+    async with db.sessions() as session:
+        placement = await session.scalar(
+            select(Placement)
+            .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
+            .where(AccountFilm.film_id == LIBRARY[4].tmdb_id)
+        )
+    assert placement is not None
+    assert placement.provenance is PlacementProvenance.completed
+    assert placement.trust is PlacementTrust.full
 
 
 # --- Abandoning and resuming ---

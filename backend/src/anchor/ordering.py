@@ -1,8 +1,10 @@
 """The ordering: the explicit persisted sequence of tie-group slots, and its read surface.
 
 The sequence is primary state (ADR 0001). Nothing here derives it from the comparison
-log and nothing here is reachable from the advisory math: the only writers are
-:func:`land`, which the owner's own answers drive, and the account-realm wipe.
+log and nothing here is reachable from the advisory math. Two functions write it,
+:func:`new_slot` and :func:`land`, and both run only from the end of a placement the
+owner's own answers settled; the account-realm wipe is the only other thing that
+touches these rows.
 
 Positions are dense and start at 0, best to worst, so inserting a slot shifts every
 slot below it down by one. That keeps "the film two places above this one" a plain
@@ -60,7 +62,8 @@ class Ordering:
         """Which slot a rated film sits in, or None where the film is not rated."""
         return next((i for i, slot in enumerate(self.slots) if film_id in slot.film_ids), None)
 
-    def film_ids(self) -> list[int]:
+    def all_film_ids(self) -> list[int]:
+        """Every rated film, best slot first. Named apart from ``Slot.film_ids``."""
         return [film_id for slot in self.slots for film_id in slot.film_ids]
 
 
@@ -87,7 +90,7 @@ async def load(db: AsyncSession, account_id: uuid.UUID) -> Ordering:
     return Ordering(slots=tuple(sorted(slots, key=lambda slot: slot.position)))
 
 
-async def land(
+def land(
     db: AsyncSession,
     account_film: AccountFilm,
     *,
@@ -169,7 +172,7 @@ async def rated(account: CurrentAccount, db: DbSession) -> Rated:
     """
     ordering = await load(db, account.id)
     seated = await _rate_later_queue(db, account.id)
-    by_id = await cards(db, ordering.film_ids() + seated)
+    by_id = await cards(db, ordering.all_film_ids() + seated)
     return Rated(
         ordering=[
             RatedSlot(

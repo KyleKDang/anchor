@@ -1,12 +1,12 @@
-import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 
-import { verificationPath } from "./mail";
+import { signUpOwner } from "./owner";
 
 test("an owner searches, adds a film to the backlog, opens it, marks it watched, and sees the TMDB attribution", async ({
   page,
   request,
 }) => {
-  await signUp(page, request);
+  await signUpOwner(page, request, "films");
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();
   await page.getByLabel("Find a film").fill("Fight Club");
@@ -47,18 +47,3 @@ test("an owner searches, adds a film to the backlog, opens it, marks it watched,
     page.getByText("not endorsed, certified, or otherwise approved by TMDB"),
   ).toBeVisible();
 });
-
-async function signUp(page: Page, request: APIRequestContext): Promise<void> {
-  const email = `films-${Date.now()}@example.com`;
-  const password = "correct horse battery staple";
-  await page.goto("/signup");
-  await page.getByLabel("Email").fill(email);
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Sign up" }).click();
-  // Wait for the signup to land before reading the mailbox, or the read races the send.
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Check your email");
-  await page.goto(await verificationPath(request, email));
-  await page.getByLabel("Password").fill(password);
-  await page.getByRole("button", { name: "Verify and log in" }).click();
-  await expect(page).toHaveURL(/\/watchlist$/);
-}
