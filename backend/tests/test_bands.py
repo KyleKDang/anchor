@@ -217,14 +217,13 @@ async def test_a_film_between_two_anchors_derives_the_band_between_them(owner, d
 
 
 async def test_the_film_page_shows_the_band_its_position_derives_into(owner, db):
-    ids = await scale(owner)
+    await scale(owner)
 
     assert (await film_page(owner, LIBRARY[1]))["rating"] == 4.0
     assert (await film_page(owner, LIBRARY[1]))["anchor"] is True
     assert (await film_page(owner, LIBRARY[2]))["rating"] == 3.5
     assert (await film_page(owner, LIBRARY[2]))["anchor"] is False
     assert (await film_page(owner, LIBRARY[0]))["rating"] is None
-    assert ids
 
 
 async def test_nothing_rating_shaped_reaches_an_unwatched_film(owner):
@@ -488,6 +487,27 @@ async def test_a_provisional_placement_graduates_once_its_answers_pin_it(owner, 
     await assert_ordering_well_formed(db, await account_id(owner))
 
 
+async def test_a_provisional_graduates_on_comparisons_run_for_other_films(owner, db):
+    """The double-duty opponent, and the owner is never asked about this film again.
+
+    Every comparison another film's placement runs against a bailed film is evidence
+    about that film too (onboarding-and-import.md), so placing its neighbours is enough
+    to pin it - which is the mechanism the seed import leans on to work off its backlog
+    of provisionals without a single extra question.
+    """
+    ids = await scale(owner, size=9, top=1, bottom=7)
+    await _bail_inside_the_band(owner, LIBRARY[9], ids)
+    assert _row_for(await rated(owner), LIBRARY[9].tmdb_id)["provisional"] is True
+
+    # Two placements the owner ran for other films, each landing right beside it.
+    for film, offset in ((LIBRARY[10], 0), (LIBRARY[11], 1)):
+        order = [slot[0] for slot in ordering_of(await rated(owner))]
+        await place_at(owner, film, order, order.index(LIBRARY[9].tmdb_id) + offset)
+
+    assert _row_for(await rated(owner), LIBRARY[9].tmdb_id)["provisional"] is False
+    await assert_ordering_well_formed(db, await account_id(owner))
+
+
 async def test_a_placement_the_owner_answered_through_is_never_provisional(owner):
     ids = await scale(owner)
 
@@ -500,17 +520,16 @@ async def test_a_placement_the_owner_answered_through_is_never_provisional(owner
 
 
 async def test_keep_comparing_asks_the_band_edge_question_first(owner):
-    ids = await scale(owner, size=7, top=1, bottom=5)
+    await scale(owner, size=7, top=1, bottom=5)
 
     step = await keep_comparing(owner, LIBRARY[4])
 
     assert step["kind"] == "band"
     assert [option["band"] for option in step["options"]] == [3.5, 3.0]
-    assert ids
 
 
 async def test_a_band_edge_answer_moves_the_divider_and_the_film_changes_band(owner, db):
-    ids = await scale(owner, size=7, top=1, bottom=5)
+    await scale(owner, size=7, top=1, bottom=5)
     account = await account_id(owner)
     before = (await dividers(db, account), await ordering_snapshot(db, account))
     step = await keep_comparing(owner, LIBRARY[4])
@@ -520,12 +539,11 @@ async def test_a_band_edge_answer_moves_the_divider_and_the_film_changes_band(ow
     assert landed["rating"] == 3.0
     assert (await dividers(db, account))[3.5] < before[0][3.5], "the boundary came up past it"
     assert await ordering_snapshot(db, account) == before[1], "a band answer moves no film"
-    assert ids
     await assert_bands_well_formed(db, account)
 
 
 async def test_the_band_edge_question_is_asked_on_both_sides_of_a_film(owner, db):
-    ids = await scale(owner, size=9, top=1, bottom=7)
+    await scale(owner, size=9, top=1, bottom=7)
 
     # Pressed against the divider below it: "is this really only a 3.5?"
     below = await keep_comparing(owner, LIBRARY[6])
@@ -535,7 +553,6 @@ async def test_the_band_edge_question_is_asked_on_both_sides_of_a_film(owner, db
     # pointing the other way, and a film at the top of its band has only this one.
     above = await keep_comparing(owner, LIBRARY[2])
     assert [option["band"] for option in above["options"]] == [4.0, 3.5]
-    assert ids
     await assert_bands_well_formed(db, await account_id(owner))
 
 
@@ -576,6 +593,47 @@ async def test_an_anchor_carried_out_of_its_band_by_a_divider_is_retired(owner, 
     assert [slot for slot in await ordering_snapshot(db, account) if len(slot) > 1], (
         "and both films kept the seat their tie earned"
     )
+    await assert_bands_well_formed(db, account)
+
+
+async def test_an_anchor_carried_out_of_its_band_by_its_own_answer_is_retired(owner, db):
+    """The other way an anchor leaves its band: it moves, rather than the divider moving.
+
+    Keep-comparing the 4.0 anchor against the film above it and saying it is the better
+    one carries it past the divider over its band. The dividers stand where they stood -
+    they still separate the same other films - so this is the film leaving its own band
+    under its own answer, and the lifecycle's reply is re-placement's (rating-system.md,
+    "The anchor lifecycle"): the status goes and the seat the answer earned stays.
+    """
+    ids = await scale(owner, size=7, top=1, bottom=5)
+    account = await account_id(owner)
+
+    step = await keep_comparing(owner, LIBRARY[1])
+    assert step["kind"] == "comparison"
+    while not step["done"]:
+        landed = await answer(owner, LIBRARY[1], step["b"]["tmdb_id"], "a")
+        step = await keep_comparing(owner, LIBRARY[1])
+
+    assert landed["position"] == 1, "the film keeps the seat its own answers earned"
+    assert await anchor_rows(db, account) == {3.0: ids[5]}, "and loses only the 4.0 status"
+    assert 4.0 not in bands_of(await rated(owner)).values()
+    await assert_ordering_well_formed(db, account)
+    await assert_bands_well_formed(db, account)
+
+
+async def test_keep_comparing_an_anchor_that_agrees_leaves_it_anchored(owner, db):
+    """The other side of it: an answer the anchor's own position already implies claims nothing."""
+    ids = await scale(owner, size=7, top=1, bottom=5)
+    account = await account_id(owner)
+    before = (await ordering_snapshot(db, account), await dividers(db, account))
+
+    step = await keep_comparing(owner, LIBRARY[1])
+    assert step["kind"] == "comparison"
+    opponent = step["b"]["tmdb_id"]
+    await answer(owner, LIBRARY[1], opponent, "b" if opponent == ids[0] else "a")
+
+    assert (await ordering_snapshot(db, account), await dividers(db, account)) == before
+    assert await anchor_rows(db, account) == {4.0: ids[1], 3.0: ids[5]}
     await assert_bands_well_formed(db, account)
 
 
@@ -726,7 +784,7 @@ async def test_the_rated_screen_groups_the_ordering_by_band_and_badges_the_ancho
 
 
 async def test_a_tie_group_stays_one_slot_inside_its_band(owner, db):
-    ids = await scale(owner)
+    await scale(owner)
     await mark_watched(owner, LIBRARY[5], "now")
     step = await begin(owner, LIBRARY[5])
     await answer(owner, LIBRARY[5], step["b"]["tmdb_id"], "tied")
@@ -735,7 +793,6 @@ async def test_a_tie_group_stays_one_slot_inside_its_band(owner, db):
 
     tied = [slot for slot in ordering_of(payload) if len(slot) > 1]
     assert len(tied) == 1 and LIBRARY[5].tmdb_id in tied[0]
-    assert ids
     await assert_ordering_well_formed(db, await account_id(owner))
 
 
@@ -756,6 +813,19 @@ async def test_the_recently_rated_sort_puts_the_newest_placement_first(owner):
     payload = await rated(owner, sort="rated")
 
     assert payload["films"][0]["tmdb_id"] == ids[-1], "the last film placed is the most recent"
+
+
+async def test_re_placing_a_film_is_what_recently_rated_means_by_recent(owner):
+    """screens-and-flows.md: "recently rated (last placement *or re-placement*)"."""
+    ids = await scale(owner)
+    assert (await rated(owner, sort="rated"))["films"][0]["tmdb_id"] == ids[-1]
+
+    # A designation the comparisons disagree with, which runs a re-placement either way.
+    await designate(owner, 3.0, LIBRARY[0])
+    await replace_at(owner, LIBRARY[0], [i for i in ids if i != ids[0]], 4)
+
+    payload = await rated(owner, sort="rated")
+    assert payload["films"][0]["tmdb_id"] == ids[0], "re-placing a film is rating it again"
 
 
 async def test_the_band_range_filter_narrows_to_the_bands_asked_for(owner):

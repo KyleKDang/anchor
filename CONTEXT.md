@@ -65,6 +65,10 @@ Seeds the placement search at the nearest anchor but never sets the rating.
 **Sliver question**:
 The band-assignment question asked only when a film lands between the highest known film of one band and the lowest known film of the next: closer in quality to which of the two canonical films?
 
+**Plain band pick**:
+The last rung of the fallback ladder, where a band the sliver question would name has no exemplar to stand for it: the owner picks the band outright instead of comparing against a film.
+Its answer is a band judgment like any other, so it places the film and moves the divider the same way.
+
 **Keep comparing**:
 The placement-done screen's option to extend a placement that looks wrong with further comparisons around the landed position, including band-edge anchor questions.
 Only the answers can move the film or a divider; the doubt itself never moves anything.
@@ -74,7 +78,7 @@ A film's position trusted less than a fully-compared one: produced by the seed i
 Refined by later comparisons; graduates to fully trusted when the advisory math's confidence crosses the same threshold a normal placement needs.
 
 **Comparison log**:
-The append-only record of every judgment: comparisons, skips, sliver answers, and criteria answers, each with its context.
+The append-only record of every judgment: comparisons, skips, band judgments (sliver answers and plain band picks), and criteria answers, each with its context.
 Entries are active, in tension (contradicting the ordering), or superseded (settled against by an owner resolution); never deleted (an account reset or deletion is the only exception).
 
 **Criteria question**:

@@ -49,20 +49,19 @@ def rank(band: float) -> int:
     return BANDS.index(band)
 
 
-def band_above(band: float) -> float | None:
-    """The band one half-star better, or None at the top of the scale."""
-    index = rank(band)
-    return BANDS[index - 1] if index > 0 else None
-
-
 def divider_below(band: float) -> float | None:
     """The key of the divider under a band, or None below 0.5 where there is none."""
     return band if band != BANDS[-1] else None
 
 
 def divider_above(band: float) -> float | None:
-    """The key of the divider over a band, or None above 5.0 where there is none."""
-    return band_above(band)
+    """The key of the divider over a band, or None above 5.0 where there is none.
+
+    Dividers are keyed by the better of the two bands they separate, so the one over a
+    band is named by the band one half-star better than it.
+    """
+    index = rank(band)
+    return BANDS[index - 1] if index > 0 else None
 
 
 # --- Derivation ---

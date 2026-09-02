@@ -407,7 +407,7 @@ async def band_answer(
         # too - and a canonical 4.0 among the 3.5s is a contradiction in terms.
         await anchors_module.retire_strays(db, account.id, ordering, moved)
         await db.commit()
-        return await _landed(db, account, account_film, extending=True)
+        return await _landed(db, account, account_film)
 
     search = derive(tmdb_id, reduced, await _entries(db, account.id, flow))
     lifted = _as_reduced(ordering, boundaries, tmdb_id)
@@ -493,9 +493,9 @@ async def _advance(
     ordering = await ordering_module.load(db, account.id)
     reduced = ordering.without(tmdb_id)
     boundaries = _as_reduced(ordering, await bands.load(db, account.id), tmdb_id)
-    search = derive(tmdb_id, reduced, await _entries(db, account.id, flow))
+    entries = await _entries(db, account.id, flow)
+    search = derive(tmdb_id, reduced, entries)
 
-    tie_slot: TieGroupSlot | None = None
     if search.tied_with is not None:
         index = reduced.index_of(search.tied_with)
         assert index is not None  # derive only ties against a film it found in the ordering
@@ -532,7 +532,10 @@ async def _advance(
 
     await _seat(db, account, flow, ordering, landing, judgment)
     designated = await _settle(db, account, flow)
-    await _graduate(db, account.id, [tmdb_id])
+    # The opponents graduate here too, not just the film that was being placed: every
+    # answer was a judgment about both films, and it becomes evidence about the opponent
+    # the moment this film has a slot for it to be read against (onboarding-and-import.md).
+    await _graduate(db, account.id, [tmdb_id, *_opponents(entries, tmdb_id)])
     await db.commit()
     return await _landed(db, account, flow.account_film, designated=designated)
 
@@ -624,7 +627,7 @@ async def _extension_question(
         if neighbour not in asked.films:
             search = Search(index, index, None, frozenset(), 0)
             return await _question(db, tmdb_id, neighbour, search, boundaries, extending=True)
-    return await _landed(db, account, account_film, extending=True)
+    return await _landed(db, account, account_film)
 
 
 async def _extend(
@@ -651,9 +654,11 @@ async def _extend(
     opponent = reduced.index_of(body.opponent_tmdb_id)
     assert opponent is not None  # a neighbour is a rated film other than this one
     placement = await _placement(db, flow.account_film)
+    moved = False
     if body.verdict is ComparisonVerdict.tied:
         slot = await ordering_module.slot_by_id(db, reduced.slots[opponent].id)
         await ordering_module.reseat(db, account.id, placement, ordering, tmdb_id, slot=slot)
+        moved = True
     elif _moves_the_film(ordering, index, body):
         await ordering_module.reseat(
             db,
@@ -663,9 +668,21 @@ async def _extend(
             tmdb_id,
             index=opponent if body.verdict is ComparisonVerdict.a else opponent + 1,
         )
+        moved = True
+    if moved:
+        # The film crossed a divider under its own answer rather than a divider moving
+        # under it, so an anchor carried across changed band without being re-placed.
+        # The lifecycle's answer is re-placement's: the status goes, the position stays.
+        await db.flush()
+        await anchors_module.retire_strays(
+            db,
+            account.id,
+            await ordering_module.load(db, account.id),
+            await bands.load(db, account.id),
+        )
     await _graduate(db, account.id, [tmdb_id, body.opponent_tmdb_id])
     await db.commit()
-    return await _landed(db, account, flow.account_film, extending=True)
+    return await _landed(db, account, flow.account_film)
 
 
 def _moves_the_film(ordering: Ordering, index: int, body: Answer) -> bool:
@@ -840,7 +857,6 @@ async def _landed(
     account_film: AccountFilm,
     *,
     designated: bool = False,
-    extending: bool = False,
 ) -> PlacementLanded:
     tmdb_id = account_film.film_id
     ordering = await ordering_module.load(db, account.id)
@@ -974,6 +990,16 @@ async def _entries(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> list[
         query = query.where(ComparisonLogEntry.created_at > flow.since)
     rows = await db.scalars(query.order_by(ComparisonLogEntry.created_at, ComparisonLogEntry.id))
     return list(rows)
+
+
+def _opponents(entries: list[ComparisonLogEntry], subject: int) -> list[int]:
+    """Every film this flow asked about, oldest first and each named once."""
+    seen: dict[int, None] = {}
+    for entry in entries:
+        opponent = entry.film_b_id if entry.film_a_id == subject else entry.film_a_id
+        if opponent is not None:
+            seen[opponent] = None
+    return list(seen)
 
 
 async def _band_judgment(
