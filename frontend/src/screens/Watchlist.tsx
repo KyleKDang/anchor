@@ -2,9 +2,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import { api, messageOf, type Backlog, type BacklogFilm, type BacklogSort } from "../api";
+import { MarkWatched } from "../films/MarkWatched";
 import { Poster } from "../films/Poster";
 import { filmPath, releaseYear } from "../films/tmdb";
-import { useAsyncAction } from "../films/useAsyncAction";
 
 const SORTS: { value: BacklogSort; label: string }[] = [
   { value: "added", label: "Recently added" },
@@ -113,15 +113,6 @@ export function Watchlist() {
 }
 
 function BacklogRow({ film, onWatched }: { film: BacklogFilm; onWatched: () => void }) {
-  const { busy, error, run } = useAsyncAction();
-
-  async function markWatched() {
-    await run(async () => {
-      await api.markWatched(film.tmdb_id);
-      onWatched();
-    });
-  }
-
   return (
     <li className="film-row">
       <Link to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
@@ -136,17 +127,10 @@ function BacklogRow({ film, onWatched }: { film: BacklogFilm; onWatched: () => v
             {[releaseYear(film.year), film.genres.join(", ")].filter(Boolean).join(" · ")}
           </span>
         </p>
-        {error && (
-          <p className="error" role="alert">
-            {error}
-          </p>
-        )}
       </div>
       {/* Mark-watched is the verb a backlog row carries today; pin and veto belong to the
           ranked tier, which does not exist until the taste profile is ready. */}
-      <button type="button" className="button secondary" onClick={markWatched} disabled={busy}>
-        Mark watched
-      </button>
+      <MarkWatched tmdbId={film.tmdb_id} onLater={onWatched} />
     </li>
   );
 }

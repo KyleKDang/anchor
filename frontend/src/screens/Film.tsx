@@ -2,18 +2,20 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 
 import { api, messageOf, type FilmDetail } from "../api";
+import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { StateFlag } from "../films/StateFlag";
-import { releaseYear } from "../films/tmdb";
+import { placePath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
  * The film page, reached by tapping a film anywhere. It is not a destination of its own.
  *
- * The page shifts with the film's state; the states that exist today are untracked and
- * in-backlog, plus the seen marker a watched-unrated film carries. Pin, veto, and the
- * rated view arrive with the ranked tier and the ordering.
+ * The page shifts with the film's state: untracked and in-backlog offer the backlog and
+ * the watch, watched-unrated carries the seen marker and place-it-now, and rated points
+ * at where the film sits. Pin and veto arrive with the ranked tier; the rated view's
+ * band, judgment history, and re-place arrive with the tickets that create them.
  */
 export function Film() {
   const { tmdbId } = useParams();
@@ -103,19 +105,43 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 Remove from backlog
               </button>
             )}
-            {film.state !== "watched_unrated" && film.state !== "rated" && (
+            {(film.state === null || film.state === "backlog") && (
+              <MarkWatched
+                tmdbId={film.tmdb_id}
+                label="I watched this"
+                onLater={() =>
+                  onChange({ ...film, state: "watched_unrated", rate_later: true })
+                }
+              />
+            )}
+            {film.state === "watched_unrated" && (
+              <Link className="button" to={placePath(film.tmdb_id)}>
+                Place it now
+              </Link>
+            )}
+            {film.state === "watched_unrated" && film.rate_later && (
               <button
                 type="button"
-                className="button secondary"
+                className="link-button"
                 disabled={busy}
-                onClick={() => void run(async () => onChange(await api.markWatched(film.tmdb_id)))}
+                onClick={() =>
+                  void run(async () => {
+                    await api.leaveRateLater(film.tmdb_id);
+                    onChange({ ...film, rate_later: false });
+                  })
+                }
               >
-                I watched this
+                Not rating this one
               </button>
             )}
           </div>
-          {film.state === "watched_unrated" && (
+          {film.state === "watched_unrated" && film.rate_later && (
             <p className="muted">Waiting in your rate-later queue.</p>
+          )}
+          {film.state === "rated" && (
+            <p className="muted">
+              <Link to="/rated">See where it sits in your ordering</Link>
+            </p>
           )}
           {error && (
             <p className="error" role="alert">

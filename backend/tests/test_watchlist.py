@@ -96,7 +96,7 @@ async def test_a_filter_never_empties_its_own_menu(owner):
 async def test_a_watched_film_leaves_the_backlog(owner):
     await add(owner, HEAT, AMELIE)
 
-    watched = await owner.post(f"/api/films/{HEAT.tmdb_id}/watched")
+    watched = await owner.post(f"/api/films/{HEAT.tmdb_id}/watched", json={"rate": "later"})
 
     assert watched.status_code == 200
     assert titles(await backlog(owner)) == ["Amelie"]

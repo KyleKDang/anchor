@@ -38,8 +38,8 @@ async def add_to_backlog(client, film=FIGHT_CLUB):
     return response.json()
 
 
-async def mark_watched(client, film=FIGHT_CLUB):
-    response = await client.post(f"/api/films/{film.tmdb_id}/watched")
+async def mark_watched(client, film=FIGHT_CLUB, rate="later"):
+    response = await client.post(f"/api/films/{film.tmdb_id}/watched", json={"rate": rate})
     assert response.status_code == 200, response.text
     return response.json()
 

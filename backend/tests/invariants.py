@@ -89,3 +89,148 @@ def _entries(node: Any) -> Iterator[tuple[str, Any]]:
     elif isinstance(node, list):
         for item in node:
             yield from _entries(item)
+
+
+NO_RATING_KEYS = frozenset({"rating", "stars", "band", "score", "predicted_rating"})
+"""Mid-flow, a rating-shaped key must be absent, not merely empty."""
+
+
+def assert_no_rating_keys(payload: Any, where: str = "response") -> None:
+    """Ratings are hidden mid-flow, so the value never leaves the server at all.
+
+    Stronger than :func:`assert_nothing_rating_shaped`: a null ``rating`` is an honest
+    statement that no rating exists, but during a comparison even the key is a leak
+    waiting to happen, and the owner must answer uncontaminated by the opponent's band.
+    """
+    for key, _ in _entries(payload):
+        assert key not in NO_RATING_KEYS, f"{where} carries a rating-shaped key: {key}"
+
+
+# --- The ordering ---
+
+
+async def ordering_snapshot(db: Database, account_id: uuid.UUID) -> list[list[int]]:
+    """The account's ordering as plain film ids, best slot first, for before/after checks."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT s.position, af.film_id
+                FROM tie_group_slots s
+                JOIN placements p ON p.slot_id = s.id
+                JOIN account_films af ON af.id = p.account_film_id
+                WHERE s.account_id = :id
+                ORDER BY s.position, af.film_id
+                """
+            ),
+            {"id": account_id},
+        )
+    slots: dict[int, list[int]] = {}
+    for position, film_id in rows:
+        slots.setdefault(position, []).append(film_id)
+    return [slots[position] for position in sorted(slots)]
+
+
+async def assert_ordering_well_formed(db: Database, account_id: uuid.UUID) -> None:
+    """The ordering says what ADR 0001 says it says, after any flow that touched it.
+
+    Positions are dense and start at 0, no slot sits empty, rated and placed mean each
+    other, and the films sharing a slot are connected by explicit tie judgments - so no
+    film is ever silently asserted equal to one it was never compared with.
+    """
+    async with db.sessions() as session:
+        positions = list(
+            await session.scalars(
+                text(
+                    "SELECT position FROM tie_group_slots WHERE account_id = :id ORDER BY position"
+                ),
+                {"id": account_id},
+            )
+        )
+        assert positions == list(range(len(positions))), positions
+
+        rated = set(
+            await session.scalars(
+                text(
+                    "SELECT film_id FROM account_films WHERE account_id = :id AND state = 'rated'"
+                ),
+                {"id": account_id},
+            )
+        )
+        placed = list(
+            await session.scalars(
+                text(
+                    """
+                    SELECT af.film_id FROM placements p
+                    JOIN account_films af ON af.id = p.account_film_id
+                    WHERE p.account_id = :id
+                    """
+                ),
+                {"id": account_id},
+            )
+        )
+        assert sorted(placed) == sorted(rated), (placed, sorted(rated))
+        assert len(placed) == len(set(placed)), placed
+
+        ties = [
+            (row[0], row[1])
+            for row in await session.execute(
+                text(
+                    """
+                    SELECT film_a_id, film_b_id FROM comparison_log_entries
+                    WHERE account_id = :id AND verdict = 'tied' AND status = 'active'
+                    """
+                ),
+                {"id": account_id},
+            )
+        ]
+
+    for slot in await ordering_snapshot(db, account_id):
+        assert slot, "a slot never sits empty"
+        _assert_tie_connected(slot, ties)
+
+
+def _assert_tie_connected(slot: list[int], ties: list[tuple[int, int]]) -> None:
+    """Every member of a slot reaches every other through recorded tie judgments."""
+    members = set(slot)
+    reached = {slot[0]}
+    frontier = [slot[0]]
+    while frontier:
+        film = frontier.pop()
+        for a, b in ties:
+            for near, far in ((a, b), (b, a)):
+                if near == film and far in members and far not in reached:
+                    reached.add(far)
+                    frontier.append(far)
+    assert reached == members, f"slot {slot} is not connected by tie judgments"
+
+
+# --- The comparison log ---
+
+
+async def comparison_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every logged judgment, oldest first, as comparable tuples."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT id, kind, subject_film_id, film_a_id, film_b_id, verdict, context,
+                       status, created_at
+                FROM comparison_log_entries WHERE account_id = :id
+                ORDER BY created_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+def assert_appended_only(
+    before: list[tuple[Any, ...]], after: list[tuple[Any, ...]], where: str = "the flow"
+) -> None:
+    """The log only ever grows: ADR 0010's append-only rule, checked across a flow.
+
+    Nothing before is deleted and nothing before is rewritten, so ``before`` must still
+    be the front of ``after`` exactly as it was.
+    """
+    assert after[: len(before)] == before, f"{where} rewrote the comparison log"

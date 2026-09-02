@@ -1,0 +1,458 @@
+"""Placing a film in the ordering: the watch, the comparisons, and where it lands.
+
+These read as the owner's flows, not as endpoint checks: mark a film watched, answer
+A / B / Tied / Skip until it settles, walk away mid-flow and come back. The advisory
+opponent picker takes a seed, so a scripted answer sequence lands the same way every
+run - but nothing here asserts *which* opponent it picked, because that is the advisory
+math's business and the tests must not pin it (testing.md).
+"""
+
+import uuid
+
+import pytest
+from sqlalchemy import select
+
+from anchor.models import AccountFilm, LifecycleState, WatchEvent
+from faketmdb import FilmFixture
+from invariants import (
+    assert_appended_only,
+    assert_no_rating_keys,
+    assert_nothing_rating_shaped,
+    assert_ordering_well_formed,
+    assert_realm_wiped,
+    comparison_log,
+    ordering_snapshot,
+)
+
+# A dozen films is enough for a bisection deep enough to count.
+LIBRARY = tuple(
+    FilmFixture(1000 + n, f"Film {n:02d}", release_date=f"{1980 + n}-01-01") for n in range(12)
+)
+FIRST, SECOND, THIRD, FOURTH = LIBRARY[:4]
+
+
+@pytest.fixture(autouse=True)
+def stocked(tmdb):
+    return tmdb.with_films(*LIBRARY)
+
+
+# --- Driving the flows ---
+
+
+async def account_id(client):
+    response = await client.get("/api/auth/me")
+    assert response.status_code == 200, response.text
+    return response.json()["id"]
+
+
+async def mark_watched(client, film, rate="later"):
+    response = await client.post(f"/api/films/{film.tmdb_id}/watched", json={"rate": rate})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def begin(client, film, seed=1):
+    response = await client.post(f"/api/placements/{film.tmdb_id}", params={"seed": seed})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def answer(client, film, opponent_tmdb_id, verdict, seed=1):
+    response = await client.post(
+        f"/api/placements/{film.tmdb_id}/answers",
+        json={"opponent_tmdb_id": opponent_tmdb_id, "verdict": verdict, "seed": seed},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def rated(client):
+    response = await client.get("/api/rated")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def place(client, film, verdict, seed=1):
+    """Watch a film and answer every question the same way until it lands.
+
+    Returns the done screen and how many questions it took, which is how the bisection
+    is measured without naming a single opponent.
+    """
+    await mark_watched(client, film, "now")
+    step = await begin(client, film, seed)
+    asked = 0
+    while not step["done"]:
+        assert_no_rating_keys(step, "a mid-flow question")
+        asked += 1
+        step = await answer(client, film, step["b"]["tmdb_id"], verdict, seed)
+    return step, asked
+
+
+async def build_ordering(client, films):
+    """Place films worst-last: each new one loses every comparison, so order is preserved."""
+    for film in films:
+        await place(client, film, "b")
+
+
+def ordering_of(payload):
+    return [[film["tmdb_id"] for film in slot["films"]] for slot in payload["ordering"]]
+
+
+def queue_of(payload):
+    return [film["tmdb_id"] for film in payload["rate_later"]]
+
+
+# --- Logging a watch ---
+
+
+async def test_rating_later_seats_the_film_in_the_rate_later_queue(owner):
+    await mark_watched(owner, FIRST, "later")
+
+    assert queue_of(await rated(owner)) == [FIRST.tmdb_id]
+
+
+async def test_rating_now_leaves_the_seat_to_the_flow_that_is_about_to_take_it(owner, db):
+    await build_ordering(owner, [FIRST])
+
+    await mark_watched(owner, SECOND, "now")
+    assert queue_of(await rated(owner)) == []
+
+    # Beginning takes the seat, so walking away from here still leaves the film waiting.
+    await begin(owner, SECOND)
+    assert queue_of(await rated(owner)) == [SECOND.tmdb_id]
+
+
+async def test_marking_a_film_watched_needs_the_owner_to_choose(owner):
+    response = await owner.post(f"/api/films/{FIRST.tmdb_id}/watched")
+
+    assert response.status_code == 422, response.text
+
+
+async def test_leaving_the_rate_later_queue_never_touches_watched_ness(owner):
+    await mark_watched(owner, FIRST, "later")
+
+    response = await owner.delete(f"/api/films/{FIRST.tmdb_id}/rate-later")
+    assert response.status_code == 204, response.text
+
+    assert queue_of(await rated(owner)) == []
+    film = await owner.get(f"/api/films/{FIRST.tmdb_id}")
+    assert film.json()["state"] == "watched_unrated"
+
+
+async def test_every_watch_event_records_its_standing_and_origin(owner, db):
+    await mark_watched(owner, FIRST, "later")
+    await mark_watched(owner, SECOND, "now")
+
+    async with db.sessions() as session:
+        events = list(await session.scalars(select(WatchEvent).order_by(WatchEvent.watched_at)))
+    assert [event.film_id for event in events] == [FIRST.tmdb_id, SECOND.tmdb_id]
+    assert {event.standing for event in events} == {"plain_backlog"}
+    assert {event.origin for event in events} == {"hand_added"}
+
+
+# --- The placement flow ---
+
+
+async def test_the_first_film_lands_without_a_single_comparison(owner, db):
+    landed, asked = await place(owner, FIRST, "b")
+
+    assert asked == 0
+    assert landed["position"] == 1
+    assert landed["total"] == 1
+    assert ordering_of(await rated(owner)) == [[FIRST.tmdb_id]]
+    await assert_ordering_well_formed(db, await account_id(owner))
+
+
+async def test_the_better_film_lands_above_the_one_it_beat(owner, db):
+    await place(owner, FIRST, "b")
+
+    landed, asked = await place(owner, SECOND, "a")
+
+    assert asked == 1
+    assert landed["position"] == 1
+    assert ordering_of(await rated(owner)) == [[SECOND.tmdb_id], [FIRST.tmdb_id]]
+    await assert_ordering_well_formed(db, await account_id(owner))
+
+
+async def test_placement_bisects_the_ordering_rather_than_walking_it(owner):
+    await build_ordering(owner, LIBRARY[:7])
+
+    landed, asked = await place(owner, LIBRARY[7], "b")
+
+    # Seven slots, so a bisection settles in three questions; a walk would take seven.
+    assert asked == 3
+    assert landed["position"] == 8
+
+
+async def test_a_film_lands_where_its_own_answers_put_it(owner, db):
+    await build_ordering(owner, LIBRARY[:4])
+    ordering = [film.tmdb_id for film in LIBRARY[:4]]
+
+    # Better than the bottom two, worse than the top two: the third slot, whichever
+    # opponents the advisory picker happened to offer along the way.
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+    while not step["done"]:
+        opponent = step["b"]["tmdb_id"]
+        verdict = "a" if ordering.index(opponent) >= 2 else "b"
+        step = await answer(owner, LIBRARY[4], opponent, verdict)
+
+    assert step["position"] == 3
+    assert ordering_of(await rated(owner)) == [
+        [ordering[0]],
+        [ordering[1]],
+        [LIBRARY[4].tmdb_id],
+        [ordering[2]],
+        [ordering[3]],
+    ]
+    await assert_ordering_well_formed(db, await account_id(owner))
+
+
+async def test_tied_joins_the_opponents_tie_group_and_ends_the_search(owner, db):
+    await build_ordering(owner, LIBRARY[:4])
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+    opponent = step["b"]["tmdb_id"]
+    landed = await answer(owner, LIBRARY[4], opponent, "tied")
+
+    assert landed["done"] is True
+    assert [film["tmdb_id"] for film in landed["neighbours"]["tied_with"]] == [opponent]
+    slots = ordering_of(await rated(owner))
+    assert sorted(slots[landed["position"] - 1]) == sorted([opponent, LIBRARY[4].tmdb_id])
+    assert len(slots) == 4, "a tie joins a slot rather than opening one"
+    await assert_ordering_well_formed(db, await account_id(owner))
+
+
+async def test_skip_records_no_judgment_and_swaps_in_another_opponent(owner, db):
+    await build_ordering(owner, LIBRARY[:4])
+    account = await account_id(owner)
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    first = await begin(owner, LIBRARY[4])
+    second = await answer(owner, LIBRARY[4], first["b"]["tmdb_id"], "skip")
+
+    assert second["done"] is False
+    assert second["b"]["tmdb_id"] != first["b"]["tmdb_id"]
+    assert second["answered"] == 0, "a skip is not a judgment"
+    log = [entry for entry in await comparison_log(db, account) if entry[2] == LIBRARY[4].tmdb_id]
+    assert [entry[5] for entry in log] == ["skip"]
+
+
+async def test_a_skipped_opponent_is_never_offered_again(owner):
+    await build_ordering(owner, LIBRARY[:4])
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+    skipped = set()
+    while not step["done"] and step["b"]["tmdb_id"] not in skipped:
+        skipped.add(step["b"]["tmdb_id"])
+        step = await answer(owner, LIBRARY[4], step["b"]["tmdb_id"], "skip")
+
+    # Skipping every film in range leaves no question to ask, so the film lands on the
+    # bounds its answers left, rather than the flow dead-ending on the owner.
+    assert step["done"] is True
+    assert len(skipped) == 4
+
+
+# --- Abandoning and resuming ---
+
+
+async def test_abandoning_mid_flow_leaves_the_film_watched_unrated_and_queued(owner, db):
+    await build_ordering(owner, LIBRARY[:4])
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+    await answer(owner, LIBRARY[4], step["b"]["tmdb_id"], "b")
+    # ...and the owner closes the tab. Nothing signals that; nothing has to.
+
+    assert queue_of(await rated(owner)) == [LIBRARY[4].tmdb_id]
+    async with db.sessions() as session:
+        state = await session.scalar(
+            select(AccountFilm.state).where(AccountFilm.film_id == LIBRARY[4].tmdb_id)
+        )
+    assert state is LifecycleState.watched_unrated
+
+
+async def test_a_later_attempt_resumes_from_the_answers_already_given(owner, db):
+    await build_ordering(owner, LIBRARY[:7])
+
+    await mark_watched(owner, LIBRARY[7], "now")
+    step = await begin(owner, LIBRARY[7])
+    await answer(owner, LIBRARY[7], step["b"]["tmdb_id"], "b")
+
+    resumed = await begin(owner, LIBRARY[7])
+    assert resumed["done"] is False
+    assert resumed["answered"] == 1, "the first attempt's answer still counts"
+
+    asked = 1
+    while not resumed["done"]:
+        asked += 1
+        resumed = await answer(owner, LIBRARY[7], resumed["b"]["tmdb_id"], "b")
+
+    # Three questions in total, exactly as one uninterrupted run would have taken.
+    assert asked == 3
+    assert resumed["position"] == 8
+    await assert_ordering_well_formed(db, await account_id(owner))
+
+
+async def test_a_stale_answer_is_refused_rather_than_appended(owner, db):
+    await build_ordering(owner, LIBRARY[:4])
+    account = await account_id(owner)
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+    # Say the best film beat the new one, then answer about that same film again: the
+    # bounds have moved past it, so the second answer is about a question long gone.
+    await answer(owner, LIBRARY[4], LIBRARY[0].tmdb_id, "b")
+    before = await comparison_log(db, account)
+
+    response = await owner.post(
+        f"/api/placements/{LIBRARY[4].tmdb_id}/answers",
+        json={"opponent_tmdb_id": LIBRARY[0].tmdb_id, "verdict": "a"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "stale_question"
+    assert await comparison_log(db, account) == before
+    assert step["done"] is False
+
+
+async def test_placing_a_film_the_owner_has_not_watched_is_refused(owner):
+    await owner.post(f"/api/films/{FIRST.tmdb_id}/backlog")
+
+    response = await owner.post(f"/api/placements/{FIRST.tmdb_id}")
+
+    assert response.status_code == 409, response.text
+    assert response.json()["error"]["code"] == "not_watched"
+
+
+# --- The invariants ---
+
+
+async def test_the_comparison_log_is_append_only_across_every_flow(owner, db):
+    account = await account_id(owner)
+    await build_ordering(owner, LIBRARY[:4])
+    before = await comparison_log(db, account)
+    assert before, "placing four films records judgments"
+
+    await place(owner, LIBRARY[4], "a")
+    await mark_watched(owner, LIBRARY[5], "later")
+    await owner.delete(f"/api/films/{LIBRARY[5].tmdb_id}/rate-later")
+
+    after = await comparison_log(db, account)
+    assert_appended_only(before, after, "placing another film")
+    assert len(after) > len(before)
+
+
+async def test_every_logged_judgment_carries_its_films_verdict_context_and_status(owner, db):
+    await build_ordering(owner, [FIRST])
+    await place(owner, SECOND, "a")
+
+    [entry] = await comparison_log(db, await account_id(owner))
+    _id, kind, subject, film_a, film_b, verdict, context, status, created_at = entry
+    assert (kind, subject, film_a, film_b) == (
+        "overall",
+        SECOND.tmdb_id,
+        SECOND.tmdb_id,
+        FIRST.tmdb_id,
+    )
+    assert (verdict, context, status) == ("a", "placement", "active")
+    assert created_at is not None
+
+
+async def test_nothing_but_the_owners_answers_moves_the_ordering(owner, db, run_jobs):
+    await build_ordering(owner, LIBRARY[:4])
+    account = await account_id(owner)
+    before = await ordering_snapshot(db, account)
+
+    # Everything the owner can do that is not an answer.
+    await owner.get("/api/films/search", params={"query": "Film"})
+    await owner.post(f"/api/films/{LIBRARY[5].tmdb_id}/backlog")
+    await owner.get(f"/api/films/{LIBRARY[6].tmdb_id}")
+    await mark_watched(owner, LIBRARY[7], "later")
+    await owner.delete(f"/api/films/{LIBRARY[7].tmdb_id}/rate-later")
+    await owner.get("/api/watchlist/backlog")
+    await run_jobs()
+
+    assert await ordering_snapshot(db, account) == before
+    await assert_ordering_well_formed(db, account)
+
+
+async def test_one_account_never_sees_anothers_ordering(owner, other_owner, db):
+    await build_ordering(owner, LIBRARY[:3])
+    await build_ordering(other_owner, [LIBRARY[5]])
+
+    assert ordering_of(await rated(other_owner)) == [[LIBRARY[5].tmdb_id]]
+    await assert_ordering_well_formed(db, await account_id(owner))
+    await assert_ordering_well_formed(db, await account_id(other_owner))
+
+
+# --- What the screens show ---
+
+
+async def test_the_rated_screen_shows_the_ordering_and_the_queue_below_it(owner):
+    await build_ordering(owner, LIBRARY[:3])
+    await mark_watched(owner, LIBRARY[4], "later")
+
+    payload = await rated(owner)
+
+    assert ordering_of(payload) == [[film.tmdb_id] for film in LIBRARY[:3]]
+    assert [slot["position"] for slot in payload["ordering"]] == [1, 2, 3]
+    assert queue_of(payload) == [LIBRARY[4].tmdb_id]
+    assert_nothing_rating_shaped(payload, "the Rated screen before any divider is pinned")
+
+
+async def test_the_done_screen_shows_the_landed_position_with_its_neighbours(owner):
+    await build_ordering(owner, LIBRARY[:4])
+    ordering = [film.tmdb_id for film in LIBRARY[:4]]
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+    while not step["done"]:
+        opponent = step["b"]["tmdb_id"]
+        step = await answer(
+            owner, LIBRARY[4], opponent, "a" if ordering.index(opponent) >= 2 else "b"
+        )
+
+    assert (step["position"], step["total"]) == (3, 5)
+    assert [film["tmdb_id"] for film in step["neighbours"]["above"]] == [ordering[1]]
+    assert [film["tmdb_id"] for film in step["neighbours"]["below"]] == [ordering[2]]
+    assert step["neighbours"]["tied_with"] == []
+    # Bands arrive with #28, so the landed film honestly has no value to show yet.
+    assert step["rating"] is None
+
+
+async def test_no_rating_shaped_data_reaches_a_mid_flow_question(owner):
+    await build_ordering(owner, LIBRARY[:4])
+
+    await mark_watched(owner, LIBRARY[4], "now")
+    step = await begin(owner, LIBRARY[4])
+
+    assert step["done"] is False
+    assert_no_rating_keys(step, "a placement question")
+    assert set(step["a"]) == {"tmdb_id", "title", "year", "poster_path", "overview"}
+
+
+async def test_reopening_a_placed_film_shows_where_it_landed(owner):
+    await build_ordering(owner, LIBRARY[:2])
+
+    reopened = await begin(owner, LIBRARY[1])
+
+    assert reopened["done"] is True
+    assert reopened["position"] == 2
+
+
+async def test_the_account_realm_wipe_takes_the_ordering_and_the_log_with_it(owner, db):
+    """The one exception to the log's never-deleted rule (data-model.md)."""
+    account = await account_id(owner)
+    await build_ordering(owner, LIBRARY[:3])
+    await mark_watched(owner, LIBRARY[4], "later")
+    assert await comparison_log(db, account)
+
+    response = await owner.request(
+        "DELETE", "/api/account", json={"password": "correct horse battery staple"}
+    )
+
+    assert response.status_code == 204, response.text
+    await assert_realm_wiped(db, uuid.UUID(account))

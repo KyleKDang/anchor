@@ -2,6 +2,7 @@ import { useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import { api, messageOf, type LifecycleState, type SearchResult } from "../api";
+import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { StateFlag } from "../films/StateFlag";
@@ -113,11 +114,25 @@ function ResultRow({
           </p>
         )}
       </div>
-      {/* Add is the one verb search carries inline; everything else is on the film page. */}
-      {result.state === null && (
-        <button type="button" className="button secondary" onClick={addToBacklog} disabled={busy}>
-          Add to backlog
-        </button>
+      {/* Adding and logging a watch are the verbs search carries inline; everything
+          else - pin, veto, re-place - is on the film page. */}
+      {(result.state === null || result.state === "backlog") && (
+        <div className="film-row-actions">
+          {result.state === null && (
+            <button
+              type="button"
+              className="button secondary"
+              onClick={addToBacklog}
+              disabled={busy}
+            >
+              Add to backlog
+            </button>
+          )}
+          <MarkWatched
+            tmdbId={result.tmdb_id}
+            onLater={() => onTracked(result.tmdb_id, "watched_unrated")}
+          />
+        </div>
       )}
     </li>
   );

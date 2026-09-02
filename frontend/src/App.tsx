@@ -3,6 +3,7 @@ import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
+import { Place } from "./screens/Place";
 import { Login } from "./screens/auth/Login";
 import { Signup } from "./screens/auth/Signup";
 import { Verify } from "./screens/auth/Verify";
@@ -17,6 +18,9 @@ export function App() {
       <Route path="/verify" element={<Verify />} />
       <Route path="/debug/error" element={<DebugError />} />
       <Route element={<RequireAccount />}>
+        {/* Full-screen and outside the frame: mid-placement there is nothing to do
+            but answer, so the navigation would only be a distraction. */}
+        <Route path="/place/:tmdbId" element={<Place />} />
         <Route element={<Shell />}>
           <Route index element={<Navigate to={destinations[0].path} replace />} />
           {destinations.map(({ path, screen: Screen }) => (
