@@ -234,3 +234,108 @@ def assert_appended_only(
     be the front of ``after`` exactly as it was.
     """
     assert after[: len(before)] == before, f"{where} rewrote the comparison log"
+
+
+# --- Bands, dividers, and anchors ---
+
+BANDS = (5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5)
+
+
+async def dividers(db: Database, account_id: uuid.UUID) -> dict[float, int]:
+    """The account's pinned dividers, keyed by the better of the two bands each separates."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text("SELECT upper_band, boundary FROM dividers WHERE account_id = :id"),
+            {"id": account_id},
+        )
+    return {upper: boundary for upper, boundary in rows}
+
+
+async def anchors(db: Database, account_id: uuid.UUID) -> dict[float, int]:
+    """Band to film for every current anchor: the snapshot a before/after check compares."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT d.band, af.film_id FROM anchor_designations d
+                JOIN account_films af ON af.id = d.account_film_id
+                WHERE d.account_id = :id AND d.status = 'current'
+                """
+            ),
+            {"id": account_id},
+        )
+    return {band: film_id for band, film_id in rows}
+
+
+def band_at(boundaries: dict[float, int], index: int) -> float | None:
+    """The band a slot derives into, worked out here rather than asked of the code.
+
+    Restated from data-model.md rather than imported: a film's rating is which dividers
+    its position sits between, and it exists only where exactly one band fits. Dividers
+    run in band order, so an unpinned one is still fenced in by the pinned ones around
+    it, and a band the fence rules out is not a candidate however quiet its own divider.
+    """
+    possible = []
+    for position, band in enumerate(BANDS):
+        over = [boundaries[key] for key in BANDS[:position] if key in boundaries]
+        under = [boundaries[key] for key in BANDS[position:-1] if key in boundaries]
+        if over and max(over) > index:
+            continue
+        if under and min(under) <= index:
+            continue
+        possible.append(band)
+    return possible[0] if len(possible) == 1 else None
+
+
+async def assert_bands_derived(
+    db: Database, account_id: uuid.UUID, reported: dict[int, float | None]
+) -> None:
+    """Every band a surface showed is the one the slots and dividers imply, and none is stored.
+
+    The point of the check is that ``reported`` cannot have come from anywhere else:
+    recomputing it from the two things that are stored has to reproduce it exactly, so a
+    value written down somewhere and served from there would show up here as a mismatch.
+    """
+    boundaries = await dividers(db, account_id)
+    ordering = await ordering_snapshot(db, account_id)
+    derived = {
+        film_id: band_at(boundaries, index)
+        for index, slot in enumerate(ordering)
+        for film_id in slot
+    }
+    assert reported == derived, (reported, derived, boundaries)
+
+
+async def assert_bands_well_formed(db: Database, account_id: uuid.UUID) -> None:
+    """The dividers and anchors say what data-model.md says they say.
+
+    Dividers appear in band order and inside the ordering; every pinned one names the
+    band judgment that moved it, so no position exists that nobody can account for; and
+    a band's anchor sits between that band's own dividers, since a canonical 4.0 living
+    among the 3.5s is a contradiction in terms.
+    """
+    boundaries = await dividers(db, account_id)
+    ordering = await ordering_snapshot(db, account_id)
+    pinned = [boundaries[band] for band in BANDS[:-1] if band in boundaries]
+    assert pinned == sorted(pinned), boundaries
+    assert all(0 <= boundary <= len(ordering) for boundary in pinned), (boundaries, len(ordering))
+
+    async with db.sessions() as session:
+        unaudited = await session.scalar(
+            text(
+                """
+                SELECT count(*) FROM dividers d
+                LEFT JOIN comparison_log_entries e ON e.id = d.pinned_by_id
+                WHERE d.account_id = :id AND (e.id IS NULL OR e.band IS NULL)
+                """
+            ),
+            {"id": account_id},
+        )
+    assert unaudited == 0, "a divider moved to a position no judgment accounts for"
+
+    seats = {film_id: index for index, slot in enumerate(ordering) for film_id in slot}
+    for band, film_id in (await anchors(db, account_id)).items():
+        assert film_id in seats, f"the {band} anchor is not a rated film"
+        assert band_at(boundaries, seats[film_id]) == band, (
+            f"the {band} anchor sits outside its own band"
+        )

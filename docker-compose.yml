@@ -7,9 +7,11 @@ x-app-environment: &app-environment
   # Likewise TMDB: the dev stack talks to the fake below, so it needs no credential.
   ANCHOR_TMDB_BASE_URL: http://tmdb:8030/3
   ANCHOR_TMDB_ACCESS_TOKEN: dev
-  # The per-IP signup limit is a production defence, and in-process, so re-running the
-  # smoke suite inside one window exhausts it. Dev and CI raise it rather than trip it.
+  # The per-IP auth limits are a production defence, and in-process, so re-running the
+  # smoke suite inside one window exhausts them: every journey signs up and verifies,
+  # and the window outlives the run. Dev and CI raise them rather than trip them.
   ANCHOR_SIGNUP_RATE_LIMIT: 100
+  ANCHOR_VERIFY_RATE_LIMIT: 100
 
 services:
   postgres:

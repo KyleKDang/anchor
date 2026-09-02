@@ -15,7 +15,9 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from anchor import anchors as anchors_module
 from anchor import catalog
+from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmDetail, SearchResult
 from anchor.deps import AppSettings, AppTmdb, DbSession
@@ -23,6 +25,7 @@ from anchor.errors import ApiError
 from anchor.models import (
     Account,
     AccountFilm,
+    Film,
     LifecycleState,
     WatchEvent,
     WatchOrigin,
@@ -62,7 +65,12 @@ async def search(
     """
     hits = await catalog.search(tmdb, query)
     tracked = await _tracked(db, account, [hit.tmdb_id for hit in hits])
-    return SearchResults(results=[SearchResult.of(hit, tracked.get(hit.tmdb_id)) for hit in hits])
+    derived = await ordering_module.derived_bands(db, account.id)
+    return SearchResults(
+        results=[
+            SearchResult.of(hit, tracked.get(hit.tmdb_id), derived.get(hit.tmdb_id)) for hit in hits
+        ]
+    )
 
 
 @router.get("/{tmdb_id}")
@@ -70,7 +78,7 @@ async def film_page(
     tmdb_id: int, account: CurrentAccount, db: DbSession, tmdb: AppTmdb, settings: AppSettings
 ) -> FilmDetail:
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
-    return FilmDetail.of(film, await _account_film(db, account, tmdb_id))
+    return await _detail(db, account, film, await _account_film(db, account, tmdb_id))
 
 
 @router.post("/{tmdb_id}/backlog")
@@ -88,7 +96,7 @@ async def add_to_backlog(
         await db.commit()
     elif account_film.state is not LifecycleState.backlog:
         raise ApiError(409, "already_watched", "You have already watched this film.")
-    return FilmDetail.of(film, account_film)
+    return await _detail(db, account, film, account_film)
 
 
 @router.delete("/{tmdb_id}/backlog", status_code=204)
@@ -134,7 +142,7 @@ async def mark_watched(
     account_film.rate_later = True
     db.add(_watch_event(account, tmdb_id))
     await db.commit()
-    return FilmDetail.of(film, account_film)
+    return await _detail(db, account, film, account_film)
 
 
 def _watch_event(account: Account, tmdb_id: int) -> WatchEvent:
@@ -168,6 +176,24 @@ async def leave_rate_later(tmdb_id: int, account: CurrentAccount, db: DbSession)
 
 
 # --- Helpers ---
+
+
+async def _detail(
+    db: AsyncSession, account: Account, film: Film, account_film: AccountFilm | None
+) -> FilmDetail:
+    """The film page, with the band its position derives into where it has one.
+
+    Nothing rating-shaped is computed for an unwatched film (ADR 0005): the derivation
+    only ever looks up a film the owner has actually placed, and answers None for
+    everything else - including a rated film whose bracketing dividers are unpinned.
+    """
+    if account_film is None or account_film.state is not LifecycleState.rated:
+        return FilmDetail.of(film, account_film)
+    band = (await ordering_module.derived_bands(db, account.id)).get(film.tmdb_id)
+    anchors = await anchors_module.current(db, account.id)
+    return FilmDetail.of(
+        film, account_film, band, anchor=band is not None and anchors.get(band) == film.tmdb_id
+    )
 
 
 async def _account_film(db: AsyncSession, account: Account, tmdb_id: int) -> AccountFilm | None:

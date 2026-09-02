@@ -409,7 +409,9 @@ body {
   flex: 0 1 10rem;
 }
 
-.filters select {
+/* Every select in the app, not only the filters': the anchor picker and the band
+   designation control are the same control doing the same job elsewhere. */
+.field select {
   font: inherit;
   padding: 0.5rem 0.6rem;
   border-radius: 0.4rem;
@@ -670,4 +672,265 @@ body {
   .place-pair {
     gap: 0.75rem;
   }
+}
+
+/* Bands: half-stars where one has been derived, and a name for the gap where none has. */
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.band {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  letter-spacing: 0.04em;
+}
+
+/* The number carries the meaning; the stars are the shape of it. Counting five stars
+   at a glance is not something anyone should have to do. */
+.band-value {
+  font-size: 0.8em;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: normal;
+  opacity: 0.65;
+}
+
+/* Not an empty space and not a zero: the absence of a rating has a name, because the
+   design means it, and an empty space would read as a bug. */
+.band-pending {
+  font-size: 0.85rem;
+  font-style: italic;
+  letter-spacing: normal;
+  opacity: 0.6;
+}
+
+.anchor-badge,
+.provisional-mark {
+  margin-left: 0.4rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 0.7rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  vertical-align: 0.08em;
+  white-space: nowrap;
+}
+
+.anchor-badge {
+  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
+}
+
+.provisional-mark {
+  border: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
+  font-weight: 500;
+  text-transform: none;
+  opacity: 0.6;
+}
+
+/* The anchor-designation nudge: one passive line, no motion, nothing to dismiss. */
+.nudge {
+  margin: 0 0 1rem;
+  padding: 0.7rem 0.9rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.5rem;
+  background: color-mix(in srgb, currentColor 4%, transparent);
+  font-size: 0.9rem;
+}
+
+/* The Rated screen's band grouping. */
+
+.jump-to-band {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+  font-size: 0.85rem;
+}
+
+.jump-to-band a {
+  color: inherit;
+  font-variant-numeric: tabular-nums;
+  text-underline-offset: 0.25em;
+}
+
+/* The Rated screen's controls sit above the ordering rather than inside it, so they
+   carry their own spacing instead of borrowing the section's. */
+.rated-controls {
+  margin-bottom: 1.25rem;
+}
+
+.band-group {
+  align-self: stretch;
+  width: 100%;
+  margin-bottom: 1.25rem;
+  scroll-margin-top: 1rem;
+}
+
+.band-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+}
+
+.band-header h3 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.anchor-picker {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.anchor-picker .field {
+  margin: 0;
+}
+
+/* The band question: the one step of the flow that names ratings, because it asks
+   about them. Laid out like the comparison it stands in for, so the answer feels the
+   same shape as every other answer. */
+
+.band-subject {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
+  border-radius: 0.5rem;
+}
+
+.band-subject .poster {
+  width: 2.6rem;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 0.25rem;
+}
+
+.band-subject strong {
+  font-size: 1rem;
+}
+
+.band-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+}
+
+.band-option {
+  width: min(100%, 13rem, 28vh);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.band-option h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.band-option p {
+  margin: 0;
+}
+
+.band-option .poster {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+/* A band nothing stands for still needs a face, so the stars themselves are it. */
+.band-option-empty {
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  border: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
+  border-radius: 0.4rem;
+  font-size: 1.1rem;
+  opacity: 0.7;
+}
+
+.band-option .button {
+  align-self: stretch;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The ballpark guess: quiet, optional, and impossible to mistake for a rating. */
+.ballpark {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.ballpark .link-button {
+  font-variant-numeric: tabular-nums;
+}
+
+.place-landed-band {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.5rem;
+  margin: 0.35rem 0 0;
+  font-size: 1.5rem;
+}
+
+/* Anchor designation on the film page. */
+
+.film-page-band {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 1rem 0 0;
+  font-size: 1.35rem;
+}
+
+.designate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.75rem;
+  margin: 0.75rem 0 1rem;
+}
+
+.designate .button,
+.designate .link-button {
+  /* The shared button rule pins itself to the top of its line; here the row has to
+     read as one row, so it sits on the select's baseline instead of the label's. */
+  align-self: flex-end;
+}
+
+.designate .field {
+  margin: 0;
+}
+
+.designate > .muted {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 0.85rem;
 }

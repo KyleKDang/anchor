@@ -1,30 +1,47 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 
-import { api, messageOf, type FilmCard, type Rated as RatedOrdering } from "../api";
+import {
+  BANDS,
+  api,
+  messageOf,
+  type BandGroup,
+  type FilmCard,
+  type Rated as RatedScreen,
+  type RatedFilm,
+  type RatedFilters,
+  type RatedSort,
+} from "../api";
+import { AnchorBadge, AnchorNudge, Band, ProvisionalMark } from "../films/Band";
 import { Poster } from "../films/Poster";
 import { filmPath, placePath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
- * The Rated screen: the owner's ordering, best to worst, and the rate-later queue below.
+ * The Rated screen: the ordering grouped into bands, and the rate-later queue below it.
  *
- * The ordering is shown position-only. Band grouping with half-star headers, anchors, and
- * the needs-attention strip all need dividers to exist, and with none pinned yet, grouping
- * by band would be grouping by nothing - so the screen says what it honestly knows.
+ * The default view is the ordering itself, best to worst, with the half-star value as
+ * each group's header and the band's anchor badged. A run the dividers cannot decide
+ * groups under "Rating pending" rather than under a made-up number - the honest state a
+ * fresh account lives in until the first anchors erect some structure.
+ *
+ * Every other sort cuts across the ordering, so it drops the grouping and shows a flat
+ * list: a band header over a sequence that is not in band order would be a heading over
+ * nothing.
  */
 export function Rated() {
-  const [rated, setRated] = useState<RatedOrdering | null>(null);
+  const [filters, setFilters] = useState<RatedFilters>({ sort: "position" });
+  const [rated, setRated] = useState<RatedScreen | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
-      setRated(await api.rated());
+      setRated(await api.rated(filters));
       setError(null);
     } catch (caught) {
       setError(messageOf(caught));
     }
-  }, []);
+  }, [filters]);
 
   useEffect(() => {
     void load();
@@ -40,21 +57,28 @@ export function Rated() {
       )}
       {rated !== null && (
         <>
+          {rated.anchor_nudge && <AnchorNudge film={firstFilm(rated)} />}
+          <Controls rated={rated} filters={filters} onChange={setFilters} />
+
           <section className="section" aria-labelledby="ordering-heading">
             <h2 id="ordering-heading">Your ordering</h2>
-            {rated.ordering.length === 0 ? (
+            {isEmpty(rated) ? (
               <p className="muted">
-                Nothing placed yet. Mark a film watched and rate it now to start your ordering.
+                {rated.groups?.length === 0 && rated.films === null && hasFilters(filters)
+                  ? "No rated films match these filters."
+                  : "Nothing placed yet. Mark a film watched and rate it now to start your ordering."}
               </p>
+            ) : rated.groups !== null ? (
+              rated.groups.map((group, index) => (
+                <BandSection key={`${group.band ?? "pending"}-${index}`} group={group} onChange={() => void load()} />
+              ))
             ) : (
               <ol className="ordering">
-                {rated.ordering.map((slot) => (
-                  <li key={slot.position} className="ordering-slot">
-                    <span className="ordering-rank">{slot.position}</span>
+                {rated.films?.map((film) => (
+                  <li key={film.tmdb_id} className="ordering-slot">
+                    <span className="ordering-rank">{film.position}</span>
                     <div className="ordering-films">
-                      {slot.films.map((film) => (
-                        <OrderedFilm key={film.tmdb_id} film={film} />
-                      ))}
+                      <OrderedFilm film={film} showBand />
                     </div>
                   </li>
                 ))}
@@ -80,12 +104,243 @@ export function Rated() {
   );
 }
 
-/** One film in a slot. Tie-group members sit together under one rank, as one slot. */
-function OrderedFilm({ film }: { film: FilmCard }) {
+const SORTS: { value: RatedSort; label: string }[] = [
+  { value: "position", label: "Your ordering" },
+  { value: "rated", label: "Recently rated" },
+  { value: "watched", label: "Recently watched" },
+  { value: "title", label: "Title" },
+  { value: "year", label: "Release year" },
+];
+
+/** The sort, the filters, and the jump-to-band strip that only the ordering can offer. */
+function Controls({
+  rated,
+  filters,
+  onChange,
+}: {
+  rated: RatedScreen;
+  filters: RatedFilters;
+  onChange: (filters: RatedFilters) => void;
+}) {
+  const set = (patch: RatedFilters) => onChange({ ...filters, ...patch });
+
+  return (
+    <div className="rated-controls">
+      <div className="filters">
+        <label className="field">
+          <span>Sort</span>
+          <select
+            value={filters.sort ?? "position"}
+            onChange={(event) => set({ sort: event.target.value as RatedSort })}
+          >
+            {SORTS.map((sort) => (
+              <option key={sort.value} value={sort.value}>
+                {sort.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>From</span>
+          <BandSelect
+            value={filters.bandMax ?? null}
+            onChange={(band) => set({ bandMax: band })}
+            any="Best"
+          />
+        </label>
+        <label className="field">
+          <span>To</span>
+          <BandSelect
+            value={filters.bandMin ?? null}
+            onChange={(band) => set({ bandMin: band })}
+            any="Worst"
+          />
+        </label>
+        <label className="field">
+          <span>Genre</span>
+          <select
+            value={filters.genre ?? ""}
+            onChange={(event) => set({ genre: event.target.value || null })}
+          >
+            <option value="">Any</option>
+            {rated.genres.map((genre) => (
+              <option key={genre} value={genre}>
+                {genre}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="field">
+          <span>Decade</span>
+          <select
+            value={filters.decade ?? ""}
+            onChange={(event) => set({ decade: Number(event.target.value) || null })}
+          >
+            <option value="">Any</option>
+            {rated.decades.map((decade) => (
+              <option key={decade} value={decade}>
+                {decade}s
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+      {rated.groups !== null && rated.bands.length > 0 && (
+        <nav className="jump-to-band" aria-label="Jump to band">
+          <span className="muted">Jump to</span>
+          {rated.bands.map((band) => (
+            <a key={band} href={`#band-${String(band).replace(".", "-")}`}>
+              {band.toFixed(1)}
+            </a>
+          ))}
+        </nav>
+      )}
+    </div>
+  );
+}
+
+/** Bands run best to worst, so the range reads top-down the way the ordering does. */
+function BandSelect({
+  value,
+  onChange,
+  any,
+}: {
+  value: number | null;
+  onChange: (band: number | null) => void;
+  any: string;
+}) {
+  return (
+    <select
+      value={value ?? ""}
+      onChange={(event) => onChange(event.target.value ? Number(event.target.value) : null)}
+    >
+      <option value="">{any}</option>
+      {BANDS.map((band) => (
+        <option key={band} value={band}>
+          {band.toFixed(1)}
+        </option>
+      ))}
+    </select>
+  );
+}
+
+/** One band's run of the ordering, under its half-star header. */
+function BandSection({ group, onChange }: { group: BandGroup; onChange: () => void }) {
+  const id = group.band === null ? undefined : `band-${String(group.band).replace(".", "-")}`;
+  const anchored = group.slots.flat().find((film) => film.anchor) ?? null;
+
+  return (
+    <section className="band-group" id={id} aria-label={header(group.band)}>
+      <header className="band-header">
+        <h3>
+          <Band band={group.band} />
+        </h3>
+        {group.band !== null && (
+          <AnchorPicker band={group.band} films={group.slots.flat()} anchored={anchored} onChange={onChange} />
+        )}
+      </header>
+      <ol className="ordering">
+        {group.slots.map((slot, index) => (
+          <li key={slot[0]?.tmdb_id ?? index} className="ordering-slot">
+            <span className="ordering-rank">{slot[0]?.position}</span>
+            <div className="ordering-films">
+              {slot.map((film) => (
+                <OrderedFilm key={film.tmdb_id} film={film} />
+              ))}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
+function header(band: number | null): string {
+  return band === null ? "Rating pending" : `${band.toFixed(1)} stars`;
+}
+
+/**
+ * The band header's anchor management: pick this band's exemplar from its own films.
+ *
+ * Only films already in the band are offered here, so this entry point can never hit the
+ * designation mismatch - the film page is where a film is designated into a band it is
+ * not currently in, and where the comparisons get to argue.
+ */
+function AnchorPicker({
+  band,
+  films,
+  anchored,
+  onChange,
+}: {
+  band: number;
+  films: RatedFilm[];
+  anchored: RatedFilm | null;
+  onChange: () => void;
+}) {
+  const { busy, error, run } = useAsyncAction();
+  const [open, setOpen] = useState(false);
+
+  if (!open) {
+    return (
+      <button type="button" className="link-button" onClick={() => setOpen(true)}>
+        {anchored ? `Anchor: ${anchored.title}` : "Set this band's anchor"}
+      </button>
+    );
+  }
+  return (
+    <div className="anchor-picker">
+      <label className="field">
+        <span className="visually-hidden">{`Anchor for ${band.toFixed(1)}`}</span>
+        <select
+          disabled={busy}
+          value={anchored?.tmdb_id ?? ""}
+          onChange={(event) =>
+            void run(async () => {
+              const chosen = event.target.value;
+              if (chosen === "") await api.retireAnchor(band);
+              else await api.designate(band, Number(chosen));
+              setOpen(false);
+              onChange();
+            })
+          }
+        >
+          <option value="">No anchor</option>
+          {films.map((film) => (
+            <option key={film.tmdb_id} value={film.tmdb_id}>
+              {film.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * One film in a slot. Tie-group members sit together under one rank, as one slot.
+ *
+ * The band shows on the row only where the list is flat: under the ordering's band
+ * headers the value is already three lines up, and repeating it on every row would
+ * turn the header into decoration.
+ */
+function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: boolean }) {
   return (
     <p className="ordering-film">
       <Link to={filmPath(film.tmdb_id)}>{film.title}</Link>{" "}
       <span className="muted">{releaseYear(film.year)}</span>
+      {showBand && (
+        <>
+          {" "}
+          <Band band={film.band} />
+        </>
+      )}
+      {film.anchor && <AnchorBadge band={film.band} />}
+      {film.provisional && <ProvisionalMark />}
     </p>
   );
 }
@@ -132,4 +387,17 @@ function QueuedFilm({ film, onLeft }: { film: FilmCard; onLeft: () => void }) {
       </div>
     </li>
   );
+}
+
+function isEmpty(rated: RatedScreen): boolean {
+  return (rated.groups?.length ?? rated.films?.length ?? 0) === 0;
+}
+
+function hasFilters(filters: RatedFilters): boolean {
+  return Boolean(filters.bandMin || filters.bandMax || filters.genre || filters.decade);
+}
+
+/** The nudge points at the owner's best film, which is the easiest one to have an opinion about. */
+function firstFilm(rated: RatedScreen): RatedFilm | undefined {
+  return rated.groups?.[0]?.slots[0]?.[0] ?? rated.films?.[0];
 }

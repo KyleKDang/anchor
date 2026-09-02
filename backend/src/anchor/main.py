@@ -6,13 +6,14 @@ from fastapi import FastAPI
 
 from anchor import (
     accounts,
+    anchors,
     errors,
     films,
     health,
     jobs,
     mail,
-    ordering,
     placement,
+    rated,
     sentry,
     tmdb,
     watchlist,
@@ -54,8 +55,9 @@ def create_app(
     app.include_router(accounts.router)
     app.include_router(films.router)
     app.include_router(watchlist.router)
-    app.include_router(ordering.router)
+    app.include_router(rated.router)
     app.include_router(placement.router)
+    app.include_router(anchors.router)
     return app
 
 
