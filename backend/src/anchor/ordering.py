@@ -21,7 +21,7 @@ it are unpinned.
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import bands
@@ -229,7 +229,11 @@ async def reseat(
     ordering as it reads with this film lifted out of it. That is the same sequence the
     film's own search runs against, since a film is never evidence about where it
     belongs, so callers hand over the index they already have rather than translating.
+
+    The placement's clock restarts here: a re-seat is the film being placed again, and
+    "recently rated" is the last placement *or re-placement* (screens-and-flows.md).
     """
+    placement.placed_at = func.now()
     old = ordering.index_of(film_id)
     assert old is not None  # only a placed film is ever re-seated
     if len(ordering.slots[old].film_ids) == 1:

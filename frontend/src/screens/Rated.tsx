@@ -64,13 +64,17 @@ export function Rated() {
             <h2 id="ordering-heading">Your ordering</h2>
             {isEmpty(rated) ? (
               <p className="muted">
-                {rated.groups?.length === 0 && rated.films === null && hasFilters(filters)
+                {hasFilters(filters)
                   ? "No rated films match these filters."
                   : "Nothing placed yet. Mark a film watched and rate it now to start your ordering."}
               </p>
             ) : rated.groups !== null ? (
               rated.groups.map((group, index) => (
-                <BandSection key={`${group.band ?? "pending"}-${index}`} group={group} onChange={() => void load()} />
+                <BandSection
+                  key={`${group.band ?? "pending"}-${index}`}
+                  group={group}
+                  onChange={() => void load()}
+                />
               ))
             ) : (
               <ol className="ordering">
@@ -236,7 +240,12 @@ function BandSection({ group, onChange }: { group: BandGroup; onChange: () => vo
           <Band band={group.band} />
         </h3>
         {group.band !== null && (
-          <AnchorPicker band={group.band} films={group.slots.flat()} anchored={anchored} onChange={onChange} />
+          <AnchorPicker
+            band={group.band}
+            films={group.slots.flat()}
+            anchored={anchored}
+            onChange={onChange}
+          />
         )}
       </header>
       <ol className="ordering">

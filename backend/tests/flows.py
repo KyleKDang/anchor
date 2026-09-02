@@ -11,6 +11,7 @@ advisory math's business and the tests must not pin it (testing.md).
 """
 
 from faketmdb import FilmFixture
+from invariants import assert_no_rating_keys
 
 LIBRARY = tuple(
     FilmFixture(1000 + n, f"Film {n:02d}", release_date=f"{1980 + n}-01-01") for n in range(12)
@@ -92,6 +93,7 @@ async def place(client, film, verdict, seed=1, band=None, **params):
                 client, film, chosen, exemplar["tmdb_id"] if exemplar else None, seed
             )
             continue
+        assert_no_rating_keys(step, "a mid-flow question")
         asked += 1
         step = await answer(client, film, step["b"]["tmdb_id"], verdict, seed)
     return step, asked
@@ -106,6 +108,7 @@ async def place_at(client, film, ordering_ids, index, seed=1):
     await mark_watched(client, film, "now")
     step = await begin(client, film, seed)
     while not step["done"] and step["kind"] == "comparison":
+        assert_no_rating_keys(step, "a mid-flow question")
         opponent = step["b"]["tmdb_id"]
         verdict = "a" if ordering_ids.index(opponent) >= index else "b"
         step = await answer(client, film, opponent, verdict, seed)
@@ -116,6 +119,7 @@ async def replace_at(client, film, ordering_ids, index, seed=1):
     """The same, for a film already in the ordering: a re-placement the owner started."""
     step = await begin(client, film, seed)
     while not step["done"] and step["kind"] == "comparison":
+        assert_no_rating_keys(step, "a mid-flow question")
         opponent = step["b"]["tmdb_id"]
         verdict = "a" if ordering_ids.index(opponent) >= index else "b"
         step = await answer(client, film, opponent, verdict, seed)
