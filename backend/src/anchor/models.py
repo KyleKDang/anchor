@@ -5,14 +5,17 @@ from typing import Any
 
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -173,7 +176,7 @@ class PlacementTrust(enum.StrEnum):
 
 
 class PlacementProvenance(enum.StrEnum):
-    """What produced the placement. Only completed placements exist before bands (#28)."""
+    """What produced the placement; import-seeded ones arrive with the seed import (#29)."""
 
     import_seeded = "import_seeded"
     early_bail = "early_bail"
@@ -185,7 +188,7 @@ class Placement(Base):
 
     A rated film has exactly one placement and a placement's film is exactly one slot's
     member, so this row is also what makes a film rated. The rating itself is never
-    stored: it derives from the slot's position against the dividers (#28).
+    stored: it derives from the slot's position against the dividers.
     """
 
     __tablename__ = "placements"
@@ -223,11 +226,127 @@ class Placement(Base):
     )
 
 
+class Divider(Base):
+    """The stored boundary between two adjacent bands: at most nine per account.
+
+    ``upper_band`` names the pair - the divider carrying 4.0 is the 4.0/3.5 boundary -
+    and ``boundary`` is an index into the ordering: the slots above the divider are the
+    ones at indices below it, and the slots from ``boundary`` down are below it. There
+    is no row at all while a divider is unpinned, which is what makes a film's band
+    honestly underivable rather than quietly guessed.
+
+    A divider moves only as the direct consequence of a band judgment, and
+    ``pinned_by_id`` is which one, so every position it has ever held is auditable back
+    to the answer that put it there. Inserting a slot above a divider renumbers it, but
+    that is not a move: it says exactly what it said before, about the same two slots.
+    """
+
+    __tablename__ = "dividers"
+    __table_args__ = (UniqueConstraint("account_id", "upper_band"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    upper_band: Mapped[float] = mapped_column(Float, nullable=False)
+    """The better of the two bands this divider separates; the worse is the next one down."""
+    boundary: Mapped[int] = mapped_column(Integer, nullable=False)
+    pinned_by_id: Mapped[uuid.UUID] = mapped_column(
+        # Deferred for the same reason the placement's slot reference is: the guard
+        # wanted is "a divider always names a judgment that exists", but the
+        # account-realm wipe deletes the log and the dividers in one transaction, in
+        # whatever order the cascades fire.
+        ForeignKey(
+            "comparison_log_entries.id",
+            ondelete="NO ACTION",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        nullable=False,
+    )
+    """The band judgment that last moved this divider: what makes the move auditable."""
+    moved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AnchorStatus(enum.StrEnum):
+    """Whether a designation is the band's anchor, or only the intent behind a re-placement."""
+
+    current = "current"
+    intended = "intended"
+
+
+class AnchorDesignation(Base):
+    """The owner's canonical exemplar of a band - and the intent aiming at one.
+
+    Current-only: retiring an anchor clears the row rather than closing it, so no
+    designation history is kept, and clearing changes no rating and no divider.
+
+    An ``intended`` row is not an anchor. It is the intent a designation-mismatch
+    re-placement runs under, held here because that flow spans several requests and the
+    placement search deliberately keeps no state of its own: losing the intent would
+    silently cancel a designation the owner asked for. It becomes current if the film
+    lands in the band and is dropped if it lands anywhere else, and either way the
+    re-placement's own result stands.
+    """
+
+    __tablename__ = "anchor_designations"
+    __table_args__ = (
+        # At most one anchor per band. An intended designation is not an anchor yet, so
+        # it deliberately does not contend with the current anchor of the band it aims at.
+        Index(
+            "uq_anchor_designations_current_band",
+            "account_id",
+            "band",
+            unique=True,
+            postgresql_where=text("status = 'current'"),
+        ),
+        # One film anchors one band: designating it elsewhere retires it here first.
+        Index(
+            "uq_anchor_designations_current_film",
+            "account_id",
+            "account_film_id",
+            unique=True,
+            postgresql_where=text("status = 'current'"),
+        ),
+        # One re-placement at a time, so the intent is per account rather than per band.
+        Index(
+            "uq_anchor_designations_intended",
+            "account_id",
+            unique=True,
+            postgresql_where=text("status = 'intended'"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    band: Mapped[float] = mapped_column(Float, nullable=False)
+    account_film_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("account_films.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    status: Mapped[AnchorStatus] = mapped_column(
+        Enum(AnchorStatus, name="anchor_status"), nullable=False
+    )
+    designated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class ComparisonKind(enum.StrEnum):
-    """The log's row types; sliver and criteria answers ride here as typed siblings."""
+    """The log's row types; band and criteria answers ride here as typed siblings.
+
+    ``sliver`` and ``band`` are both band judgments - "this film is a 4.0" - and differ
+    only in how the question was put: a sliver answer is the owner picking which of two
+    canonical exemplars the film sits closer to, so it names one; a band answer is a
+    plain pick off a list of bands, which names none.
+    """
 
     overall = "overall"
     sliver = "sliver"
+    band = "band"
     criteria = "criteria"
 
 
@@ -268,6 +387,16 @@ class ComparisonLogEntry(Base):
     """
 
     __tablename__ = "comparison_log_entries"
+    __table_args__ = (
+        # Every judgment answers exactly one kind of question, so exactly one of the two
+        # answer columns is filled. Enforced here rather than left to the callers: a row
+        # with neither is a judgment that says nothing, and a row with both is two
+        # judgments wearing one timestamp.
+        CheckConstraint(
+            "(band IS NULL) <> (verdict IS NULL)",
+            name="ck_comparison_log_entries_one_answer",
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     account_id: Mapped[uuid.UUID] = mapped_column(
@@ -283,12 +412,14 @@ class ComparisonLogEntry(Base):
     film_a_id: Mapped[int] = mapped_column(
         ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
     )
-    film_b_id: Mapped[int] = mapped_column(
-        ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
+    film_b_id: Mapped[int | None] = mapped_column(ForeignKey("films.tmdb_id", ondelete="RESTRICT"))
+    """The other film, or None where the judgment involved one: a plain band pick."""
+    verdict: Mapped[ComparisonVerdict | None] = mapped_column(
+        Enum(ComparisonVerdict, name="comparison_verdict")
     )
-    verdict: Mapped[ComparisonVerdict] = mapped_column(
-        Enum(ComparisonVerdict, name="comparison_verdict"), nullable=False
-    )
+    """How a comparison was answered. None on a band judgment, whose answer is ``band``."""
+    band: Mapped[float | None] = mapped_column(Float)
+    """The band a band judgment asserts. None on a comparison, whose answer is ``verdict``."""
     context: Mapped[ComparisonContext] = mapped_column(
         Enum(ComparisonContext, name="comparison_context"), nullable=False
     )

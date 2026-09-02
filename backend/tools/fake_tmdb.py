@@ -37,10 +37,17 @@ def film(
     }
 
 
+# Seven films, spread across genres and decades on purpose: the Rated screen groups an
+# ordering into bands and filters it, and neither shows anything worth looking at until
+# the dev stack holds enough films to make more than one band and more than one decade.
 CATALOG = {
     550: film(550, "Fight Club", "1999-10-15", ["Drama", "Thriller"], "David Fincher"),
     329865: film(329865, "Arrival", "2016-11-10", ["Drama", "Science Fiction"], "Denis Villeneuve"),
     949: film(949, "Heat", "1995-12-15", ["Crime", "Drama"], "Michael Mann"),
+    496243: film(496243, "Parasite", "2019-05-30", ["Comedy", "Thriller"], "Bong Joon-ho"),
+    244786: film(244786, "Whiplash", "2014-10-10", ["Drama", "Music"], "Damien Chazelle"),
+    348: film(348, "Alien", "1979-05-25", ["Horror", "Science Fiction"], "Ridley Scott"),
+    11104: film(11104, "Chungking Express", "1994-07-14", ["Drama", "Romance"], "Wong Kar-wai"),
 }
 
 SEARCH_FIELDS = ("id", "title", "release_date", "overview", "poster_path")

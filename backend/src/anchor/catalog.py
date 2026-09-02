@@ -26,17 +26,6 @@ from anchor.tmdb import FilmBundle, FilmNotInTmdb, SearchHit, Tmdb, TmdbUnavaila
 # --- Wire shapes ---
 
 
-def derived_rating(account_film: AccountFilm | None) -> float | None:
-    """A rated film's half-star value, derived from its position against the dividers.
-
-    Ratings are never stored, only derived (data-model.md), and the positions and
-    dividers they derive from arrive with the ordering (#27) and the bands (#28).
-    Until then a rated film honestly has no value to show, and every surface here
-    already renders that absence.
-    """
-    return None
-
-
 class SearchResult(BaseModel):
     """A TMDB search row, flagged with what the owner already knows about the film."""
 
@@ -49,7 +38,9 @@ class SearchResult(BaseModel):
     rating: float | None
 
     @classmethod
-    def of(cls, hit: SearchHit, account_film: AccountFilm | None) -> "SearchResult":
+    def of(
+        cls, hit: SearchHit, account_film: AccountFilm | None, band: float | None = None
+    ) -> "SearchResult":
         return cls(
             tmdb_id=hit.tmdb_id,
             title=hit.title,
@@ -57,7 +48,7 @@ class SearchResult(BaseModel):
             overview=hit.overview,
             poster_path=hit.poster_path,
             state=account_film.state if account_film else None,
-            rating=derived_rating(account_film),
+            rating=band,
         )
 
 
@@ -78,11 +69,20 @@ class FilmDetail(BaseModel):
     vote_count: int
     state: LifecycleState | None
     rating: float | None
+    anchor: bool
+    """This film is the canonical exemplar of its band, so the page badges it as one."""
     rate_later: bool
     """The rate-later seat; meaningful only while the film is watched-unrated."""
 
     @classmethod
-    def of(cls, film: Film, account_film: AccountFilm | None) -> "FilmDetail":
+    def of(
+        cls,
+        film: Film,
+        account_film: AccountFilm | None,
+        band: float | None = None,
+        *,
+        anchor: bool = False,
+    ) -> "FilmDetail":
         return cls(
             tmdb_id=film.tmdb_id,
             title=film.title,
@@ -97,7 +97,8 @@ class FilmDetail(BaseModel):
             vote_average=film.vote_average,
             vote_count=film.vote_count,
             state=account_film.state if account_film else None,
-            rating=derived_rating(account_film),
+            rating=band,
+            anchor=anchor,
             rate_later=account_film.rate_later if account_film else False,
         )
 

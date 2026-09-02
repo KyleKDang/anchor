@@ -47,8 +47,33 @@ export type Verdict = "a" | "b" | "tied" | "skip";
 
 export interface PlacementQuestion {
   done: false;
+  kind: "comparison";
   a: FilmCard;
   b: FilmCard;
+  answered: number;
+  /** The stars are settled and only the neighbours are open, so bailing out is safe. */
+  band_locked: boolean;
+}
+
+/** One band the landing could belong to, and the canonical film that stands for it. */
+export interface BandOption {
+  band: number;
+  exemplar: FilmCard | null;
+}
+
+/**
+ * The landing sits exactly on a divider, so only the owner can say which side.
+ *
+ * This is the one step of the flow that names ratings, deliberately: the question is
+ * about the bands, so hiding them would leave nothing to answer.
+ */
+export interface BandQuestion {
+  done: false;
+  kind: "band";
+  film: FilmCard;
+  /** Two adjacent bands with a canonical film each; otherwise it is a plain band pick. */
+  sliver: boolean;
+  options: BandOption[];
   answered: number;
 }
 
@@ -60,26 +85,101 @@ export interface Neighbours {
 
 export interface PlacementLanded {
   done: true;
+  kind: "landed";
   film: FilmCard;
   /** 1-based rank of the film's slot, best first. */
   position: number;
   total: number;
-  /** Derived from position against the dividers, so nothing until they are pinned. */
+  /** Derived from position against the dividers; null while the band structure is thin. */
   rating: number | null;
+  band_anchor: boolean;
+  /** Trusted less than a fully-compared placement, and settles on its own. */
+  provisional: boolean;
+  /** Position-only and no anchor exists yet: the line explaining the missing stars. */
+  anchor_nudge: boolean;
+  /** A designation-mismatch re-placement landed in its band and completed the intent. */
+  designated: boolean;
   neighbours: Neighbours;
 }
 
-export type PlacementStep = PlacementQuestion | PlacementLanded;
+export type PlacementStep = PlacementQuestion | BandQuestion | PlacementLanded;
 
-export interface RatedSlot {
+/** Position is the ordering itself; every other sort drops the band grouping. */
+export type RatedSort = "position" | "rated" | "watched" | "title" | "year";
+
+export interface RatedFilm {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  genres: string[];
+  /** 1-based rank of the film's slot, best first. */
   position: number;
-  films: FilmCard[];
+  /** Derived from position against the dividers; null while its band is undecidable. */
+  band: number | null;
+  anchor: boolean;
+  provisional: boolean;
+}
+
+/** One run of the ordering sharing a band, or one run that has no band yet. */
+export interface BandGroup {
+  band: number | null;
+  /** Tie-groups, in order; the films in one slot are the ones judged equal. */
+  slots: RatedFilm[][];
 }
 
 export interface Rated {
-  ordering: RatedSlot[];
+  sort: RatedSort;
+  /** The banded ordering, for the position sort; null for every other. */
+  groups: BandGroup[] | null;
+  /** The flat list, for every sort but position; null for that one. */
+  films: RatedFilm[] | null;
+  bands: number[];
+  genres: string[];
+  decades: number[];
+  /** No anchor exists yet: the one line explaining where the half-stars have gone. */
+  anchor_nudge: boolean;
   rate_later: FilmCard[];
 }
+
+export interface RatedFilters {
+  sort?: RatedSort;
+  bandMin?: number | null;
+  bandMax?: number | null;
+  genre?: string | null;
+  decade?: number | null;
+}
+
+export interface BandAnchor {
+  band: number;
+  film: FilmCard | null;
+}
+
+export interface Anchors {
+  anchors: BandAnchor[];
+  nudge: boolean;
+}
+
+/** Designating took, because the film was already where the owner said it was. */
+export interface Designated {
+  outcome: "designated";
+  band: number;
+  film: FilmCard;
+  /** The anchor this one replaced, which stays exactly where it sits in the ordering. */
+  retired: FilmCard | null;
+}
+
+/** The film is not in that band, so comparisons - not the intent - get to decide. */
+export interface ReplacementNeeded {
+  outcome: "re_placement";
+  band: number;
+  film: FilmCard;
+}
+
+export type Designation = Designated | ReplacementNeeded;
+
+/** The ten half-star bands, best first. A fixed vocabulary, never fetched. */
+export const BANDS = [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5];
 
 export interface FilmDetail {
   tmdb_id: number;
@@ -96,6 +196,8 @@ export interface FilmDetail {
   vote_count: number;
   state: LifecycleState | null;
   rating: number | null;
+  /** This film is the canonical exemplar of its band. */
+  anchor: boolean;
   /** The rate-later seat; meaningful only while the film is watched-unrated. */
   rate_later: boolean;
 }
@@ -182,16 +284,42 @@ export const api = {
     request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, { rate }),
   leaveRateLater: (tmdbId: number) =>
     request<void>("DELETE", `/api/films/${tmdbId}/rate-later`),
-  beginPlacement: (tmdbId: number) =>
-    request<PlacementStep>("POST", `/api/placements/${tmdbId}`),
+  beginPlacement: (tmdbId: number, ballpark?: number) =>
+    request<PlacementStep>(
+      "POST",
+      `/api/placements/${tmdbId}${ballpark === undefined ? "" : `?ballpark=${ballpark}`}`,
+    ),
   answerPlacement: (tmdbId: number, opponentTmdbId: number, verdict: Verdict) =>
     request<PlacementStep>("POST", `/api/placements/${tmdbId}/answers`, {
       opponent_tmdb_id: opponentTmdbId,
       verdict,
     }),
-  rated: () => request<Rated>("GET", "/api/rated"),
+  answerBand: (tmdbId: number, band: number, exemplarTmdbId: number | null) =>
+    request<PlacementStep>("POST", `/api/placements/${tmdbId}/band`, {
+      band,
+      exemplar_tmdb_id: exemplarTmdbId,
+    }),
+  bailOut: (tmdbId: number) => request<PlacementStep>("POST", `/api/placements/${tmdbId}/bail`),
+  keepComparing: (tmdbId: number) =>
+    request<PlacementStep>("POST", `/api/placements/${tmdbId}/keep-comparing`),
+  rated: (filters: RatedFilters = {}) => request<Rated>("GET", `/api/rated${ratedQuery(filters)}`),
+  anchors: () => request<Anchors>("GET", "/api/anchors"),
+  designate: (band: number, tmdbId: number) =>
+    request<Designation>("POST", `/api/anchors/${band}`, { tmdb_id: tmdbId }),
+  retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
   backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
 };
+
+function ratedQuery(filters: RatedFilters): string {
+  const params = new URLSearchParams();
+  if (filters.sort) params.set("sort", filters.sort);
+  if (filters.bandMin != null) params.set("band_min", String(filters.bandMin));
+  if (filters.bandMax != null) params.set("band_max", String(filters.bandMax));
+  if (filters.genre) params.set("genre", filters.genre);
+  if (filters.decade) params.set("decade", String(filters.decade));
+  const search = params.toString();
+  return search ? `?${search}` : "";
+}
 
 function backlogQuery(filters: BacklogFilters): string {
   const params = new URLSearchParams();

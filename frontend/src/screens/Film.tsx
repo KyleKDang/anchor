@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useNavigate, useParams } from "react-router";
 
-import { api, messageOf, type FilmDetail } from "../api";
+import { BANDS, api, messageOf, type FilmDetail } from "../api";
+import { AnchorBadge, Band } from "../films/Band";
 import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
@@ -13,9 +14,9 @@ import { useAsyncAction } from "../films/useAsyncAction";
  * The film page, reached by tapping a film anywhere. It is not a destination of its own.
  *
  * The page shifts with the film's state: untracked and in-backlog offer the backlog and
- * the watch, watched-unrated carries the seen marker and place-it-now, and rated points
- * at where the film sits. Pin and veto arrive with the ranked tier; the rated view's
- * band, judgment history, and re-place arrive with the tickets that create them.
+ * the watch, watched-unrated carries the seen marker and place-it-now, and rated shows
+ * its band, whether it anchors that band, and the designation control. Pin and veto
+ * arrive with the ranked tier; judgment history and drift resolution with theirs.
  */
 export function Film() {
   const { tmdbId } = useParams();
@@ -64,7 +65,9 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
             <span className="muted">
               {[releaseYear(film.year), runtime(film.runtime)].join(" · ")}
             </span>
-            <StateFlag state={film.state} rating={film.rating} />
+            {/* The band gets its own line below for a rated film, so the flag says
+                the state and leaves the value to it. */}
+            <StateFlag state={film.state} rating={film.state === "rated" ? null : film.rating} />
           </p>
           {film.genres.length > 0 && <p className="muted">{film.genres.join(", ")}</p>}
           {film.directors.length > 0 && (
@@ -139,9 +142,16 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
             <p className="muted">Waiting in your rate-later queue.</p>
           )}
           {film.state === "rated" && (
-            <p className="muted">
-              <Link to="/rated">See where it sits in your ordering</Link>
-            </p>
+            <>
+              <p className="film-page-band">
+                <Band band={film.rating} />
+                {film.anchor && <AnchorBadge band={film.rating} />}
+              </p>
+              <Designate film={film} onChanged={onChange} />
+              <p className="muted">
+                <Link to="/rated">See where it sits in your ordering</Link>
+              </p>
+            </>
           )}
           {error && (
             <p className="error" role="alert">
@@ -151,6 +161,86 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
         </div>
       </article>
     </>
+  );
+}
+
+/**
+ * Designating this film as a band's canonical exemplar, from its own page.
+ *
+ * Any band can be chosen, not just the one the film currently derives into: on a fresh
+ * account nothing derives into anything yet, and designating is the one sanctioned way
+ * to say what a band *is*. Choosing a band the film is not currently in does not move
+ * it there - it starts a re-placement seeded by the intent, and the comparisons decide.
+ */
+function Designate({
+  film,
+  onChanged,
+}: {
+  film: FilmDetail;
+  onChanged: (film: FilmDetail) => void;
+}) {
+  const navigate = useNavigate();
+  const { busy, error, run } = useAsyncAction();
+  const [band, setBand] = useState<number>(film.rating ?? 4);
+
+  return (
+    <div className="designate">
+      <label className="field">
+        <span>Make this my canonical…</span>
+        <select
+          value={band}
+          disabled={busy}
+          onChange={(event) => setBand(Number(event.target.value))}
+        >
+          {BANDS.map((value) => (
+            <option key={value} value={value}>
+              {value.toFixed(1)}
+            </option>
+          ))}
+        </select>
+      </label>
+      <button
+        type="button"
+        className="button secondary"
+        disabled={busy}
+        onClick={() =>
+          void run(async () => {
+            const result = await api.designate(band, film.tmdb_id);
+            if (result.outcome === "re_placement") navigate(placePath(film.tmdb_id));
+            else onChanged(await api.film(film.tmdb_id));
+          })
+        }
+      >
+        Designate
+      </button>
+      {film.anchor && (
+        <button
+          type="button"
+          className="link-button"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              if (film.rating !== null) await api.retireAnchor(film.rating);
+              onChanged(await api.film(film.tmdb_id));
+            })
+          }
+        >
+          Retire this anchor
+        </button>
+      )}
+      {band !== film.rating && (
+        <p className="muted">
+          {film.rating === null
+            ? "Nothing is a known band yet, so this is what erects the first one."
+            : `It is a ${film.rating.toFixed(1)} today, so this re-places it first and the comparisons decide.`}
+        </p>
+      )}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 

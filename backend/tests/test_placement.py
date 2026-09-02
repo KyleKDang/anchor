@@ -20,7 +20,18 @@ from anchor.models import (
     PlacementTrust,
     WatchEvent,
 )
-from faketmdb import FilmFixture
+from flows import (
+    LIBRARY,
+    account_id,
+    answer,
+    begin,
+    build_ordering,
+    mark_watched,
+    ordering_of,
+    place,
+    queue_of,
+    rated,
+)
 from invariants import (
     assert_appended_only,
     assert_no_rating_keys,
@@ -31,82 +42,12 @@ from invariants import (
     ordering_snapshot,
 )
 
-# A dozen films is enough for a bisection deep enough to count.
-LIBRARY = tuple(
-    FilmFixture(1000 + n, f"Film {n:02d}", release_date=f"{1980 + n}-01-01") for n in range(12)
-)
 FIRST, SECOND, THIRD, FOURTH = LIBRARY[:4]
 
 
 @pytest.fixture(autouse=True)
 def stocked(tmdb):
     return tmdb.with_films(*LIBRARY)
-
-
-# --- Driving the flows ---
-
-
-async def account_id(client):
-    response = await client.get("/api/auth/me")
-    assert response.status_code == 200, response.text
-    return response.json()["id"]
-
-
-async def mark_watched(client, film, rate="later"):
-    response = await client.post(f"/api/films/{film.tmdb_id}/watched", json={"rate": rate})
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def begin(client, film, seed=1):
-    response = await client.post(f"/api/placements/{film.tmdb_id}", params={"seed": seed})
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def answer(client, film, opponent_tmdb_id, verdict, seed=1):
-    response = await client.post(
-        f"/api/placements/{film.tmdb_id}/answers",
-        json={"opponent_tmdb_id": opponent_tmdb_id, "verdict": verdict, "seed": seed},
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def rated(client):
-    response = await client.get("/api/rated")
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def place(client, film, verdict, seed=1):
-    """Watch a film and answer every question the same way until it lands.
-
-    Returns the done screen and how many questions it took, which is how the bisection
-    is measured without naming a single opponent.
-    """
-    await mark_watched(client, film, "now")
-    step = await begin(client, film, seed)
-    asked = 0
-    while not step["done"]:
-        assert_no_rating_keys(step, "a mid-flow question")
-        asked += 1
-        step = await answer(client, film, step["b"]["tmdb_id"], verdict, seed)
-    return step, asked
-
-
-async def build_ordering(client, films):
-    """Place films worst-last: each new one loses every comparison, so order is preserved."""
-    for film in films:
-        await place(client, film, "b")
-
-
-def ordering_of(payload):
-    return [[film["tmdb_id"] for film in slot["films"]] for slot in payload["ordering"]]
-
-
-def queue_of(payload):
-    return [film["tmdb_id"] for film in payload["rate_later"]]
 
 
 # --- Logging a watch ---
@@ -434,7 +375,9 @@ async def test_the_rated_screen_shows_the_ordering_and_the_queue_below_it(owner)
     payload = await rated(owner)
 
     assert ordering_of(payload) == [[film.tmdb_id] for film in LIBRARY[:3]]
-    assert [slot["position"] for slot in payload["ordering"]] == [1, 2, 3]
+    assert [
+        film["position"] for group in payload["groups"] for slot in group["slots"] for film in slot
+    ] == [1, 2, 3]
     assert queue_of(payload) == [LIBRARY[4].tmdb_id]
     assert_nothing_rating_shaped(payload, "the Rated screen before any divider is pinned")
 
