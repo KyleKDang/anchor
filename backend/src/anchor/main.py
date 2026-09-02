@@ -4,7 +4,19 @@ from contextlib import asynccontextmanager
 import httpx
 from fastapi import FastAPI
 
-from anchor import accounts, errors, films, health, jobs, mail, sentry, tmdb, watchlist
+from anchor import (
+    accounts,
+    errors,
+    films,
+    health,
+    jobs,
+    mail,
+    ordering,
+    placement,
+    sentry,
+    tmdb,
+    watchlist,
+)
 from anchor.db import Database
 from anchor.ratelimit import RateLimiter
 from anchor.settings import Settings
@@ -42,6 +54,8 @@ def create_app(
     app.include_router(accounts.router)
     app.include_router(films.router)
     app.include_router(watchlist.router)
+    app.include_router(ordering.router)
+    app.include_router(placement.router)
     return app
 
 

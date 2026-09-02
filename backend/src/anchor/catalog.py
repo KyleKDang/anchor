@@ -78,6 +78,8 @@ class FilmDetail(BaseModel):
     vote_count: int
     state: LifecycleState | None
     rating: float | None
+    rate_later: bool
+    """The rate-later seat; meaningful only while the film is watched-unrated."""
 
     @classmethod
     def of(cls, film: Film, account_film: AccountFilm | None) -> "FilmDetail":
@@ -96,6 +98,33 @@ class FilmDetail(BaseModel):
             vote_count=film.vote_count,
             state=account_film.state if account_film else None,
             rating=derived_rating(account_film),
+            rate_later=account_film.rate_later if account_film else False,
+        )
+
+
+class FilmCard(BaseModel):
+    """A film as the ordering and the placement flow show it: identity, poster, and plot.
+
+    It carries no ``rating`` and no ``state`` key at all, which is stronger than carrying
+    them empty. Mid-flow the owner must answer on the pure which-is-better instinct,
+    uncontaminated by the opponent's band (screens-and-flows.md), so the value is not
+    merely hidden in the UI - it never leaves the server.
+    """
+
+    tmdb_id: int
+    title: str
+    year: int | None
+    poster_path: str | None
+    overview: str
+
+    @classmethod
+    def of(cls, film: Film) -> "FilmCard":
+        return cls(
+            tmdb_id=film.tmdb_id,
+            title=film.title,
+            year=film.release_year,
+            poster_path=film.poster_path,
+            overview=film.overview,
         )
 
 

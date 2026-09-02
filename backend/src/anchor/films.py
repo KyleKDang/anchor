@@ -8,7 +8,7 @@ A film's lifecycle state is exclusive and untracked films have no record at all,
 these transitions create the record on the way in and delete it on the way back out.
 """
 
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
@@ -20,7 +20,14 @@ from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmDetail, SearchResult
 from anchor.deps import AppSettings, AppTmdb, DbSession
 from anchor.errors import ApiError
-from anchor.models import Account, AccountFilm, LifecycleState
+from anchor.models import (
+    Account,
+    AccountFilm,
+    LifecycleState,
+    WatchEvent,
+    WatchOrigin,
+    WatchStanding,
+)
 
 router = APIRouter(prefix="/api/films")
 
@@ -29,6 +36,12 @@ SEARCH_QUERY_MAX = 200
 
 class SearchResults(BaseModel):
     results: list[SearchResult]
+
+
+class MarkWatched(BaseModel):
+    """Logging a watch is always a choice between rating it now and rating it later."""
+
+    rate: Literal["now", "later"]
 
 
 # `/search` is declared before `/{tmdb_id}`: FastAPI matches routes in order, and the
@@ -92,13 +105,19 @@ async def remove_from_backlog(tmdb_id: int, account: CurrentAccount, db: DbSessi
 
 @router.post("/{tmdb_id}/watched")
 async def mark_watched(
-    tmdb_id: int, account: CurrentAccount, db: DbSession, tmdb: AppTmdb, settings: AppSettings
+    tmdb_id: int,
+    body: MarkWatched,
+    account: CurrentAccount,
+    db: DbSession,
+    tmdb: AppTmdb,
+    settings: AppSettings,
 ) -> FilmDetail:
-    """Mark a film watched but unrated, seating it in the rate-later queue.
+    """Log a watch, and take the owner's answer to rate now or rate later.
 
-    The choice between rating now and rating later, and the watch event itself, arrive
-    with the placement flow (#27); this is the "later" half of it, which is all that
-    can honestly exist before an ordering does.
+    Either answer makes the film watched-unrated and appends a watch event. "Later" also
+    seats the film in the rate-later queue; "now" leaves the seat to the placement flow,
+    which takes it the moment the flow begins, so an abandoned attempt still lands the
+    film in the queue.
     """
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
     account_film = await _account_film(db, account, tmdb_id)
@@ -108,11 +127,43 @@ async def mark_watched(
         )
         db.add(account_film)
     elif account_film.state is LifecycleState.rated:
+        # Marking a rated film watched is the rewatch flow, which arrives with #30.
         raise ApiError(409, "already_rated", "You have already rated this film.")
     account_film.state = LifecycleState.watched_unrated
-    account_film.rate_later = True
+    account_film.rate_later = body.rate == "later"
+    db.add(_watch_event(account, tmdb_id))
     await db.commit()
     return FilmDetail.of(film, account_film)
+
+
+def _watch_event(account: Account, tmdb_id: int) -> WatchEvent:
+    """The watch, stamped with where the film stood and how it got there.
+
+    Both stamps are capture-or-lose-forever (evaluation.md): tier membership churns and
+    keeps no history, so nothing could reconstruct them later. Everything is plain
+    backlog until the ranked tier exists (#33), and hand-added until discovery (#32) and
+    the seed import (#29) can put a film in the owner's world any other way.
+    """
+    return WatchEvent(
+        account_id=account.id,
+        film_id=tmdb_id,
+        standing=WatchStanding.plain_backlog,
+        origin=WatchOrigin.hand_added,
+    )
+
+
+@router.delete("/{tmdb_id}/rate-later", status_code=204)
+async def leave_rate_later(tmdb_id: int, account: CurrentAccount, db: DbSession) -> None:
+    """Take a watched-unrated film out of the rate-later queue, still watched.
+
+    The seat is removable at will and removing it never touches watched-ness: the owner
+    is saying they do not intend to rate this one, not that they did not see it.
+    """
+    account_film = await _account_film(db, account, tmdb_id)
+    if account_film is None or account_film.state is not LifecycleState.watched_unrated:
+        raise ApiError(409, "not_watched_unrated", "That film is not waiting to be rated.")
+    account_film.rate_later = False
+    await db.commit()
 
 
 # --- Helpers ---

@@ -25,6 +25,62 @@ export interface SearchResult {
   rating: number | null;
 }
 
+/** A film as the ordering and the placement flow show it.
+ *
+ * There is deliberately no `rating` and no `state` field. Mid-flow the owner answers on
+ * the pure which-is-better instinct, so the value is absent from the payload rather than
+ * merely hidden by this client.
+ */
+export interface FilmCard {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  overview: string;
+}
+
+/** Logging a watch is always a choice between rating it now and rating it later. */
+export type Rate = "now" | "later";
+
+/** The four answers a comparison offers; `a` is always the film being placed. */
+export type Verdict = "a" | "b" | "tied" | "skip";
+
+export interface PlacementQuestion {
+  done: false;
+  a: FilmCard;
+  b: FilmCard;
+  answered: number;
+}
+
+export interface Neighbours {
+  above: FilmCard[];
+  tied_with: FilmCard[];
+  below: FilmCard[];
+}
+
+export interface PlacementLanded {
+  done: true;
+  film: FilmCard;
+  /** 1-based rank of the film's slot, best first. */
+  position: number;
+  total: number;
+  /** Derived from position against the dividers, so nothing until they are pinned. */
+  rating: number | null;
+  neighbours: Neighbours;
+}
+
+export type PlacementStep = PlacementQuestion | PlacementLanded;
+
+export interface RatedSlot {
+  position: number;
+  films: FilmCard[];
+}
+
+export interface Rated {
+  ordering: RatedSlot[];
+  rate_later: FilmCard[];
+}
+
 export interface FilmDetail {
   tmdb_id: number;
   title: string;
@@ -40,6 +96,8 @@ export interface FilmDetail {
   vote_count: number;
   state: LifecycleState | null;
   rating: number | null;
+  /** The rate-later seat; meaningful only while the film is watched-unrated. */
+  rate_later: boolean;
 }
 
 export interface BacklogFilm {
@@ -120,7 +178,18 @@ export const api = {
   film: (tmdbId: number) => request<FilmDetail>("GET", `/api/films/${tmdbId}`),
   addToBacklog: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/backlog`),
   removeFromBacklog: (tmdbId: number) => request<void>("DELETE", `/api/films/${tmdbId}/backlog`),
-  markWatched: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`),
+  markWatched: (tmdbId: number, rate: Rate) =>
+    request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, { rate }),
+  leaveRateLater: (tmdbId: number) =>
+    request<void>("DELETE", `/api/films/${tmdbId}/rate-later`),
+  beginPlacement: (tmdbId: number) =>
+    request<PlacementStep>("POST", `/api/placements/${tmdbId}`),
+  answerPlacement: (tmdbId: number, opponentTmdbId: number, verdict: Verdict) =>
+    request<PlacementStep>("POST", `/api/placements/${tmdbId}/answers`, {
+      opponent_tmdb_id: opponentTmdbId,
+      verdict,
+    }),
+  rated: () => request<Rated>("GET", "/api/rated"),
   backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
 };
 

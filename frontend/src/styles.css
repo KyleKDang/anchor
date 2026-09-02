@@ -434,3 +434,240 @@ body {
 .attribution .muted {
   max-width: 34rem;
 }
+
+/* Logging a watch: the offer opens in place, primary then quiet secondary. */
+
+.link-button {
+  font: inherit;
+  font-size: 0.9rem;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  opacity: 0.7;
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  align-self: flex-start;
+}
+
+.link-button:hover:not(:disabled),
+.link-button:focus-visible {
+  opacity: 1;
+}
+
+.link-button:disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.rate-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.rate-choice-label {
+  font-size: 0.9rem;
+}
+
+/* A row's action column is a stack, and the offer stacks inside it: three controls
+   laid out in a line would push the row's grid column past the screen edge. */
+.film-row-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.film-row-actions .rate-choice {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+
+.film-row-actions .button,
+.film-row-actions .link-button {
+  align-self: stretch;
+  text-align: center;
+}
+
+/* The Rated screen: the ordering, position-only until dividers exist. */
+
+.ordering {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.ordering-slot {
+  display: flex;
+  gap: 0.9rem;
+  align-items: baseline;
+  padding: 0.5rem 0;
+  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+
+.ordering-slot:first-child {
+  border-top: 0;
+}
+
+.ordering-rank {
+  flex: 0 0 2.5rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  opacity: 0.55;
+}
+
+.ordering-films {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.ordering-film {
+  margin: 0;
+}
+
+/* Titles carry their own weight here too; the underline is for the pointer. */
+.ordering-film a {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+}
+
+.ordering-film a:hover,
+.ordering-film a:focus-visible {
+  text-decoration: underline;
+}
+
+/* The placement flow: full-screen, nothing on it but the question. */
+
+.place {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  align-items: center;
+}
+
+.place-header {
+  text-align: center;
+}
+
+.place-header h1 {
+  margin: 0 0 0.25rem;
+  font-size: 1.4rem;
+}
+
+.place-header p {
+  margin: 0;
+}
+
+.place-pair {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1.25rem;
+  width: 100%;
+}
+
+/* Width-capped by the shortest of three limits, so the poster, the title, and the
+   button all share one edge, and a short viewport shrinks the card instead of
+   pushing the answers off the bottom of the screen. */
+.place-card {
+  width: min(100%, 13rem, 28vh);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  text-align: center;
+}
+
+.place-card h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.place-card p,
+.place-card .spoiler {
+  margin: 0;
+}
+
+.place-card .poster {
+  width: 100%;
+  height: auto;
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+}
+
+.place-card .button {
+  align-self: stretch;
+}
+
+.place-answers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.place > .button {
+  align-self: center;
+}
+
+.place-leave {
+  margin: 0;
+  text-align: center;
+}
+
+.place-neighbours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  width: min(100%, 28rem);
+}
+
+.place-neighbour {
+  display: flex;
+  gap: 0.9rem;
+  align-items: baseline;
+  padding: 0.5rem 0.6rem;
+  border-radius: 0.4rem;
+}
+
+.place-neighbour a {
+  color: inherit;
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+}
+
+.place-neighbour a:hover,
+.place-neighbour a:focus-visible {
+  text-decoration: underline;
+}
+
+.place-neighbour-self {
+  font-weight: 600;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.place-rank {
+  flex: 0 0 2rem;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+}
+
+@media (max-width: 32rem) {
+  .place-pair {
+    gap: 0.75rem;
+  }
+}

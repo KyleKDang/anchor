@@ -27,7 +27,9 @@ test("an owner searches, adds a film to the backlog, opens it, marks it watched,
   await expect(page.getByText("ending and all")).toBeHidden();
   await page.locator("details.spoiler > summary").click();
   await expect(page.getByText("ending and all")).toBeVisible();
+  // Logging a watch is always a choice; "later" seats the film in the rate-later queue.
   await page.getByRole("button", { name: "I watched this" }).click();
+  await page.getByRole("button", { name: "Later", exact: true }).click();
   await expect(page.getByText("Waiting in your rate-later queue.")).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();

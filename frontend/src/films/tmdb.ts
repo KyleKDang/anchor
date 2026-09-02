@@ -15,3 +15,7 @@ export function filmPath(tmdbId: number): string {
 export function releaseYear(year: number | null): string {
   return year === null ? "Year unknown" : String(year);
 }
+
+export function placePath(tmdbId: number): string {
+  return `/place/${tmdbId}`;
+}
