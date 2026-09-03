@@ -12,6 +12,14 @@ class Settings(BaseSettings):
     health_worker_timeout: float = 5.0
     """Seconds the health check waits for the worker to answer its probe."""
 
+    stalled_job_seconds: float = 30.0
+    """Silence from a worker after which the job it was running is reclaimed.
+
+    Thirty seconds is procrastinate's own bar: its workers beat every ten and call each
+    other stalled at thirty, so a live worker has missed two beats before this fires.
+    Lowering it without lowering those is what makes a busy worker look dead.
+    """
+
     public_url: str = "http://localhost"
     """Where the app is reached from a browser; the base of every emailed link."""
 
