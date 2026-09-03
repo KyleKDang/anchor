@@ -7,6 +7,7 @@ non-breaking space after an en dash, a middle dot, commas inside quoted titles, 
 a deleted film, a duplicate title and year.
 """
 
+import logging
 import uuid
 
 import pytest
@@ -379,6 +380,65 @@ async def test_a_row_with_no_film_behind_it_waits_indefinitely(owner, edges, run
         "Some Miniseries Letterboxd Hosts",
     ]
     assert flows.ordering_of(await flows.rated(owner)) == []
+
+
+# --- The retrain is the import's, not the import ---
+
+
+async def test_a_retrain_that_dies_leaves_the_finished_import_finished(
+    owner, edges, db, run_jobs, monkeypatch, caplog
+):
+    """The taste profile is a derived artifact; the import's outcome never waits on it.
+
+    A retrain that died after the last row had landed used to roll the completion back
+    with it, and a ``matching`` import hides the review queue, the unmatched list and
+    the re-import control - so the account read as mid-import for good, with every open
+    row unreachable. The completion commits first and the retrain fails on its own:
+    logged rather than failing the job, because the job's retry is for TMDB going down
+    mid-row, and re-running a finished import only reaches the same failing call.
+    """
+    from anchor import taste
+
+    seen: list[str] = []
+
+    async def die(session, account_id):
+        # What the record says when the retrain runs, read outside the job's own
+        # transaction. The completion has to be committed by now: the retrain the
+        # kernel kills raises nothing, and would take an uncommitted flip down with it.
+        async with db.sessions() as fresh:
+            seen.append((await fresh.execute(text("SELECT status FROM imports"))).scalar_one())
+        raise RuntimeError("the trainer ran out of memory")
+
+    monkeypatch.setattr(taste, "retrain", die)
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row("WALL·E", 2008, rating=4.5),  # auto-matched
+                Row("Twin Title", 2001, rating=4.0),  # queued to review
+                Row("A Film Since Deleted", 2003, rating=2.0),  # unmatched
+            )
+        ),
+    )
+    with caplog.at_level(logging.ERROR, logger="anchor.jobs"):
+        await run_jobs()
+
+    # Committed before the retrain ran - and the job ran it once, not once per retry.
+    assert seen == ["complete"]
+
+    state = await flows.import_state(owner)
+    assert state["status"] == "complete"
+    assert (state["pending"], state["review_pending"], state["unmatched"]) == (0, 1, 1)
+    assert flows.bands_of(await flows.rated(owner)) == {WALL_E.tmdb_id: 4.5}
+    assert [row["name"] for row in (await flows.review_queue(owner))["rows"]] == ["Twin Title"]
+    assert [row["name"] for row in (await flows.unmatched(owner))["rows"]] == [
+        "A Film Since Deleted"
+    ]
+
+    # Swallowed, not silenced: the failure is on the worker's log, traceback and all.
+    [record] = [r for r in caplog.records if r.name == "anchor.jobs"]
+    assert record.exc_info is not None
+    assert isinstance(record.exc_info[1], RuntimeError)
 
 
 # --- Resolving what is left ---
