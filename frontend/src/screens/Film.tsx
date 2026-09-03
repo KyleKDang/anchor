@@ -59,17 +59,29 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
       <BackToSearch />
       <article className="film-page">
         <Poster title={film.title} path={film.poster_path} size="w342" />
-        <div className="film-page-body">
+        {/* Identity above the fold beside the poster; everything the owner can do with the
+            film goes below, where a phone can give it the full width. */}
+        <div className="film-page-head">
           <h1>{film.title}</h1>
           <p className="film-row-meta">
             <span className="muted">
               {[releaseYear(film.year), runtime(film.runtime)].join(" · ")}
             </span>
-            {/* The band gets its own line below for a rated film, so the flag says
+            {/* The band gets its own panel below for a rated film, so the flag says
                 the state and leaves the value to it. */}
             <StateFlag state={film.state} rating={film.state === "rated" ? null : film.rating} />
           </p>
-          {film.genres.length > 0 && <p className="muted">{film.genres.join(", ")}</p>}
+          {film.genres.length > 0 && (
+            <ul className="genres">
+              {film.genres.map((genre) => (
+                <li className="chip" key={genre}>
+                  {genre}
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        <div className="film-page-body">
           {film.directors.length > 0 && (
             <p>
               <strong>Directed by</strong> {film.directors.join(", ")}
@@ -82,7 +94,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
           )}
           <Plot overview={film.overview} />
 
-          <div className="film-actions">
+          <div className="actions film-actions">
             {film.state === null && (
               <button
                 type="button"
@@ -142,7 +154,8 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
             <p className="muted">Waiting in your rate-later queue.</p>
           )}
           {film.state === "rated" && (
-            <>
+            <section className="rating-panel" aria-labelledby="rating-heading">
+              <h2 id="rating-heading">Your rating</h2>
               <p className="film-page-band">
                 <Band band={film.rating} />
                 {film.anchor && <AnchorBadge band={film.rating} />}
@@ -151,7 +164,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
               <p className="muted">
                 <Link to="/rated">See where it sits in your ordering</Link>
               </p>
-            </>
+            </section>
           )}
           {error && (
             <p className="error" role="alert">
@@ -184,7 +197,7 @@ function Designate({
   const [band, setBand] = useState<number>(film.rating ?? 4);
 
   return (
-    <div className="designate">
+    <div className="actions designate">
       <label className="field">
         <span>Make this my canonical…</span>
         <select

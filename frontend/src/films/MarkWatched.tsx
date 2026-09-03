@@ -45,7 +45,7 @@ export function MarkWatched({
 
   return (
     <div
-      className="rate-choice"
+      className="actions rate-choice"
       role="group"
       aria-labelledby={`rate-choice-${tmdbId}`}
       onKeyDown={(event) => event.key === "Escape" && setChoosing(false)}

@@ -6,7 +6,7 @@
 
 const IMAGE_BASE = "https://image.tmdb.org/t/p";
 
-export type PosterSize = "w154" | "w342";
+export type PosterSize = "w92" | "w154" | "w342";
 
 export function posterUrl(path: string | null, size: PosterSize): string | null {
   return path === null ? null : `${IMAGE_BASE}/${size}${path}`;

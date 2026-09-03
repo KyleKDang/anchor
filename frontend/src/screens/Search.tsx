@@ -65,8 +65,16 @@ export function Search() {
           {error}
         </p>
       )}
-      {results === null && !error && <p className="muted">Search TMDB for a film by title.</p>}
-      {results !== null && results.length === 0 && <p className="muted">No films match that.</p>}
+      {results === null && !error && (
+        <div className="empty">
+          <p className="muted">Search TMDB for a film by title.</p>
+        </div>
+      )}
+      {results !== null && results.length === 0 && (
+        <div className="empty">
+          <p className="muted">No films match that.</p>
+        </div>
+      )}
       {results !== null && results.length > 0 && (
         <ul className="film-list">
           {results.map((result) => (
@@ -96,7 +104,7 @@ function ResultRow({
 
   return (
     <li className="film-row">
-      <Link to={filmPath(result.tmdb_id)} tabIndex={-1} aria-hidden="true">
+      <Link className="poster-link" to={filmPath(result.tmdb_id)} tabIndex={-1} aria-hidden="true">
         <Poster title={result.title} path={result.poster_path} size="w154" />
       </Link>
       <div className="film-row-body">

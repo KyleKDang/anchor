@@ -4,7 +4,7 @@ import type { ReactNode } from "react";
 export function AuthCard({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div className="auth">
-      <section className="auth-card" aria-labelledby="auth-title">
+      <section className="auth-card card" aria-labelledby="auth-title">
         <p className="wordmark">Anchor</p>
         <h1 id="auth-title">{title}</h1>
         {children}

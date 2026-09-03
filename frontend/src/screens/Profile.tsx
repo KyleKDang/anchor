@@ -67,7 +67,7 @@ function ReadinessSection() {
   }, []);
 
   return (
-    <section className="section readiness" aria-labelledby="readiness-heading">
+    <section className="section" aria-labelledby="readiness-heading">
       <h2 id="readiness-heading">Taste profile</h2>
       {error && (
         <p className="error" role="alert">
@@ -76,7 +76,9 @@ function ReadinessSection() {
       )}
       {profile !== null && (
         <>
-          <p className="readiness-state">{STATE_LABEL[profile.readiness]}</p>
+          {/* A chip rather than a big word: the state is a value, and set as a heading it
+              would outrank the section heading above it. */}
+          <p className="chip">{STATE_LABEL[profile.readiness]}</p>
           <p className="muted">{UNLOCKS[profile.readiness]}</p>
           <ol className="stages">
             {profile.stages.map((stage) => (
@@ -95,7 +97,7 @@ function ReadinessSection() {
 
 function StageRow({ stage }: { stage: Stage }) {
   return (
-    <li className={`stage${stage.reached ? " reached" : ""}`}>
+    <li className={`stage card${stage.reached ? " reached" : ""}`}>
       <p className="stage-name">
         {STATE_LABEL[stage.state]}
         <span className="stage-mark">{stage.reached ? "reached" : "not yet"}</span>

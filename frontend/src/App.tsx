@@ -1,4 +1,4 @@
-import { Navigate, NavLink, Outlet, Route, Routes } from "react-router";
+import { Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router";
 
 import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
@@ -45,6 +45,11 @@ function Shell() {
   return (
     <div className="app">
       <nav className="nav" aria-label="Main">
+        {/* The wordmark leads home rather than to a sixth destination; on a phone the rail
+            becomes a tab bar and it gives up its space to the five that go somewhere. */}
+        <Link className="wordmark" to="/">
+          Anchor
+        </Link>
         {destinations.map(({ path, label }) => (
           <NavLink key={path} to={path}>
             {label}

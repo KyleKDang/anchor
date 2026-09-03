@@ -134,7 +134,7 @@ function Comparison({
         ))}
       </div>
 
-      <div className="place-answers">
+      <div className="actions place-answers">
         <button
           type="button"
           className="button secondary"
@@ -324,13 +324,14 @@ function Landed({
         )}
       </header>
 
-      <ol className="place-neighbours">
+      <ol className="neighbours" aria-label="Immediate neighbours">
         {above.map((film) => (
           <Neighbour key={film.tmdb_id} film={film} rank={landed.position - 1} />
         ))}
-        <li className="place-neighbour place-neighbour-self">
-          <span className="place-rank">{landed.position}</span>
-          <span>
+        <li className="self" aria-current="true">
+          <span className="ordering-rank">{landed.position}</span>
+          <Poster title={landed.film.title} path={landed.film.poster_path} size="w92" />
+          <span className="film-title">
             {landed.film.title}
             {tied.length > 0 && <> - tied with {tied.map((film) => film.title).join(", ")}</>}
           </span>
@@ -347,7 +348,7 @@ function Landed({
           {error}
         </p>
       )}
-      <div className="place-answers">
+      <div className="actions place-answers">
         <button type="button" className="button" onClick={() => navigate("/rated")}>
           Done
         </button>
@@ -367,9 +368,12 @@ function Landed({
 
 function Neighbour({ film, rank }: { film: FilmCard; rank: number }) {
   return (
-    <li className="place-neighbour">
-      <span className="place-rank">{rank}</span>
-      <Link to={filmPath(film.tmdb_id)}>{film.title}</Link>
+    <li>
+      <span className="ordering-rank">{rank}</span>
+      <Poster title={film.title} path={film.poster_path} size="w92" />
+      <Link className="film-title" to={filmPath(film.tmdb_id)}>
+        {film.title}
+      </Link>
     </li>
   );
 }
