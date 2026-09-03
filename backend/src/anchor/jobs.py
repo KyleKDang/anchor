@@ -14,6 +14,8 @@ from typing import Any
 
 import procrastinate
 from procrastinate import JobContext, builtin_tasks
+from procrastinate.jobs import Job, Status
+from procrastinate.retry import RetryStrategy
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -257,6 +259,79 @@ async def resync_stale_films(context: JobContext, timestamp: int) -> None:
             await catalog.store(session, bundle)
 
 
+async def reclaim_stalled_jobs(context: JobContext, timestamp: int) -> None:
+    """Deal with the jobs of workers that died holding them.
+
+    A worker the OS kills - the kernel's OOM killer, a `docker kill`, a box that reboots
+    - never gets to mark the job it was running. The row stays ``doing`` forever: no
+    retry, because a retry needs the task to *return* a failure; no failure; and no
+    trace anywhere but a direct query on the queue table. Every long job inherits this,
+    the import being merely the first one heavy enough to get its worker killed.
+
+    Procrastinate already makes the death visible: each worker registers itself and
+    beats a heartbeat, and ``get_stalled_jobs`` reports the jobs of workers that have
+    stopped beating. Nothing acts on that list, which is what this is.
+
+    What it does is deliver the retry policy the task already declared, for the one
+    failure mode the task could not report itself: a job with attempts left goes back to
+    ``todo``, one without is marked ``failed``. It invents no policy of its own, and it
+    ends every wedge either way. The price is that a reclaimed job re-runs from the top,
+    so every task on this queue has to be idempotent - the import re-reads its pending
+    rows and skips what it already applied, and the nightly jobs re-derive from scratch.
+    """
+    manager = context.app.job_manager
+    stalled = await manager.get_stalled_jobs(
+        seconds_since_heartbeat=settings_of(context).stalled_job_seconds
+    )
+    for job in stalled:
+        if _is_this_worker(context, job):
+            continue
+        if _has_attempts_left(context.app, job):
+            await manager.retry_job(job)
+            outcome = "requeued"
+        else:
+            await manager.finish_job(job, status=Status.FAILED, delete_job=False)
+            outcome = "failed"
+        # ERROR rather than WARNING deliberately: sentry_sdk's logging integration turns
+        # an ERROR record into an event, and being told is half of what #61 asked for.
+        # A wedged job that only a query on procrastinate_jobs would find is the bug.
+        log.error(
+            "job %s (%s) was left running by a worker that stopped answering;"
+            " %s after %s attempt(s)",
+            job.id,
+            job.task_name,
+            outcome,
+            job.attempts,
+        )
+
+
+def _is_this_worker(context: JobContext, job: Job) -> bool:
+    """Is this job held by the worker running the sweep, which is alive by definition?
+
+    Its heartbeat can still look stale: the beat shares the worker's event loop, and a
+    CPU-bound retrain blocks that loop for as long as it runs. Reclaiming on the strength
+    of a heartbeat this worker was too busy to send would requeue jobs that are running
+    perfectly well - the sweep's own included.
+    """
+    held_by = context.job.worker_id
+    return held_by is not None and job.worker_id == held_by
+
+
+def _has_attempts_left(app: procrastinate.App, job: Job) -> bool:
+    """The task's own ``retry=`` budget, read the way procrastinate reads it on a failure.
+
+    A task that declares no retry is not given one here: its author said a failure is
+    final, and a worker dying is a failure. Bounding it also stops the one loop that
+    would matter - a job heavy enough to kill every worker that picks it up, requeued
+    forever by the sweep that keeps finding it.
+    """
+    task = app.tasks.get(job.task_name)
+    strategy = task.retry_strategy if task else None
+    if not isinstance(strategy, RetryStrategy) or strategy.max_attempts is None:
+        return False
+    return job.attempts < strategy.max_attempts
+
+
 def _declare_tasks() -> procrastinate.Blueprint:
     tasks = procrastinate.Blueprint()
     tasks.task(name=answer_probe.__name__, pass_context=True)(answer_probe)
@@ -264,14 +339,17 @@ def _declare_tasks() -> procrastinate.Blueprint:
     # Retried, because the whole job is one long conversation with TMDB and the far end
     # goes down. Every row commits on its own, so a retry resumes rather than repeats.
     tasks.task(name=match_import_rows.__name__, retry=3, pass_context=True)(match_import_rows)
-    nightly_tasks = [
+    scheduled_tasks = [
+        # Every minute, because the window between a worker dying and the next sweep is
+        # time an owner spends looking at an import that says it is still running.
+        (reclaim_stalled_jobs, "* * * * *"),
         (remove_old_jobs, "0 4 * * *"),
         (prune_expired_sessions, "10 4 * * *"),
         (resync_stale_films, "30 4 * * *"),
     ]
-    for nightly, cron in nightly_tasks:
-        task = tasks.task(name=nightly.__name__, queueing_lock=nightly.__name__, pass_context=True)(
-            nightly
-        )
+    for scheduled, cron in scheduled_tasks:
+        task = tasks.task(
+            name=scheduled.__name__, queueing_lock=scheduled.__name__, pass_context=True
+        )(scheduled)
         tasks.periodic(cron=cron)(task)
     return tasks

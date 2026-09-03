@@ -26,6 +26,9 @@ The web process and the worker process run from the same image with different co
 
 - Background jobs run on a Postgres-backed queue (procrastinate): transactional enqueue (a data change and its follow-up job commit or fail together), cron-style scheduling, no Redis.
 - Jobs: the seed import pipeline, weight-vector retrains, prose regeneration, discovery verdict refresh, TMDB re-sync.
+- A worker that dies mid-job does not wedge it.
+  Workers beat a heartbeat, and a sweep every minute requeues or fails the jobs of a worker that stopped beating, reporting each one.
+  Every task on the queue must therefore be idempotent: a reclaimed job re-runs from the top.
 
 ## Accounts and auth
 
