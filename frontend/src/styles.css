@@ -6,6 +6,18 @@
    so nothing else on the screen ever competes with it. Primary actions are inverted
    monochrome for the same reason. */
 
+/* The typeface, self-hosted: one variable file covers the whole weight axis, and serving
+   it from our own origin keeps the app off a third party for a render-blocking asset.
+   Geist is SIL OFL; the licence travels beside the font in public/fonts. No italic face
+   is shipped - one label is set in italic and the browser's oblique is enough for it. */
+@font-face {
+  font-family: "Geist";
+  src: url("/fonts/Geist-Variable.woff2") format("woff2");
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* Tokens ------------------------------------------------------------------------------ */
 
 :root {

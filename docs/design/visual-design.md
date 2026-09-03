@@ -29,7 +29,11 @@ Red is reserved for destruction (delete, retire) and for errors, and it is never
 
 ## Type
 
-Geist, with `system-ui` behind it, at a seven-step scale from `--text-xs` to `--text-2xl`.
+Geist, self-hosted, with `system-ui` behind it, at a seven-step scale from `--text-xs` to `--text-2xl`.
+One variable file covers the whole weight axis, and it is served from Anchor's own origin rather than a font CDN, so a render-blocking asset never depends on a third party.
+It is preloaded, since the stylesheet would otherwise not ask for it until it had been parsed.
+No italic face is shipped: one label is set in italic and the browser's synthesised oblique is enough for it.
+The font is SIL OFL and its licence travels beside it in `frontend/public/fonts`.
 Weights are 400, 500 for controls and marks, and 600 for headings and figures; there is no bold body text.
 
 Anything whose digits line up gets `font-variant-numeric: tabular-nums`: ranks, band values, years, readiness figures.
