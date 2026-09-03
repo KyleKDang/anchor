@@ -213,3 +213,64 @@ def bands_of(payload):
 
 def queue_of(payload):
     return [film["tmdb_id"] for film in payload["rate_later"]]
+
+
+# --- The seed import ---
+
+
+async def upload_export(client, data, name=None, confirm=None, expect=202):
+    """Upload an export zip as the raw request body, which is the whole of the API."""
+    import export as export_module
+
+    params = {"name": name or export_module.NAME}
+    if confirm is not None:
+        params["confirm"] = confirm
+    response = await client.post(
+        "/api/import",
+        params=params,
+        content=data,
+        headers={"Content-Type": "application/zip"},
+    )
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+async def import_state(client):
+    response = await client.get("/api/import")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def review_queue(client):
+    response = await client.get("/api/import/review")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def unmatched(client):
+    response = await client.get("/api/import/unmatched")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def bind_row(client, row_id, tmdb_id, expect=200):
+    response = await client.post(f"/api/import/rows/{row_id}/film", json={"tmdb_id": tmdb_id})
+    assert response.status_code == expect, response.text
+    return response.json() if expect != 204 else None
+
+
+async def rescue_row(client, row_id, expect=200):
+    response = await client.post(f"/api/import/rows/{row_id}/letterboxd")
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+async def dismiss_row(client, row_id, expect=204):
+    response = await client.delete(f"/api/import/rows/{row_id}")
+    assert response.status_code == expect, response.text
+
+
+async def reset_warning(client):
+    response = await client.get("/api/import/warning")
+    assert response.status_code == 200, response.text
+    return response.json()

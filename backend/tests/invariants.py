@@ -135,8 +135,11 @@ async def assert_ordering_well_formed(db: Database, account_id: uuid.UUID) -> No
     """The ordering says what ADR 0001 says it says, after any flow that touched it.
 
     Positions are dense and start at 0, no slot sits empty, rated and placed mean each
-    other, and the films sharing a slot are connected by explicit tie judgments - so no
-    film is ever silently asserted equal to one it was never compared with.
+    other, and the films sharing a slot *definitively* are connected by explicit tie
+    judgments - so no film is ever silently asserted equal to one it was never compared
+    with. A slot whose every member is still an untouched import seed is exempt, because
+    its members are seeded equal rather than judged equal, which is the whole of what
+    "provisional tie-group" means (data-model.md).
     """
     async with db.sessions() as session:
         positions = list(
@@ -185,8 +188,11 @@ async def assert_ordering_well_formed(db: Database, account_id: uuid.UUID) -> No
             )
         ]
 
+    seeded = await seeded_films(db, account_id)
     for slot in await ordering_snapshot(db, account_id):
         assert slot, "a slot never sits empty"
+        if set(slot) <= seeded:
+            continue  # seeded equal by the import, not judged equal by anybody
         _assert_tie_connected(slot, ties)
 
 
@@ -423,4 +429,114 @@ async def assert_bands_well_formed(db: Database, account_id: uuid.UUID) -> None:
         assert film_id in seats, f"the {band} anchor is not a rated film"
         assert band_at(boundaries, seats[film_id]) == band, (
             f"the {band} anchor sits outside its own band"
+        )
+
+
+# --- The watch clock ---
+
+
+async def watch_clock(db: Database, account_id: uuid.UUID) -> int:
+    """The account's watch clock: the count of its watch events, imported ones included.
+
+    Every cooldown and staleness measure in Anchor is denominated in this number rather
+    than in calendar time, so what a seed import does to it is a behavioural fact, not
+    bookkeeping - an imported back catalogue starts the clock where the owner already is.
+    """
+    async with db.sessions() as session:
+        return (
+            await session.scalar(
+                text("SELECT count(*) FROM watch_events WHERE account_id = :id"),
+                {"id": account_id},
+            )
+        ) or 0
+
+
+async def watch_events(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every watch, oldest first, as (film, when, origin, rewatch)."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, watched_at, origin, rewatch FROM watch_events
+                WHERE account_id = :id ORDER BY watched_at, film_id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def last_synced_ratings(db: Database, account_id: uuid.UUID) -> dict[int, float]:
+    """What Letterboxd holds per film, as far as Anchor knows: the sync list's baseline."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, last_synced_rating FROM account_films
+                WHERE account_id = :id AND last_synced_rating IS NOT NULL
+                """
+            ),
+            {"id": account_id},
+        )
+    return {film_id: rating for film_id, rating in rows}
+
+
+async def placement_trust(db: Database, account_id: uuid.UUID) -> dict[int, tuple[str, str]]:
+    """Every placement as (trust, provenance), keyed by film."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT af.film_id, p.trust, p.provenance FROM placements p
+                JOIN account_films af ON af.id = p.account_film_id
+                WHERE p.account_id = :id
+                """
+            ),
+            {"id": account_id},
+        )
+    return {film_id: (str(trust), str(provenance)) for film_id, trust, provenance in rows}
+
+
+# --- Import-seeded tie-groups ---
+
+
+async def seeded_films(db: Database, account_id: uuid.UUID) -> set[int]:
+    """Films still sitting on an untouched import seed: provisional, and import-seeded."""
+    async with db.sessions() as session:
+        rows = await session.scalars(
+            text(
+                """
+                SELECT af.film_id FROM placements p
+                JOIN account_films af ON af.id = p.account_film_id
+                WHERE p.account_id = :id
+                  AND p.trust = 'provisional' AND p.provenance = 'import_seeded'
+                """
+            ),
+            {"id": account_id},
+        )
+    return set(rows)
+
+
+async def seeded_slots(db: Database, account_id: uuid.UUID) -> list[list[int]]:
+    """The provisional tie-groups as they stand: the slots the import alone still holds."""
+    seeded = await seeded_films(db, account_id)
+    return [slot for slot in await ordering_snapshot(db, account_id) if set(slot) <= seeded]
+
+
+def assert_seeded_slots_only_shrank(
+    before: list[list[int]], after: list[list[int]], where: str = "the flow"
+) -> None:
+    """Import-seeded slots only ever shrink (data-model.md).
+
+    A provisional tie-group is a placeholder, not a judgment, so comparisons dissolve it
+    and nothing may ever add to it: a film joining one would be asserted equal to films
+    it was never compared with. Every group left standing must therefore be part of one
+    that was standing before.
+    """
+    groups = [set(slot) for slot in before]
+    for slot in after:
+        members = set(slot)
+        assert any(members <= group for group in groups), (
+            f"{where} grew an import-seeded tie-group: {sorted(members)} is in none of "
+            f"{[sorted(group) for group in groups]}"
         )

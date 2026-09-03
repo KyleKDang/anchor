@@ -10,7 +10,9 @@ from anchor import (
     errors,
     films,
     health,
+    imports,
     jobs,
+    letterboxd,
     mail,
     placement,
     profile,
@@ -29,8 +31,9 @@ def create_app(
     *,
     resend_transport: httpx.AsyncBaseTransport | None = None,
     tmdb_transport: httpx.AsyncBaseTransport | None = None,
+    letterboxd_transport: httpx.AsyncBaseTransport | None = None,
 ) -> FastAPI:
-    """The web process. The two transports are the test seams faking Resend and TMDB."""
+    """The web process. The transports are the test seams faking every outside service."""
     settings = settings or Settings()
     sentry.install(settings)
 
@@ -41,6 +44,7 @@ def create_app(
         app.state.jobs = jobs.build_app(settings)
         app.state.mailer = mail.build_mailer(settings, resend_transport)
         app.state.tmdb = tmdb.build_tmdb(settings, tmdb_transport)
+        app.state.letterboxd = letterboxd.Letterboxd(letterboxd_transport)
         app.state.rate_limiter = RateLimiter(settings.rate_limit_window_seconds)
         async with app.state.jobs.open_async():
             try:
@@ -48,6 +52,7 @@ def create_app(
             finally:
                 await app.state.mailer.aclose()
                 await app.state.tmdb.aclose()
+                await app.state.letterboxd.aclose()
                 await app.state.db.dispose()
 
     app = FastAPI(title="Anchor", lifespan=lifespan)
@@ -60,6 +65,7 @@ def create_app(
     app.include_router(placement.router)
     app.include_router(anchors.router)
     app.include_router(profile.router)
+    app.include_router(imports.router)
     return app
 
 
