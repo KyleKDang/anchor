@@ -131,6 +131,13 @@ class AccountFilm(Base):
     )
     rate_later: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     """The rate-later seat: meaningful only while the state is watched-unrated."""
+    last_synced_rating: Mapped[float | None] = mapped_column(Float)
+    """What Letterboxd holds for this film, as far as Anchor knows.
+
+    Meaningful only on the rated state. The seed import initialises it from the export
+    and nothing but the owner marking the film synced ever writes it again, so the sync
+    list can be derived - never stored - as the films whose band has moved off it.
+    """
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -368,6 +375,8 @@ class ComparisonContext(enum.StrEnum):
     drift_check = "drift_check"
     warmup = "warmup"
     spontaneous = "spontaneous"
+    seed_import = "seed_import"
+    """The one-time Letterboxd import: its ratings count as the owner's band judgments."""
 
 
 class ComparisonStatus(enum.StrEnum):
@@ -478,6 +487,8 @@ class WatchEvent(Base):
     origin: Mapped[WatchOrigin] = mapped_column(
         Enum(WatchOrigin, name="watch_origin"), nullable=False
     )
+    rewatch: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    """The owner had seen this film before. Imported diary rows carry Letterboxd's flag."""
 
 
 class WeightVector(Base):
@@ -582,4 +593,119 @@ class TasteMetrics(Base):
     bands_spanned: Mapped[int] = mapped_column(Integer, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
+class ImportStatus(enum.StrEnum):
+    """How far the one-time seed import has got."""
+
+    matching = "matching"
+    """Rows are parsed and the matcher is still working through them."""
+    complete = "complete"
+    """Every row has reached a match state; whatever is left is the owner's to resolve."""
+
+
+class Import(Base):
+    """The account's seed import: which export it came from, and how far it has got.
+
+    At most one per account, enforced here rather than by convention: importing again is
+    a hard reset that wipes the account realm first and rebuilds from the new export
+    alone, so a second row could only mean a merge, and there is never a merge.
+    """
+
+    __tablename__ = "imports"
+    __table_args__ = (UniqueConstraint("account_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    source_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    """The uploaded file's name, which is the only identity an export has."""
+    status: Mapped[ImportStatus] = mapped_column(
+        Enum(ImportStatus, name="import_status"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ImportRowKind(enum.StrEnum):
+    """Which CSV a row came out of, which is what says what binding it does.
+
+    The five that matter; every other file in the export is discarded unread.
+    """
+
+    rating = "rating"
+    watchlist = "watchlist"
+    watched = "watched"
+    diary = "diary"
+    profile_favorite = "profile_favorite"
+
+
+class ImportRowState(enum.StrEnum):
+    """Whether a row found its film, and who decided.
+
+    ``pending`` is the one state data-model.md does not name, because it never outlives
+    the matching job: it is a row the matcher has not reached yet.
+    """
+
+    pending = "pending"
+    auto_matched = "auto_matched"
+    """The matcher was sure enough to bind without asking."""
+    review_pending = "review_pending"
+    """Candidates exist but none dominates, so the owner picks."""
+    bound = "bound"
+    """The owner bound it: from the review screen, a manual search, or the rescue."""
+    unmatched_open = "unmatched_open"
+    """Nothing matched. It affects nothing and stays on the list indefinitely."""
+    dismissed = "dismissed"
+    """The owner gave up on it for good."""
+
+
+class ImportRow(Base):
+    """One CSV line that matters, and what became of it.
+
+    The raw line is kept rather than discarded once bound: an unmatched row has nothing
+    but its name and year to be found again by, and the review screen is answering
+    "which film is this line?" long after the file itself is gone.
+    """
+
+    __tablename__ = "import_rows"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    import_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("imports.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[ImportRowKind] = mapped_column(
+        Enum(ImportRowKind, name="import_row_kind"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(500), nullable=False)
+    """The film's name exactly as Letterboxd wrote it, before any normalization."""
+    year: Mapped[int | None] = mapped_column(Integer)
+    letterboxd_uri: Mapped[str | None] = mapped_column(String(500))
+    """The boxd.it short link: what the per-row rescue resolves through."""
+    rating: Mapped[float | None] = mapped_column(Float)
+    """The owner's half-star value, on a ratings.csv row and nowhere else."""
+    occurred_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the row's own event happened: watched, added to the watchlist, or rated.
+
+    Letterboxd exports dates in New Zealand time, so a day of skew is possible and is
+    accepted rather than corrected - nothing in Anchor is denominated in calendar time.
+    """
+    rewatch: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    state: Mapped[ImportRowState] = mapped_column(
+        Enum(ImportRowState, name="import_row_state"), nullable=False
+    )
+    film_id: Mapped[int | None] = mapped_column(ForeignKey("films.tmdb_id", ondelete="RESTRICT"))
+    """The film the row resolved to, once it has one."""
+    candidates: Mapped[list[int]] = mapped_column(
+        ARRAY(Integer), nullable=False, server_default="{}"
+    )
+    """The films the review screen offers, best-known first: ranked by popularity."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
