@@ -50,3 +50,38 @@ test("an owner imports a Letterboxd export and finds their ratings and watchlist
   await expect(page.getByRole("listitem").filter({ hasText: "Parasite" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Fight Club" })).toHaveCount(0);
 });
+
+/**
+ * The account that was not empty when its export arrived.
+ *
+ * An owner who tries Anchor before exporting holds films no import put there, and the
+ * import erases them like any other reset - there is no merge path, ever. The screen has
+ * to say so before the upload rather than after, and the wipe has to actually happen.
+ */
+test("an owner who already started the account is told what importing will erase", async ({
+  page,
+  request,
+}) => {
+  await signUpOwner(page, request, "import-reset");
+
+  // Added by hand, with no export anywhere in sight: the account is not empty.
+  expect((await page.request.post("/api/films/244786/backlog")).ok()).toBeTruthy();
+
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await expect(
+    page.getByRole("heading", { name: "You have already started this account" }),
+  ).toBeVisible();
+  await expect(page.getByText("This erases 1 backlog film")).toBeVisible();
+
+  await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
+    name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
+    mimeType: "application/zip",
+    buffer: letterboxdExport([{ name: "Fight Club", year: 1999, rating: 5 }], []),
+  });
+  await page.getByRole("button", { name: "Erase and import" }).click();
+  await expect(page.getByText("Every row found its film.")).toBeVisible({ timeout: 60_000 });
+
+  // Whiplash was hand-added and the new export never named it, so the reset took it.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();
+  await expect(page.getByRole("listitem").filter({ hasText: "Whiplash" })).toHaveCount(0);
+});

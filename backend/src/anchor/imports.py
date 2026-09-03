@@ -12,11 +12,13 @@ dismisses it. There is no "finish import" step, because there is nothing to fini
 the upload records the rows and hands them to a job. The upload's own answer is what has
 been read, not what has been found.
 
-*Re-import is a hard reset.* There is no merge path, ever. Importing again wipes the
+*Every import is a hard reset.* There is no merge path, ever. Importing wipes the
 account realm - ordering, comparison log, anchors, taste profile, backlog including
 hand-added films, watch history - and rebuilds from the new export alone, behind a
 warning that enumerates what will go and a type-to-confirm once the comparison log is
-worth more than the enumeration alone conveys.
+worth more than the enumeration alone conveys. The reset is keyed on what the account
+holds rather than on whether it has imported before: an owner who tried the app first
+has just as much to lose, and an empty realm is wiped for free.
 
 *The rescue is per row and never bulk.* The boxd.it scrape is offered as a button beside
 one review row at a time, rate limited, and expected to fail.
@@ -165,16 +167,20 @@ async def upload(
 ) -> ImportState:
     """Take an export, record every line that matters, and hand the rest to the matcher.
 
-    A second import is a hard reset: the account realm goes first and the new export
-    rebuilds it alone. The warning that got the owner here is a read of its own, so all
-    that is left to check at the door is that they typed what it asked for.
+    Every import is a hard reset: the account realm goes first and the new export
+    rebuilds it alone. Unconditionally, because the rule is that no account is ever
+    rebuilt by halves - gating the wipe on a prior import left a first import onto an
+    account the owner had already started merging into it, which is the merge path the
+    spec forbids. An empty realm makes both calls below no-ops, so onboarding's own
+    first import neither warns nor destroys.
+
+    The warning that got the owner here is a read of its own, so all that is left to
+    check at the door is that they typed what it asked for.
     """
     rows = _parsed(await _uploaded(request, settings.import_max_upload_bytes))
 
-    existing = await _import_of(db, account.id)
-    if existing is not None:
-        await _check_confirmed(db, account, settings, confirm)
-        await seeding.wipe_realm(db, account.id)
+    await _check_confirmed(db, account, settings, confirm)
+    await seeding.wipe_realm(db, account.id)
 
     record = Import(account_id=account.id, source_name=name, status=ImportStatus.matching)
     db.add(record)

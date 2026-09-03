@@ -127,7 +127,11 @@ async def _seed_rating(
     """
     account_film = await _account_film(db, account_id, film_id)
     if account_film is not None and account_film.state is LifecycleState.rated:
-        return  # already seeded, or already placed by the owner; a seed never re-rates
+        # Already seeded by an earlier row of this same import - one film can be named
+        # twice - and the first row's rating is the one that stands, last synced value
+        # included. The import wipes the realm first, so there is no owner-placed film
+        # here to skip.
+        return
     if account_film is None:
         account_film = AccountFilm(
             account_id=account_id, film_id=film_id, state=LifecycleState.backlog
