@@ -39,28 +39,6 @@ from anchor.models import (
 )
 
 
-async def seeded_slot_ids(db: AsyncSession, account_id: uuid.UUID) -> set[uuid.UUID]:
-    """Slots whose every member is still an untouched import seed.
-
-    The distinction the whole provisional lifecycle turns on: these films are *seeded*
-    equal, never judged equal, so the group is a placeholder that only ever shrinks -
-    while a slot holding anything else is a tie somebody actually made, and nothing may
-    take a film out of it.
-    """
-    rows = await db.execute(
-        select(Placement.slot_id)
-        .where(Placement.account_id == account_id)
-        .group_by(Placement.slot_id)
-        .having(
-            func.bool_and(
-                (Placement.trust == PlacementTrust.provisional)
-                & (Placement.provenance == PlacementProvenance.import_seeded)
-            )
-        )
-    )
-    return {slot_id for (slot_id,) in rows}
-
-
 @dataclass(frozen=True)
 class Slot:
     """One position of the ordering and the films the owner has judged equal there."""
@@ -122,6 +100,28 @@ async def load(db: AsyncSession, account_id: uuid.UUID) -> Ordering:
         for slot_id, film_ids in members.items()
     ]
     return Ordering(slots=tuple(sorted(slots, key=lambda slot: slot.position)))
+
+
+async def seeded_slot_ids(db: AsyncSession, account_id: uuid.UUID) -> set[uuid.UUID]:
+    """Slots whose every member is still an untouched import seed.
+
+    The distinction the whole provisional lifecycle turns on: these films are *seeded*
+    equal, never judged equal, so the group is a placeholder that only ever shrinks -
+    while a slot holding anything else is a tie somebody actually made, and nothing may
+    take a film out of it.
+    """
+    rows = await db.execute(
+        select(Placement.slot_id)
+        .where(Placement.account_id == account_id)
+        .group_by(Placement.slot_id)
+        .having(
+            func.bool_and(
+                (Placement.trust == PlacementTrust.provisional)
+                & (Placement.provenance == PlacementProvenance.import_seeded)
+            )
+        )
+    )
+    return {slot_id for (slot_id,) in rows}
 
 
 # --- Derivation ---

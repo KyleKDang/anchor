@@ -32,6 +32,7 @@ import zipfile
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from urllib.parse import urlparse
 
 import httpx
 
@@ -42,6 +43,23 @@ RATINGS = (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0)
 
 MAX_ROWS = 20_000
 """A ceiling on how much one archive may claim to be; the real one held 592 ratings."""
+
+MAX_MEMBER_BYTES = 32 * 1024 * 1024
+"""How large one file inside the archive may decompress to.
+
+Checked against the header before the member is read, because a few kilobytes of
+compressed repetition expands to gigabytes and the row ceiling above is only reachable
+once the whole thing is already in memory. A real export's largest file is tens of
+kilobytes, so this is generous rather than a target.
+"""
+
+LETTERBOXD_HOSTS = frozenset({"boxd.it", "letterboxd.com", "www.letterboxd.com"})
+"""The only hosts a stored URI may name, because the rescue fetches it from our server.
+
+The URI arrives inside a file the owner uploaded, so an unchecked one is a request they
+get to aim wherever they like from inside the network. A row whose link is not
+Letterboxd's keeps every other thing about itself and simply has no link to follow.
+"""
 
 
 class NotAnExport(Exception):
@@ -101,6 +119,8 @@ def read_export(data: bytes) -> list[ExportRow]:
 def _rows(archive: zipfile.ZipFile, name: str) -> Iterator[dict[str, str]]:
     """One member as dict rows. Read through ``csv``, so a quoted comma survives."""
     try:
+        if archive.getinfo(name).file_size > MAX_MEMBER_BYTES:
+            raise NotAnExport(f"{name} is larger than Anchor will read.")
         body = archive.read(name).decode("utf-8-sig")
     except (KeyError, UnicodeDecodeError) as error:
         raise NotAnExport(f"{name} could not be read.") from error
@@ -169,11 +189,22 @@ def _row(
         kind=kind,
         name=(row.get("Name") or "").strip(),
         year=_year(row.get("Year")),
-        uri=(row.get("Letterboxd URI") or "").strip() or None,
+        uri=_uri(row.get("Letterboxd URI")),
         rating=rating,
         occurred_at=when if when is not None else _date(row.get("Date")),
         rewatch=rewatch,
     )
+
+
+def _uri(value: str | None) -> str | None:
+    """The row's link, kept only when it is one Anchor is willing to fetch."""
+    text = (value or "").strip()
+    if not text:
+        return None
+    parsed = urlparse(text)
+    if parsed.scheme not in ("http", "https") or parsed.hostname not in LETTERBOXD_HOSTS:
+        return None
+    return text
 
 
 def _year(value: str | None) -> int | None:
