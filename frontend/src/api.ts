@@ -267,6 +267,81 @@ export interface Backlog {
   decades: number[];
 }
 
+/** Which of the export's five files a row came out of; the rest is discarded unread. */
+export type ImportRowKind = "rating" | "watchlist" | "watched" | "diary" | "profile_favorite";
+
+export interface ImportCounts {
+  rating: number;
+  watchlist: number;
+  watched: number;
+  diary: number;
+  profile_favorite: number;
+}
+
+/**
+ * The import area's whole reading: what was read, and what is left to resolve.
+ *
+ * `pending` counts lines, because that is what progress is measured in. The two residue
+ * figures count films: one film is a line in ratings.csv, another in watched.csv and
+ * another in diary.csv, and the owner answers for it once.
+ */
+export interface ImportState {
+  status: "none" | "matching" | "complete";
+  source_name: string | null;
+  created_at: string | null;
+  counts: ImportCounts;
+  pending: number;
+  review_pending: number;
+  unmatched: number;
+}
+
+/** One film a review row might be. The director is often all that tells two apart. */
+export interface ImportCandidate {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  directors: string[];
+}
+
+export interface ImportReviewRow {
+  id: string;
+  kind: ImportRowKind;
+  name: string;
+  year: number | null;
+  rating: number | null;
+  /** The row carries a boxd.it link, so the per-row Letterboxd rescue can be offered. */
+  rescuable: boolean;
+  /** Ranked by popularity: the owner is looking for the film they have heard of. */
+  candidates: ImportCandidate[];
+}
+
+/** A line that found nothing. It affects nothing and waits indefinitely. */
+export interface ImportUnmatchedRow {
+  id: string;
+  kind: ImportRowKind;
+  name: string;
+  year: number | null;
+  rating: number | null;
+  rescuable: boolean;
+}
+
+export interface ImportBound {
+  row_id: string;
+  film: FilmCard;
+}
+
+/** Concretely what re-importing destroys, counted rather than described. */
+export interface ImportWarning {
+  rated_films: number;
+  comparisons: number;
+  anchors: number;
+  backlog_films: number;
+  watch_events: number;
+  confirmation_required: boolean;
+  confirmation_phrase: string;
+}
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -349,7 +424,38 @@ export const api = {
   retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
   profile: () => request<Profile>("GET", "/api/profile"),
   backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
+
+  importState: () => request<ImportState>("GET", "/api/import"),
+  importWarning: () => request<ImportWarning>("GET", "/api/import/warning"),
+  importReview: () => request<{ rows: ImportReviewRow[] }>("GET", "/api/import/review"),
+  importUnmatched: () => request<{ rows: ImportUnmatchedRow[] }>("GET", "/api/import/unmatched"),
+  uploadExport: (file: File, confirm?: string) => uploadExport(file, confirm),
+  bindImportRow: (rowId: string, tmdbId: number) =>
+    request<ImportBound>("POST", `/api/import/rows/${rowId}/film`, { tmdb_id: tmdbId }),
+  rescueImportRow: (rowId: string) =>
+    request<ImportBound>("POST", `/api/import/rows/${rowId}/letterboxd`),
+  dismissImportRow: (rowId: string) => request<void>("DELETE", `/api/import/rows/${rowId}`),
 };
+
+/**
+ * The export goes up as the raw request body, not as a multipart form.
+ *
+ * One file and two scalars is not a form, and posting the bytes as themselves lets the
+ * server read a stream it can cut off the moment the upload goes over its size cap.
+ */
+async function uploadExport(file: File, confirm?: string): Promise<ImportState> {
+  const params = new URLSearchParams({ name: file.name });
+  if (confirm !== undefined) params.set("confirm", confirm);
+  const response = await fetch(`/api/import?${params.toString()}`, {
+    method: "POST",
+    credentials: "same-origin",
+    headers: { "Content-Type": "application/zip" },
+    body: file,
+  });
+  const payload: unknown = await response.json().catch(() => null);
+  if (!response.ok) throw toApiError(response.status, payload);
+  return payload as ImportState;
+}
 
 function ratedQuery(filters: RatedFilters): string {
   const params = new URLSearchParams();

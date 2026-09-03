@@ -16,7 +16,12 @@ from urllib.parse import parse_qs, urlparse
 
 
 def film(
-    tmdb_id: int, title: str, release_date: str, genres: list[str], director: str
+    tmdb_id: int,
+    title: str,
+    release_date: str,
+    genres: list[str],
+    director: str,
+    popularity: float = 20.0,
 ) -> dict[str, Any]:
     return {
         "id": tmdb_id,
@@ -24,6 +29,8 @@ def film(
         "release_date": release_date,
         "overview": f"The plot of {title}, ending and all.",
         "poster_path": None,
+        # What the import matcher breaks a tie on, and what ranks its review candidates.
+        "popularity": popularity,
         "backdrop_path": None,
         "runtime": 120,
         "genres": [{"id": 100 + i, "name": name} for i, name in enumerate(genres)],
@@ -50,7 +57,7 @@ CATALOG = {
     11104: film(11104, "Chungking Express", "1994-07-14", ["Drama", "Romance"], "Wong Kar-wai"),
 }
 
-SEARCH_FIELDS = ("id", "title", "release_date", "overview", "poster_path")
+SEARCH_FIELDS = ("id", "title", "release_date", "overview", "poster_path", "popularity")
 
 
 class Handler(BaseHTTPRequestHandler):

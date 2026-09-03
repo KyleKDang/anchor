@@ -4,6 +4,7 @@ import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
 import { Place } from "./screens/Place";
+import { Review } from "./screens/import/Review";
 import { Login } from "./screens/auth/Login";
 import { Signup } from "./screens/auth/Signup";
 import { Verify } from "./screens/auth/Verify";
@@ -28,6 +29,9 @@ export function App() {
           ))}
           {/* Not a destination: the film page is reached by tapping a film anywhere. */}
           <Route path="/films/:tmdbId" element={<Film />} />
+          {/* Nor is the import review: it is offered from Profile's Letterboxd area,
+              and it is a queue to work through rather than somewhere to live. */}
+          <Route path="/import/review" element={<Review />} />
         </Route>
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
