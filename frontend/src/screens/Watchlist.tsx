@@ -96,9 +96,11 @@ export function Watchlist() {
           </div>
 
           {backlog.films.length === 0 ? (
-            <p className="muted">
-              Nothing here yet. <Link to="/search">Search for a film</Link> to add one.
-            </p>
+            <div className="empty">
+              <p className="muted">
+                Nothing here yet. <Link to="/search">Search for a film</Link> to add one.
+              </p>
+            </div>
           ) : (
             <ul className="film-list">
               {backlog.films.map((film) => (
@@ -115,7 +117,7 @@ export function Watchlist() {
 function BacklogRow({ film, onWatched }: { film: BacklogFilm; onWatched: () => void }) {
   return (
     <li className="film-row">
-      <Link to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
+      <Link className="poster-link" to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
         <Poster title={film.title} path={film.poster_path} size="w154" />
       </Link>
       <div className="film-row-body">

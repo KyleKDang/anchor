@@ -1,680 +1,218 @@
+/* Anchor's visual foundation: the tokens, then the primitives every screen is built from.
+   The direction and the rules that hold it together are recorded in docs/design/visual-design.md.
+
+   A precise tool for a film mind. Graphite neutrals and hairlines carry the structure, and
+   one amber is reserved for whatever carries a rating - stars, anchor badges, attention -
+   so nothing else on the screen ever competes with it. Primary actions are inverted
+   monochrome for the same reason. */
+
+/* Tokens ------------------------------------------------------------------------------ */
+
 :root {
-  color-scheme: light dark;
-  font-family: system-ui, sans-serif;
-  line-height: 1.5;
+  color-scheme: light;
+
+  /* Colour. Surfaces and text first, then the two colours that mean something: amber for
+     ratings, red for destruction. Everything else is neutral on purpose. */
+  --bg: #f5f5f6;
+  --surface: #ffffff;
+  --raised: #ffffff;
+  --border: #e2e3e7;
+  --border-strong: #c3c6cd;
+  /* The boundary that identifies a control. Held at the 3:1 non-text floor, which the
+     decorative hairlines above are not asked to meet. */
+  --border-control: #848a99;
+  --text: #141518;
+  --muted: #5b5f69;
+  --faint: #686c76;
+  --ink: #141518;
+  --on-ink: #ffffff;
+  --star: #b57614;
+  --star-text: #7d520c;
+  --danger: #b8322c;
+  --focus: #c07f16;
+  --selection: #ffe6b3;
+
+  /* Type. Geist where it is available, the platform's own grotesque otherwise. */
+  --font: "Geist", system-ui, -apple-system, sans-serif;
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-base: 0.9375rem;
+  --text-md: 1.0625rem;
+  --text-lg: 1.25rem;
+  --text-xl: 1.625rem;
+  --text-2xl: 2rem;
+  --leading: 1.5;
+  --leading-tight: 1.2;
+
+  /* Spacing */
+  --s1: 0.25rem;
+  --s2: 0.5rem;
+  --s3: 0.75rem;
+  --s4: 1rem;
+  --s5: 1.5rem;
+  --s6: 2rem;
+  --s7: 3rem;
+  --s8: 4rem;
+
+  /* Radius, border, elevation */
+  --r-sm: 4px;
+  --r-md: 6px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-pill: 999px;
+  --hairline: 1px solid var(--border);
+  --shadow-1: 0 1px 2px rgb(20 21 24 / 6%), 0 0 0 1px rgb(20 21 24 / 4%);
+  --shadow-2: 0 12px 32px rgb(20 21 24 / 14%), 0 0 0 1px rgb(20 21 24 / 5%);
+
+  /* Motion */
+  --fast: 120ms;
+  --base: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  --nav-h: 3.25rem;
+}
+
+/* The theme follows the operating system and nothing else: Anchor has no theme switch,
+   so a [data-theme] override would be a selector nothing can ever activate. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    color-scheme: dark;
+    --bg: #0f1114;
+    --surface: #15181c;
+    --raised: #1b1f24;
+    --border: #252a31;
+    --border-strong: #3a414b;
+    --border-control: #626e80;
+    --text: #eceef1;
+    --muted: #9aa1ac;
+    --faint: #7e8693;
+    --ink: #eceef1;
+    --on-ink: #0f1114;
+    --star: #f0b94a;
+    --star-text: #f0b94a;
+    --danger: #f07671;
+    --focus: #f0b94a;
+    --selection: #4a3a12;
+    --shadow-1: 0 1px 2px rgb(0 0 0 / 40%), 0 0 0 1px rgb(255 255 255 / 4%);
+    --shadow-2: 0 16px 40px rgb(0 0 0 / 60%), 0 0 0 1px rgb(255 255 255 / 6%);
+  }
+}
+
+/* Base -------------------------------------------------------------------------------- */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  background: var(--bg);
 }
 
 body {
   margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 400 var(--text-base) / var(--leading) var(--font);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  font-feature-settings: "ss01", "cv11";
 }
 
-.app {
-  max-width: 60rem;
-  margin: 0 auto;
-  padding: 1rem;
+::selection {
+  background: var(--selection);
 }
 
-.nav {
-  display: flex;
-  gap: 1rem;
-  padding-bottom: 1rem;
-  border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-}
-
-.nav a {
+a {
   color: inherit;
   text-decoration: none;
 }
 
-.nav a.active {
-  font-weight: 600;
+a:hover {
   text-decoration: underline;
-  text-underline-offset: 0.4em;
+  text-underline-offset: 0.2em;
+  text-decoration-color: var(--faint);
 }
 
-/* Auth screens: one centered card. */
-
-.auth {
-  min-height: 100dvh;
-  display: grid;
-  place-items: center;
-  padding: 1rem;
-  box-sizing: border-box;
+p a {
+  text-decoration: underline;
+  text-decoration-color: var(--border-control);
+  text-underline-offset: 0.2em;
 }
 
-.auth-card {
-  width: min(100%, 22rem);
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
+p a:hover {
+  text-decoration-color: var(--faint);
 }
 
-.auth-card h1,
-.auth-card p {
+p {
+  margin: 0 0 var(--s3);
+}
+
+h1,
+h2,
+h3 {
   margin: 0;
-}
-
-.auth-card h1 {
-  font-size: 1.5rem;
-}
-
-.auth-card strong {
-  overflow-wrap: anywhere;
-}
-
-.wordmark {
-  margin: 0;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  font-size: 0.8rem;
-  opacity: 0.7;
-}
-
-/* Forms */
-
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-}
-
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.field > span:first-child {
-  font-size: 0.9rem;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.015em;
   font-weight: 600;
 }
 
-.field input {
+h1 {
+  font-size: var(--text-2xl);
+  margin: var(--s5) 0 var(--s4);
+}
+
+h2 {
+  font-size: var(--text-md);
+  margin: var(--s6) 0 var(--s3);
+}
+
+h3 {
+  font-size: var(--text-base);
+}
+
+strong {
+  font-weight: 600;
+}
+
+button,
+input,
+select {
   font: inherit;
-  padding: 0.55rem 0.7rem;
-  border-radius: 0.4rem;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  background: transparent;
   color: inherit;
 }
 
-.field input:focus-visible {
-  outline: 2px solid currentColor;
-  outline-offset: 1px;
+/* One focus ring for the whole app, drawn in the rating amber so it reads as Anchor's
+   own rather than the browser's. */
+:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-radius: var(--r-sm);
 }
 
-.hint,
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+  }
+}
+
 .muted {
-  font-size: 0.9rem;
-  opacity: 0.7;
+  color: var(--muted);
 }
 
-.muted {
-  margin: 0;
-}
-
-.muted a {
-  color: inherit;
-  text-underline-offset: 0.2em;
+.hint {
+  color: var(--muted);
+  font-size: var(--text-xs);
 }
 
 .error {
-  margin: 0;
-  font-size: 0.9rem;
-  color: light-dark(#a4262c, #ff8a8a);
+  margin: 0 0 var(--s2);
+  color: var(--danger);
+  font-size: var(--text-sm);
 }
-
-.notice {
-  margin: 0;
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.4rem;
-  font-size: 0.9rem;
-  background: color-mix(in srgb, currentColor 8%, transparent);
-}
-
-.button {
-  font: inherit;
-  font-weight: 600;
-  padding: 0.6rem 1rem;
-  border-radius: 0.4rem;
-  border: 1px solid currentColor;
-  background: currentColor;
-  cursor: pointer;
-  text-align: center;
-  text-decoration: none;
-  align-self: flex-start;
-}
-
-.button:not(.secondary):not(.danger) {
-  color: light-dark(#fff, #111);
-  background: light-dark(#111, #fff);
-  border-color: transparent;
-}
-
-.button.secondary {
-  color: inherit;
-  background: transparent;
-}
-
-.button.danger {
-  color: light-dark(#a4262c, #ff8a8a);
-  background: transparent;
-}
-
-.button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.auth-card .button {
-  align-self: stretch;
-}
-
-/* Profile sections */
-
-.section {
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-  align-items: flex-start;
-}
-
-.section h2 {
-  margin: 0;
-}
-
-.section p {
-  margin: 0;
-}
-
-.danger-zone {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-  width: min(100%, 22rem);
-}
-
-.danger-zone h3 {
-  margin: 0;
-}
-
-/* Search */
-
-.search-form {
-  display: flex;
-  gap: 0.75rem;
-  align-items: flex-end;
-  margin-bottom: 1.5rem;
-  flex-wrap: wrap;
-}
-
-.search-form .field {
-  flex: 1 1 18rem;
-}
-
-/* Beats the base button's align-self, so it lines up with the input beside it. */
-.search-form .button {
-  align-self: flex-end;
-}
-
-/* Film rows: search results and the backlog share one shape. */
-
-.film-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  /* The sections these sit in stack their children at their natural width; a list of
-     films wants the full column instead. */
-  align-self: stretch;
-  width: 100%;
-}
-
-.film-row {
-  display: grid;
-  grid-template-columns: auto 1fr auto;
-  gap: 1rem;
-  align-items: start;
-  padding: 1rem 0;
-  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
-}
-
-.film-row:first-child {
-  border-top: none;
-  padding-top: 0;
-}
-
-.film-row-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-  min-width: 0;
-}
-
-.film-row-title {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-/* Titles carry their own weight; the underline is for the pointer, not the page. */
-.film-row-title a {
-  color: inherit;
-  text-decoration: none;
-  text-underline-offset: 0.2em;
-}
-
-.film-row-title a:hover,
-.film-row-title a:focus-visible {
-  text-decoration: underline;
-}
-
-/* The poster is a second link to the same film, so it must not read as one. */
-.film-row > a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.film-row-meta {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-  margin: 0;
-  font-size: 0.9rem;
-}
-
-.film-row .button {
-  align-self: center;
-  white-space: nowrap;
-}
-
-.poster {
-  display: block;
-  border-radius: 0.3rem;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-  object-fit: cover;
-}
-
-.poster-w154 {
-  width: 4rem;
-  aspect-ratio: 2 / 3;
-}
-
-.poster-w342 {
-  /* A fixed width, not a percentage: the grid column it sits in is content-sized. */
-  width: 14rem;
-  aspect-ratio: 2 / 3;
-}
-
-.poster-missing {
-  display: grid;
-  place-items: center;
-  padding: 0.5rem;
-  text-align: center;
-  font-size: 0.75rem;
-  opacity: 0.6;
-  box-sizing: border-box;
-}
-
-/* The spoiler toggle every plot summary sits behind. */
-
-.spoiler summary {
-  cursor: pointer;
-  font-size: 0.9rem;
-  font-weight: 600;
-  width: fit-content;
-}
-
-.spoiler p {
-  margin: 0.4rem 0 0;
-  font-size: 0.95rem;
-}
-
-.state-flag {
-  padding: 0.1rem 0.5rem;
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  background: color-mix(in srgb, currentColor 12%, transparent);
-}
-
-/* The film page */
-
-.back-link {
-  margin: 1rem 0;
-}
-
-.film-page {
-  display: grid;
-  grid-template-columns: auto 1fr;
-  gap: 1.5rem;
-  align-items: start;
-}
-
-.film-page-body {
-  display: flex;
-  flex-direction: column;
-  gap: 0.6rem;
-  min-width: 0;
-}
-
-.film-page-body h1,
-.film-page-body p {
-  margin: 0;
-}
-
-.film-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.75rem;
-  margin-top: 0.5rem;
-}
-
-.film-actions .button {
-  align-self: auto;
-}
-
-@media (max-width: 34rem) {
-  .film-page {
-    grid-template-columns: 1fr;
-  }
-
-  .poster-w342 {
-    width: min(100%, 11rem);
-  }
-
-  .film-row {
-    grid-template-columns: auto 1fr;
-  }
-
-  .film-row .button {
-    grid-column: 2;
-    justify-self: start;
-  }
-}
-
-/* Backlog filters */
-
-.filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1rem;
-  align-self: stretch;
-  width: 100%;
-}
-
-.filters .field {
-  flex: 0 1 10rem;
-}
-
-/* Every select in the app, not only the filters': the anchor picker and the band
-   designation control are the same control doing the same job elsewhere. */
-.field select {
-  font: inherit;
-  padding: 0.5rem 0.6rem;
-  border-radius: 0.4rem;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  background: transparent;
-  color: inherit;
-}
-
-/* TMDB attribution */
-
-.attribution {
-  margin-top: 1.5rem;
-  padding-top: 1.5rem;
-  border-top: 1px solid color-mix(in srgb, currentColor 20%, transparent);
-}
-
-.tmdb-logo {
-  width: 8rem;
-  height: auto;
-}
-
-.attribution .muted {
-  max-width: 34rem;
-}
-
-/* Logging a watch: the offer opens in place, primary then quiet secondary. */
-
-.link-button {
-  font: inherit;
-  font-size: 0.9rem;
-  padding: 0;
-  border: 0;
-  background: none;
-  color: inherit;
-  opacity: 0.7;
-  text-decoration: underline;
-  text-underline-offset: 0.2em;
-  cursor: pointer;
-  align-self: flex-start;
-}
-
-.link-button:hover:not(:disabled),
-.link-button:focus-visible {
-  opacity: 1;
-}
-
-.link-button:disabled {
-  cursor: default;
-  opacity: 0.4;
-}
-
-.rate-choice {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.rate-choice-label {
-  font-size: 0.9rem;
-}
-
-/* A row's action column is a stack, and the offer stacks inside it: three controls
-   laid out in a line would push the row's grid column past the screen edge. */
-.film-row-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  min-width: 0;
-}
-
-.film-row-actions .rate-choice {
-  flex-direction: column;
-  align-items: stretch;
-  gap: 0.5rem;
-}
-
-.film-row-actions .button,
-.film-row-actions .link-button {
-  align-self: stretch;
-  text-align: center;
-}
-
-/* The Rated screen: the ordering, position-only until dividers exist. */
-
-.ordering {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-}
-
-.ordering-slot {
-  display: flex;
-  gap: 0.9rem;
-  align-items: baseline;
-  padding: 0.5rem 0;
-  border-top: 1px solid color-mix(in srgb, currentColor 12%, transparent);
-}
-
-.ordering-slot:first-child {
-  border-top: 0;
-}
-
-.ordering-rank {
-  flex: 0 0 2.5rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  opacity: 0.55;
-}
-
-.ordering-films {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
-}
-
-.ordering-film {
-  margin: 0;
-}
-
-/* Titles carry their own weight here too; the underline is for the pointer. */
-.ordering-film a {
-  color: inherit;
-  text-decoration: none;
-  text-underline-offset: 0.2em;
-}
-
-.ordering-film a:hover,
-.ordering-film a:focus-visible {
-  text-decoration: underline;
-}
-
-/* The placement flow: full-screen, nothing on it but the question. */
-
-.place {
-  max-width: 46rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1.25rem;
-  align-items: center;
-}
-
-.place-header {
-  text-align: center;
-}
-
-.place-header h1 {
-  margin: 0 0 0.25rem;
-  font-size: 1.4rem;
-}
-
-.place-header p {
-  margin: 0;
-}
-
-.place-pair {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 1.25rem;
-  width: 100%;
-}
-
-/* Width-capped by the shortest of three limits, so the poster, the title, and the
-   button all share one edge, and a short viewport shrinks the card instead of
-   pushing the answers off the bottom of the screen. */
-.place-card {
-  width: min(100%, 13rem, 28vh);
-  margin-inline: auto;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  text-align: center;
-}
-
-.place-card h2 {
-  margin: 0;
-  font-size: 1.05rem;
-}
-
-.place-card p,
-.place-card .spoiler {
-  margin: 0;
-}
-
-.place-card .poster {
-  width: 100%;
-  height: auto;
-  aspect-ratio: 2 / 3;
-  object-fit: cover;
-}
-
-.place-card .button {
-  align-self: stretch;
-}
-
-.place-answers {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.75rem;
-}
-
-.place > .button {
-  align-self: center;
-}
-
-.place-leave {
-  margin: 0;
-  text-align: center;
-}
-
-.place-neighbours {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  width: min(100%, 28rem);
-}
-
-.place-neighbour {
-  display: flex;
-  gap: 0.9rem;
-  align-items: baseline;
-  padding: 0.5rem 0.6rem;
-  border-radius: 0.4rem;
-}
-
-.place-neighbour a {
-  color: inherit;
-  text-decoration: none;
-  text-underline-offset: 0.2em;
-}
-
-.place-neighbour a:hover,
-.place-neighbour a:focus-visible {
-  text-decoration: underline;
-}
-
-.place-neighbour-self {
-  font-weight: 600;
-  background: color-mix(in srgb, currentColor 10%, transparent);
-}
-
-.place-rank {
-  flex: 0 0 2rem;
-  text-align: right;
-  font-variant-numeric: tabular-nums;
-  opacity: 0.55;
-}
-
-@media (max-width: 32rem) {
-  .place-pair {
-    gap: 0.75rem;
-  }
-}
-
-/* Bands: half-stars where one has been derived, and a name for the gap where none has. */
 
 .visually-hidden {
   position: absolute;
@@ -688,176 +226,1076 @@ body {
   border: 0;
 }
 
-.band {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 0.35rem;
-  letter-spacing: 0.04em;
+/* The frame ---------------------------------------------------------------------------- */
+
+.app {
+  max-width: 64rem;
+  min-height: 100dvh;
+  margin: 0 auto;
+  padding: 0 var(--s5) var(--s8);
+  display: flex;
+  flex-direction: column;
 }
 
-/* The number carries the meaning; the stars are the shape of it. Counting five stars
-   at a glance is not something anyone should have to do. */
+.main {
+  flex: 1;
+}
+
+/* The destinations as quiet tabs on a thin rail, and the wordmark carrying the same
+   amber dot that marks a rating everywhere else. */
+.nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--nav-h);
+  display: flex;
+  align-items: center;
+  gap: var(--s1);
+  margin: 0 calc(var(--s5) * -1);
+  padding: 0 var(--s4);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  backdrop-filter: blur(12px);
+  border-bottom: var(--hairline);
+}
+
+.nav a {
+  padding: 0.35rem 0.6rem;
+  border-radius: var(--r-md);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  transition:
+    background-color var(--fast) var(--ease),
+    color var(--fast) var(--ease);
+}
+
+.nav a:hover {
+  text-decoration: none;
+  color: var(--text);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.nav a.active {
+  color: var(--text);
+  background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0;
+  color: var(--text);
+  font-size: var(--text-md);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.wordmark::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--star);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--star) 25%, transparent);
+}
+
+.nav .wordmark {
+  margin-right: auto;
+  padding-left: 0.5rem;
+}
+
+.nav .wordmark:hover {
+  background: none;
+}
+
+/* A section is a heading and whatever it introduces, with a rule under the heading. */
+.section {
+  margin-bottom: var(--s6);
+}
+
+.section > h2 {
+  padding-bottom: var(--s2);
+  border-bottom: var(--hairline);
+}
+
+.section > p {
+  max-width: 68ch;
+}
+
+/* Buttons ------------------------------------------------------------------------------ */
+
+.button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  height: 2.125rem;
+  padding: 0 0.875rem;
+  border-radius: var(--r-md);
+  background: var(--ink);
+  color: var(--on-ink);
+  border: 1px solid var(--ink);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  letter-spacing: 0.005em;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    color var(--fast) var(--ease),
+    transform var(--fast) var(--ease);
+}
+
+.button:hover {
+  text-decoration: none;
+  background: color-mix(in srgb, var(--ink) 84%, var(--bg));
+  border-color: color-mix(in srgb, var(--ink) 84%, var(--bg));
+}
+
+.button:active {
+  transform: translateY(1px);
+}
+
+.button.secondary {
+  background: var(--surface);
+  color: var(--text);
+  border-color: var(--border-control);
+  box-shadow: var(--shadow-1);
+}
+
+.button.secondary:hover {
+  background: var(--raised);
+  border-color: var(--faint);
+}
+
+.button.danger {
+  background: transparent;
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+}
+
+.button.danger:hover {
+  background: color-mix(in srgb, var(--danger) 10%, transparent);
+  border-color: var(--danger);
+}
+
+.button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+/* The quiet verb: an action that must not read as loud as the one beside it. */
+.link-button {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 0.2em;
+  transition:
+    color var(--fast) var(--ease),
+    text-decoration-color var(--fast) var(--ease);
+}
+
+.link-button:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration-color: var(--faint);
+}
+
+.link-button:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
+/* A row of controls that wraps rather than overflowing. Every actions row in the app is
+   this shape; the named ones below only say how they differ from it. */
+.actions,
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* Fields ------------------------------------------------------------------------------- */
+
+/* One shape for a select and a text input. In a filter bar the label sits inside the
+   control; in a form it stacks above it, because a form is read top-down. */
+.field {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 2.125rem;
+  padding: 0 0.25rem 0 0.7rem;
+  border: 1px solid var(--border-control);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+  font-size: var(--text-sm);
+  transition: border-color var(--fast) var(--ease);
+}
+
+.field:hover {
+  border-color: var(--faint);
+}
+
+/* The ring is drawn on the field rather than the control inside it, because the border
+   alone shifting shade is not a focus indicator anyone can see. */
+.field:has(:focus-visible) {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+  border-color: var(--faint);
+}
+
+.field > span:first-child {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.field select,
+.field input {
+  border: 0;
+  background: transparent;
+  padding: 0.3rem 0.45rem;
+  min-width: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+  outline: none;
+}
+
+.field select {
+  appearance: none;
+  padding-right: 1.3rem;
+  background: url('data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="10" height="6" viewBox="0 0 10 6"><path d="M1 1l4 4 4-4" fill="none" stroke="%23868a94" stroke-width="1.5"/></svg>')
+    no-repeat right 0.45rem center;
+}
+
+.field input::placeholder {
+  color: var(--faint);
+}
+
+/* A filter bar introduces the list under it, so it carries the gap to it. */
+.section > .filters {
+  margin-bottom: var(--s4);
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+}
+
+.form .field {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.45rem 0.7rem;
+}
+
+.form .field > span:first-child {
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
+}
+
+.form .field input {
+  padding: 0;
+  font-size: var(--text-base);
+}
+
+.form .button {
+  align-self: stretch;
+}
+
+/* Badges, chips, flags ------------------------------------------------------------------ */
+
+.anchor-badge,
+.provisional-mark,
+.state-flag,
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-size: var(--text-xs);
+  line-height: 1;
+  border-radius: var(--r-sm);
+}
+
+/* The one badge that carries a rating, so the one that gets the amber. */
+.anchor-badge {
+  padding: 0.2rem 0.4rem;
+  color: var(--star-text);
+  border: 1px solid color-mix(in srgb, var(--star) 55%, transparent);
+  background: color-mix(in srgb, var(--star) 10%, transparent);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.anchor-badge::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-radius: 50%;
+  background: var(--star);
+}
+
+.provisional-mark {
+  padding: 0.2rem 0.4rem;
+  color: var(--muted);
+  border: 1px dashed var(--border-strong);
+  font-weight: 500;
+}
+
+.state-flag {
+  padding: 0.2rem 0.45rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  font-weight: 500;
+}
+
+.state-flag-rated {
+  color: var(--star-text);
+  background: color-mix(in srgb, var(--star) 12%, transparent);
+}
+
+.chip {
+  padding: 0.35rem 0.65rem;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+}
+
+/* Bands: the number carries the meaning, the stars are the shape of it. ------------------ */
+
+.band {
+  display: inline-flex;
+  flex-direction: row-reverse;
+  align-items: baseline;
+  gap: 0.45rem;
+}
+
 .band-value {
-  font-size: 0.8em;
   font-variant-numeric: tabular-nums;
-  letter-spacing: normal;
-  opacity: 0.65;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+.band-stars {
+  color: var(--star);
+  font-size: 0.78em;
+  letter-spacing: 0.08em;
 }
 
 /* Not an empty space and not a zero: the absence of a rating has a name, because the
    design means it, and an empty space would read as a bug. */
 .band-pending {
-  font-size: 0.85rem;
-  font-style: italic;
-  letter-spacing: normal;
-  opacity: 0.6;
-}
-
-.anchor-badge,
-.provisional-mark {
-  margin-left: 0.4rem;
-  padding: 0.05rem 0.4rem;
-  border-radius: 0.7rem;
-  font-size: 0.7rem;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  text-transform: uppercase;
-  vertical-align: 0.08em;
-  white-space: nowrap;
-}
-
-.anchor-badge {
-  border: 1px solid color-mix(in srgb, currentColor 35%, transparent);
-}
-
-.provisional-mark {
-  border: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
   font-weight: 500;
-  text-transform: none;
-  opacity: 0.6;
+  font-style: italic;
+  color: var(--muted);
 }
 
-/* The anchor-designation nudge: one passive line, no motion, nothing to dismiss. */
+/* Cards, rows, empties, nudges, dialogs -------------------------------------------------- */
+
+.card {
+  padding: var(--s4) var(--s5);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.card > :last-child {
+  margin-bottom: 0;
+}
+
+.film-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* The shape every list of films with inline verbs takes: poster, body, actions. */
+.film-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: var(--s4);
+  align-items: center;
+  padding: var(--s3) 0;
+  border-bottom: var(--hairline);
+}
+
+.film-row .poster {
+  width: 3rem;
+}
+
+.film-row-body {
+  min-width: 0;
+}
+
+.film-row-title {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.film-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s2);
+  margin: 0.15rem 0 0;
+  font-size: var(--text-sm);
+}
+
+/* A stack, not a line: three controls side by side push the grid past the screen edge. */
+.film-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--s2);
+  min-width: 0;
+  text-align: center;
+}
+
+.empty {
+  padding: var(--s7) var(--s4);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+  text-align: center;
+}
+
+.empty > :last-child {
+  margin-bottom: 0;
+}
+
+/* One passive line, no motion, nothing to dismiss, marked by the amber rule because
+   what it is missing is stars (ADR 0011). */
 .nudge {
-  margin: 0 0 1rem;
-  padding: 0.7rem 0.9rem;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 0.5rem;
-  background: color-mix(in srgb, currentColor 4%, transparent);
-  font-size: 0.9rem;
+  position: relative;
+  margin: 0 0 var(--s4);
+  padding: var(--s3) var(--s4) var(--s3) calc(var(--s4) + 4px);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  font-size: var(--text-sm);
+  box-shadow: var(--shadow-1);
 }
 
-/* The Rated screen's band grouping. */
+.nudge::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.75rem;
+  bottom: 0.75rem;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--star);
+}
+
+.nudge a {
+  color: var(--text);
+  font-weight: 500;
+  text-decoration: underline;
+  text-decoration-color: var(--faint);
+  text-underline-offset: 0.2em;
+}
+
+/* Something that just happened, stated once. Tinted rather than outlined: on a form, a
+   bordered box the shape of the fields above it reads as one more field. */
+.notice {
+  margin: 0 0 var(--s3);
+  padding: var(--s3) var(--s4);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+  font-size: var(--text-sm);
+}
+
+.dialog {
+  margin: 0;
+  padding: var(--s5);
+  max-width: 24rem;
+  border: var(--hairline);
+  border-radius: var(--r-xl);
+  background: var(--raised);
+  color: var(--text);
+  box-shadow: var(--shadow-2);
+}
+
+.dialog h2 {
+  margin: 0 0 var(--s2);
+  font-size: var(--text-lg);
+}
+
+.dialog .actions {
+  justify-content: flex-end;
+  margin-top: var(--s4);
+}
+
+/* The spoiler every plot summary sits behind. */
+.spoiler {
+  margin: 0 0 var(--s3);
+}
+
+.spoiler summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-weight: 500;
+  font-size: var(--text-sm);
+  list-style: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.spoiler summary::-webkit-details-marker {
+  display: none;
+}
+
+.spoiler summary::before {
+  content: "";
+  width: 0.4rem;
+  height: 0.4rem;
+  border-right: 1.5px solid currentColor;
+  border-bottom: 1.5px solid currentColor;
+  transform: rotate(-45deg);
+  transition: transform var(--fast) var(--ease);
+}
+
+.spoiler[open] summary::before {
+  transform: rotate(45deg);
+}
+
+.spoiler summary:hover {
+  color: var(--text);
+}
+
+.spoiler p {
+  margin-top: var(--s2);
+  max-width: 60ch;
+  font-size: var(--text-sm);
+}
+
+/* Posters: crisp tiles, always 2:3, sized by the surface they sit on. -------------------- */
+
+.poster {
+  display: block;
+  aspect-ratio: 2 / 3;
+  height: auto;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  background: var(--border);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 8%, transparent);
+}
+
+.poster-missing {
+  display: grid;
+  place-items: center;
+  padding: var(--s2);
+  text-align: center;
+  color: var(--muted);
+  font-size: var(--text-xs);
+  overflow: hidden;
+}
+
+/* The stand-in names the film it stands for, wrapped to the tile rather than clipped
+   mid-word: at a list row's width a single line would say "Whiplas". */
+/* On a thumbnail there is no room to name the film, and a clipped word is worse than
+   nothing; the row carries the title beside it anyway. */
+.film-row .poster-missing span,
+.neighbours .poster-missing span {
+  display: none;
+}
+
+.poster-missing span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+}
+
+.poster-link {
+  flex: none;
+  display: block;
+}
+
+.poster-link:hover {
+  text-decoration: none;
+}
+
+/* The Rated screen ----------------------------------------------------------------------- */
+
+.rated-controls {
+  margin-bottom: var(--s5);
+}
 
 .jump-to-band {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 0.6rem;
-  margin-top: 0.75rem;
-  font-size: 0.85rem;
+  align-items: center;
+  gap: var(--s1);
+  margin-top: var(--s3);
+}
+
+.jump-to-band .muted {
+  margin-right: var(--s1);
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
 }
 
 .jump-to-band a {
-  color: inherit;
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--muted);
+  font-size: var(--text-xs);
+  font-weight: 500;
   font-variant-numeric: tabular-nums;
-  text-underline-offset: 0.25em;
+  transition:
+    color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease);
 }
 
-/* The Rated screen's controls sit above the ordering rather than inside it, so they
-   carry their own spacing instead of borrowing the section's. */
-.rated-controls {
-  margin-bottom: 1.25rem;
+.jump-to-band a:hover {
+  text-decoration: none;
+  color: var(--text);
+  border-color: var(--border-strong);
 }
 
 .band-group {
-  align-self: stretch;
-  width: 100%;
-  margin-bottom: 1.25rem;
-  scroll-margin-top: 1rem;
+  margin-bottom: var(--s5);
+  scroll-margin-top: calc(var(--nav-h) + var(--s2));
 }
 
+/* Sticky under the nav: on a wall hundreds of posters long, the band a poster belongs to
+   has to stay on screen or the ordering stops meaning anything. */
 .band-header {
+  position: sticky;
+  top: var(--nav-h);
+  z-index: 10;
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.5rem 1rem;
-  padding-bottom: 0.35rem;
-  border-bottom: 2px solid color-mix(in srgb, currentColor 22%, transparent);
+  gap: var(--s3);
+  padding: var(--s3) 0 var(--s2);
+  background: var(--bg);
+  border-bottom: 1px solid var(--border-strong);
 }
 
 .band-header h3 {
-  margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--text-xl);
+}
+
+.band-header .band-stars {
+  font-size: 0.7em;
 }
 
 .anchor-picker {
   display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
+  align-items: center;
+  gap: var(--s2);
 }
 
-.anchor-picker .field {
+/* The ordering is a wall: a poster is recognised faster than a title, and at three
+   hundred films the wall is shorter than the list it replaces. */
+.ordering {
+  list-style: none;
+  margin: 0;
+  padding: var(--s3) 0 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: var(--s5) var(--s4);
+}
+
+.ordering-slot {
+  position: relative;
+  min-width: 0;
+}
+
+.ordering-rank {
+  position: absolute;
+  top: 0.4rem;
+  left: 0.4rem;
+  z-index: 2;
+  padding: 0.2rem 0.45rem;
+  border-radius: var(--r-sm);
+  background: rgb(15 17 20 / 78%);
+  color: #fff;
+  backdrop-filter: blur(6px);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Films judged equal share one rank, so they share one slot and are boxed together. */
+.ordering-slot[data-tie] {
+  grid-column: span 2;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s2);
+  padding: var(--s2);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-lg);
+}
+
+.ordering-slot[data-tie] .ordering-rank {
+  position: static;
+  align-self: flex-start;
+  background: var(--ink);
+  color: var(--on-ink);
+  backdrop-filter: none;
+}
+
+.ordering-films {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: var(--s3);
+}
+
+.ordering-slot[data-tie] .ordering-films {
+  grid-template-columns: 1fr 1fr;
+}
+
+.ordering-film {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.ordering-film .poster {
+  width: 100%;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+  transition:
+    transform var(--base) var(--ease),
+    box-shadow var(--base) var(--ease);
+}
+
+.poster-link:hover .poster {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-2);
+}
+
+.ordering-film-body {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.15rem 0.4rem;
+  min-width: 0;
+}
+
+.film-title {
+  flex-basis: 100%;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+.film-year {
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The film page --------------------------------------------------------------------------- */
+
+.back-link {
+  margin: var(--s4) 0 0;
+  font-size: var(--text-sm);
+}
+
+.back-link a::before {
+  content: "\2190";
+  display: inline-block;
+  margin-right: 0.35rem;
+}
+
+.film-page {
+  display: grid;
+  grid-template-columns: 16rem 1fr;
+  gap: 0 var(--s6);
+  align-items: start;
+  margin-top: var(--s4);
+}
+
+.film-page > .poster {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  width: 100%;
+  position: sticky;
+  top: calc(var(--nav-h) + var(--s4));
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+}
+
+.film-page-head,
+.film-page-body {
+  grid-column: 2;
+  min-width: 0;
+}
+
+.film-page-head h1 {
+  margin-top: 0;
+}
+
+.genres {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s1);
+  margin: var(--s3) 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The rating, set apart: it is the one thing on this page the whole app exists to produce. */
+.rating-panel {
+  margin: var(--s5) 0 0;
+  padding: var(--s4) var(--s5) var(--s5);
+  border: var(--hairline);
+  border-radius: var(--r-xl);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.rating-panel > h2 {
+  margin: 0 0 var(--s3);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rating-panel > :last-child {
+  margin-bottom: 0;
+}
+
+.film-page-band {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  margin: 0 0 var(--s3);
+}
+
+.film-page-band .band-value {
+  font-size: var(--text-2xl);
+}
+
+.film-page-band .band-stars {
+  font-size: var(--text-md);
+}
+
+.film-actions {
+  margin: var(--s4) 0;
+}
+
+.designate {
+  margin: 0 0 var(--s3);
+}
+
+.designate > .muted {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+/* Logging a watch: the offer opens in place, primary then quiet secondary. */
+.rate-choice-label {
+  font-size: var(--text-sm);
+}
+
+.film-row-actions .rate-choice {
+  flex-direction: column;
+  align-items: stretch;
+}
+
+/* Neighbours: a rank, a poster, a title, and the film itself marked in the run. ----------- */
+
+.neighbours {
+  list-style: none;
+  margin: 0 0 var(--s4);
+  padding: 0;
+  border: var(--hairline);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+
+.neighbours li {
+  display: grid;
+  grid-template-columns: 2.25rem auto 1fr;
+  align-items: center;
+  gap: var(--s2);
+  padding: 0.35rem 0.6rem;
+  border-bottom: var(--hairline);
+  font-size: var(--text-sm);
+  text-align: left;
+}
+
+.neighbours li:last-child {
+  border-bottom: 0;
+}
+
+.neighbours .poster {
+  width: 1.75rem;
+}
+
+.neighbours .ordering-rank {
+  position: static;
+  padding: 0;
+  background: none;
+  backdrop-filter: none;
+  color: var(--faint);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  text-align: right;
+}
+
+.neighbours .self {
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
+}
+
+.neighbours .self .film-title {
+  font-weight: 600;
+}
+
+/* The placement flow: full-screen, nothing on it but the question. ------------------------ */
+
+.place {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: var(--s6) var(--s4) var(--s8);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s5);
+  align-items: center;
+}
+
+.place-header {
+  text-align: center;
+}
+
+.place-header h1 {
+  margin: 0 0 var(--s1);
+  font-size: var(--text-xl);
+}
+
+.place-header p:last-child {
   margin: 0;
 }
 
-/* The band question: the one step of the flow that names ratings, because it asks
-   about them. Laid out like the comparison it stands in for, so the answer feels the
-   same shape as every other answer. */
-
-.band-subject {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  padding: 0.5rem 0.9rem;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 0.5rem;
-}
-
-.band-subject .poster {
-  width: 2.6rem;
-  height: auto;
-  aspect-ratio: 2 / 3;
-  object-fit: cover;
-  border-radius: 0.25rem;
-}
-
-.band-subject strong {
-  font-size: 1rem;
-}
-
-.band-options {
+.place-pair {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
-  gap: 1.25rem;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--s5);
   width: 100%;
 }
 
+/* Capped by the shortest of three limits, so the poster, the title, and the button share
+   one edge, and a short viewport shrinks the card instead of pushing the answers off the
+   bottom of the screen. */
+.place-card,
 .band-option {
   width: min(100%, 13rem, 28vh);
   margin-inline: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.5rem;
+  gap: var(--s2);
   text-align: center;
 }
 
+.place-card h2,
 .band-option h2 {
   margin: 0;
-  font-size: 1.05rem;
+  font-size: var(--text-base);
 }
 
-.band-option p {
+.place-card p,
+.band-option p,
+.place-card .spoiler {
   margin: 0;
 }
 
+.place-card .poster,
 .band-option .poster {
   width: 100%;
-  height: auto;
-  aspect-ratio: 2 / 3;
-  object-fit: cover;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+
+.place-card .button,
+.band-option .button {
+  align-self: stretch;
+  font-variant-numeric: tabular-nums;
+}
+
+.place-answers {
+  justify-content: center;
+}
+
+.place-leave {
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+}
+
+.place-landed-band {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--s2);
+  margin: var(--s2) 0 0;
+}
+
+.place-landed-band .band-value {
+  font-size: var(--text-xl);
+}
+
+.place .neighbours {
+  width: min(100%, 28rem);
+}
+
+/* The band question: the one step of the flow that names ratings, because it asks about
+   them. Laid out like the comparison it stands in for. */
+
+.band-subject {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) var(--s4);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.band-subject .poster {
+  width: 2.6rem;
+}
+
+.band-options {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: var(--s5);
+  width: 100%;
 }
 
 /* A band nothing stands for still needs a face, so the stars themselves are it. */
@@ -866,15 +1304,12 @@ body {
   place-items: center;
   width: 100%;
   aspect-ratio: 2 / 3;
-  border: 1px dashed color-mix(in srgb, currentColor 25%, transparent);
-  border-radius: 0.4rem;
-  font-size: 1.1rem;
-  opacity: 0.7;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
 }
 
-.band-option .button {
-  align-self: stretch;
-  font-variant-numeric: tabular-nums;
+.band-option-empty .band-value {
+  font-size: var(--text-lg);
 }
 
 /* The ballpark guess: quiet, optional, and impossible to mistake for a rating. */
@@ -883,130 +1318,60 @@ body {
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: center;
-  gap: 0.5rem;
-  font-size: 0.85rem;
+  gap: var(--s2);
+  font-size: var(--text-sm);
 }
 
 .ballpark .link-button {
   font-variant-numeric: tabular-nums;
 }
 
-.place-landed-band {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 0.5rem;
-  margin: 0.35rem 0 0;
-  font-size: 1.5rem;
-}
+/* Profile: readiness, the account, and the attribution TMDB's terms require. -------------- */
 
-/* Anchor designation on the film page. */
-
-.film-page-band {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  margin: 1rem 0 0;
-  font-size: 1.35rem;
-}
-
-.designate {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: 0.75rem;
-  margin: 0.75rem 0 1rem;
-}
-
-.designate .button,
-.designate .link-button {
-  /* The shared button rule pins itself to the top of its line; here the row has to
-     read as one row, so it sits on the select's baseline instead of the label's. */
-  align-self: flex-end;
-}
-
-.designate .field {
-  margin: 0;
-}
-
-.designate > .muted {
-  flex-basis: 100%;
-  margin: 0;
-  font-size: 0.85rem;
-}
-
-/* Readiness on Profile: the state, what it unlocks, and the arithmetic behind it.
-
-   Deliberately plain. Readiness is a fact about how much the owner has told Anchor, not
-   an achievement to celebrate, so the bars carry their own figures and nothing here
+/* Deliberately plain. Readiness is a fact about how much the owner has told Anchor, not an
+   achievement to celebrate, so the bars carry their own figures and nothing here
    congratulates anybody or nags them towards the next state (ADR 0011). */
-
-/* A chip rather than a big word: the state is a value, and set as a heading it would
-   outrank the section heading above it. */
-.readiness-state {
-  align-self: flex-start;
-  padding: 0.25rem 0.75rem;
-  border: 1px solid color-mix(in srgb, currentColor 30%, transparent);
-  border-radius: 1rem;
-  background: color-mix(in srgb, currentColor 6%, transparent);
-  font-size: 0.8rem;
-  font-weight: 600;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* The Account section follows this one, and two headings with only a paragraph gap
-   between them read as one run rather than two sections. */
-.readiness {
-  margin-bottom: 2rem;
-}
-
 .stages {
-  align-self: stretch;
+  max-width: 44rem;
   display: flex;
   flex-direction: column;
-  gap: 0.75rem;
-  margin: 0.25rem 0 0;
+  gap: var(--s3);
+  margin: var(--s4) 0 var(--s3);
   padding: 0;
   list-style: none;
 }
 
-.stage {
-  padding: 0.8rem 0.9rem;
-  border: 1px solid color-mix(in srgb, currentColor 18%, transparent);
-  border-radius: 0.5rem;
-}
-
 .stage.reached {
-  background: color-mix(in srgb, currentColor 5%, transparent);
+  border-color: var(--border-strong);
+  background: var(--raised);
 }
 
 .stage-name {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin: 0 0 0.15rem;
+  gap: var(--s3);
+  margin: 0 0 var(--s1);
   font-weight: 600;
 }
 
 .stage-mark {
-  font-size: 0.7rem;
+  color: var(--faint);
+  font-size: var(--text-xs);
   font-weight: 600;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
-  opacity: 0.55;
 }
 
 .stage.reached .stage-mark {
-  opacity: 0.8;
+  color: var(--muted);
 }
 
 .bars {
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
-  margin: 0.7rem 0 0;
+  gap: var(--s2);
+  margin: var(--s3) 0 0;
   padding: 0;
   list-style: none;
 }
@@ -1015,53 +1380,239 @@ body {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 6rem auto;
   align-items: center;
-  gap: 0.6rem;
-  font-size: 0.85rem;
+  gap: var(--s3);
+  font-size: var(--text-sm);
 }
 
 .bar-label {
-  opacity: 0.75;
+  color: var(--muted);
 }
 
 .bar-need {
-  opacity: 0.7;
+  color: var(--faint);
   white-space: nowrap;
 }
 
 .bar-track {
   block-size: 0.4rem;
-  border-radius: 0.2rem;
-  background: color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--ink) 12%, transparent);
   overflow: hidden;
 }
 
 .bar-fill {
   display: block;
   block-size: 100%;
-  background: currentColor;
-  opacity: 0.55;
+  background: var(--faint);
 }
 
 .bar-figures {
+  color: var(--text);
   font-variant-numeric: tabular-nums;
-  opacity: 0.75;
+  font-weight: 500;
   white-space: nowrap;
 }
 
-/* Two columns is already tight for a label and its figures; below that the bar drops
-   under its own label rather than squeezing both into nothing. */
-@media (max-width: 30rem) {
-  .bars {
-    gap: 0.8rem;
+.danger-zone {
+  margin-top: var(--s6);
+  padding-top: var(--s5);
+  border-top: var(--hairline);
+  width: min(100%, 24rem);
+}
+
+.danger-zone h3 {
+  margin: 0;
+}
+
+.attribution .tmdb-logo {
+  width: 8rem;
+  height: auto;
+  margin: var(--s3) 0;
+}
+
+.attribution .muted {
+  max-width: 34rem;
+  font-size: var(--text-sm);
+}
+
+/* Search ---------------------------------------------------------------------------------- */
+
+.search-form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  max-width: 40rem;
+  margin-bottom: var(--s5);
+}
+
+.search-form .field {
+  flex: 1 1 16rem;
+}
+
+.search-form .field input {
+  width: 100%;
+}
+
+/* Auth: one centered card, the wordmark above it. ----------------------------------------- */
+
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+}
+
+.auth-card {
+  width: min(100%, 23rem);
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  padding: var(--s5);
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: var(--text-xl);
+}
+
+.auth-card p {
+  margin: 0;
+}
+
+.auth-card strong {
+  overflow-wrap: anywhere;
+}
+
+/* Phone ------------------------------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .app {
+    padding: 0 var(--s4) calc(var(--nav-h) + var(--s5));
   }
 
+  /* The rail becomes a tab bar under the thumb, and the wordmark gives up its space. */
+  .nav {
+    order: 2;
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: auto;
+    margin: 0;
+    justify-content: space-around;
+    gap: 0;
+    padding: 0.4rem 0.5rem calc(0.4rem + env(safe-area-inset-bottom));
+    border-top: var(--hairline);
+    border-bottom: 0;
+    background: color-mix(in srgb, var(--bg) 92%, transparent);
+  }
+
+  .nav .wordmark {
+    display: none;
+  }
+
+  .nav a {
+    flex: 1;
+    text-align: center;
+    padding: 0.45rem 0.2rem;
+    font-size: var(--text-xs);
+  }
+
+  h1 {
+    font-size: var(--text-xl);
+    margin-top: var(--s4);
+  }
+
+  .band-header {
+    top: 0;
+  }
+
+  .band-group {
+    scroll-margin-top: var(--s2);
+  }
+
+  .ordering {
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--s4) var(--s2);
+  }
+
+  .ordering-slot[data-tie] {
+    padding: 0.35rem;
+    gap: 0.35rem;
+  }
+
+  .ordering-slot[data-tie] .ordering-films {
+    gap: var(--s2);
+  }
+
+  .film-title {
+    font-size: var(--text-xs);
+  }
+
+  .film-year {
+    font-size: 0.625rem;
+  }
+
+  .ordering-film-body .anchor-badge,
+  .ordering-film-body .provisional-mark {
+    font-size: 0.5625rem;
+    padding: 0.15rem 0.3rem;
+  }
+
+  .film-page {
+    grid-template-columns: 7.5rem 1fr;
+    gap: 0 var(--s4);
+  }
+
+  .film-page > .poster {
+    grid-row: 1;
+    position: static;
+  }
+
+  .film-page-head {
+    grid-row: 1;
+  }
+
+  .film-page-body {
+    grid-column: 1 / -1;
+    margin-top: var(--s4);
+  }
+
+  .film-page h1 {
+    font-size: var(--text-lg);
+  }
+
+  .rating-panel {
+    padding: var(--s4);
+  }
+
+  .film-row {
+    grid-template-columns: auto 1fr;
+  }
+
+  .film-row-actions {
+    grid-column: 2;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+  }
+
+  .search-form .field {
+    flex-basis: 100%;
+  }
+
+  .place-pair {
+    gap: var(--s3);
+  }
+
+  /* Two columns is already tight for a label and its figures; below that the bar drops
+     under its own label rather than squeezing both into nothing. */
   .bar {
     grid-template-columns: minmax(0, 1fr) auto;
-    row-gap: 0.3rem;
+    row-gap: var(--s1);
   }
 
-  /* Under its own label, not floating between two of them: a bar the reader has to
-     guess the owner of is worse than no bar. */
   .bar-track {
     grid-column: 1 / -1;
     order: 1;

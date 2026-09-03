@@ -63,11 +63,13 @@ export function Rated() {
           <section className="section" aria-labelledby="ordering-heading">
             <h2 id="ordering-heading">Your ordering</h2>
             {isEmpty(rated) ? (
-              <p className="muted">
-                {hasFilters(filters)
-                  ? "No rated films match these filters."
-                  : "Nothing placed yet. Mark a film watched and rate it now to start your ordering."}
-              </p>
+              <div className="empty">
+                <p className="muted">
+                  {hasFilters(filters)
+                    ? "No rated films match these filters."
+                    : "Nothing placed yet. Mark a film watched and rate it now to start your ordering."}
+                </p>
+              </div>
             ) : rated.groups !== null ? (
               rated.groups.map((group, index) => (
                 <BandSection
@@ -93,7 +95,9 @@ export function Rated() {
           <section className="section" aria-labelledby="rate-later-heading">
             <h2 id="rate-later-heading">Rate later</h2>
             {rated.rate_later.length === 0 ? (
-              <p className="muted">Nothing waiting to be rated.</p>
+              <div className="empty">
+                <p className="muted">Nothing waiting to be rated.</p>
+              </div>
             ) : (
               <ul className="film-list">
                 {rated.rate_later.map((film) => (
@@ -250,7 +254,11 @@ function BandSection({ group, onChange }: { group: BandGroup; onChange: () => vo
       </header>
       <ol className="ordering">
         {group.slots.map((slot, index) => (
-          <li key={slot[0]?.tmdb_id ?? index} className="ordering-slot">
+          <li
+            key={slot[0]?.tmdb_id ?? index}
+            className="ordering-slot"
+            data-tie={slot.length > 1 ? "true" : undefined}
+          >
             <span className="ordering-rank">{slot[0]?.position}</span>
             <div className="ordering-films">
               {slot.map((film) => (
@@ -331,26 +339,32 @@ function AnchorPicker({
 }
 
 /**
- * One film in a slot. Tie-group members sit together under one rank, as one slot.
+ * One film on the wall: its poster, and the title and marks under it. Tie-group members
+ * sit together under one rank, as one slot.
  *
- * The band shows on the row only where the list is flat: under the ordering's band
- * headers the value is already three lines up, and repeating it on every row would
- * turn the header into decoration.
+ * The poster is the point of the wall - a poster is recognised faster than a title, and
+ * at three hundred films the wall is shorter than the list of rows it replaces.
+ *
+ * The band shows under a film only where the list is flat: inside the ordering's band
+ * groups the value is already in the header above, and repeating it on every poster
+ * would turn the header into decoration.
  */
 function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: boolean }) {
   return (
-    <p className="ordering-film">
-      <Link to={filmPath(film.tmdb_id)}>{film.title}</Link>{" "}
-      <span className="muted">{releaseYear(film.year)}</span>
-      {showBand && (
-        <>
-          {" "}
-          <Band band={film.band} />
-        </>
-      )}
-      {film.anchor && <AnchorBadge band={film.band} />}
-      {film.provisional && <ProvisionalMark />}
-    </p>
+    <div className="ordering-film">
+      <Link className="poster-link" to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
+        <Poster title={film.title} path={film.poster_path} size="w342" />
+      </Link>
+      <div className="ordering-film-body">
+        <Link className="film-title" to={filmPath(film.tmdb_id)}>
+          {film.title}
+        </Link>
+        <span className="film-year muted">{releaseYear(film.year)}</span>
+        {showBand && <Band band={film.band} />}
+        {film.anchor && <AnchorBadge band={film.band} />}
+        {film.provisional && <ProvisionalMark />}
+      </div>
+    </div>
   );
 }
 
@@ -359,7 +373,7 @@ function QueuedFilm({ film, onLeft }: { film: FilmCard; onLeft: () => void }) {
 
   return (
     <li className="film-row">
-      <Link to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
+      <Link className="poster-link" to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
         <Poster title={film.title} path={film.poster_path} size="w154" />
       </Link>
       <div className="film-row-body">

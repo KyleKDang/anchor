@@ -20,7 +20,9 @@ export function Band({ band }: { band: number | null }) {
   if (band === null) return <span className="band band-pending">Rating pending</span>;
   return (
     <span className="band">
-      <span aria-hidden="true">{stars(band)}</span>
+      <span className="band-stars" aria-hidden="true">
+        {stars(band)}
+      </span>
       <span className="band-value">
         {band.toFixed(1)}
         <span className="visually-hidden"> stars</span>

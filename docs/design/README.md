@@ -7,8 +7,8 @@ This directory is the complete design spec, assembled by wayfinder ticket [Spec 
 It stands on its own: implementation planning should be possible from these docs without reopening the design tickets.
 The tickets and their resolution comments remain the provenance trail; each doc names the tickets it consolidates.
 
-Visual and UI design is deliberately excluded.
-The spec fixes screens, states, and behavior; implementation sessions will prototype multiple UI directions rather than pre-picking one.
+Visual and UI design was deliberately excluded from the original spec: it fixes screens, states, and behavior, and left implementation to prototype UI directions rather than pre-picking one.
+That deferral came due at [#50](https://github.com/KyleKDang/anchor/issues/50), and the direction it settled on is recorded in [visual-design.md](visual-design.md).
 
 ## How to read this
 
@@ -51,6 +51,7 @@ In suggested reading order:
 | [watchlist.md](watchlist.md) | The backlog and the ranked tier: zones, refresh damping, staleness, pin, veto, not-now |
 | [discovery.md](discovery.md) | The discovery feed: sourcing cascade, verdicts, accept, dismissal, seen-it, degraded states |
 | [screens-and-flows.md](screens-and-flows.md) | Every screen and flow in prose: the five destinations, the film page, placement on screen, logging watches |
+| [visual-design.md](visual-design.md) | The visual direction and the rules that hold it together: the one-amber rule, type, the wall-versus-rows rule, the theme, the accessibility floor |
 | [surfacing.md](surfacing.md) | The no-nagging posture applied: where every surfacing moment lives, and the Letterboxd sync list |
 | [data-model.md](data-model.md) | The conceptual data model: realms, entities, relationships, invariants |
 | [architecture.md](architecture.md) | Hosting, stack, processes and jobs, accounts and auth, the LLM seam and spend controls, TMDB integration and compliance |
