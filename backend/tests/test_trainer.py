@@ -1,15 +1,18 @@
 """The weight-vector trainer, tested directly: the other half of the below-API seam.
 
 What is pinned here is what taste-profile.md fixes about pair extraction - every
-adjacent pair, sampled long-range pairs, ties as equality targets, explicit answers
-outweighing implied ones, provisional placements down-weighted, sampling seedable - and
-the one quality bar that matters: held-out accuracy clearly beats chance on a taste the
-test itself invented. The particular numbers a fit lands on are never asserted.
+adjacent pair, a per-film budget inside a seeded band, sampled long-range pairs, ties as
+equality targets, explicit answers outweighing implied ones, provisional placements
+down-weighted, sampling seedable - and the one quality bar that matters: held-out
+accuracy clearly beats chance on a taste the test itself invented. The particular
+numbers a fit lands on are never asserted, and neither is a clock: the scale a retrain
+must survive is pinned as an allocation bound.
 """
 
 import random
 import tracemalloc
 import uuid
+from itertools import combinations
 
 from anchor import features, trainer
 from anchor.ordering import Ordering, Slot
@@ -55,6 +58,9 @@ def pairs_of(extracted):
 
 NO_SAMPLING = trainer.Sampling(long_range_per_film=0)
 """Adjacency and ties only, so a test about those is not reading sampled noise."""
+
+EVERY_PAIR = trainer.Sampling(tied_per_film=10**6, adjacent_per_film=10**6)
+"""No budget on a tie-group: every pair a seed import implies, as the worker once saw."""
 
 
 def test_every_adjacent_pair_is_extracted_better_first():
@@ -151,6 +157,44 @@ def test_an_answered_pair_naming_a_film_no_longer_rated_is_left_out():
 def test_an_ordering_too_short_to_have_a_pair_yields_none():
     assert trainer.extract(ordering([1]), seed=1) == []
     assert trainer.extract(ordering(), seed=1) == []
+
+
+def test_a_seeded_band_pairs_each_film_a_budgeted_number_of_times():
+    """A band-sized tie-group is paired per film, never per pair.
+
+    Two hundred films seeded into one half-star band would otherwise imply twenty
+    thousand tie pairs, and forty thousand more against the band below - all of them
+    saying the same two things. Each film instead draws a budget of slot-mates and of
+    opponents either side, so the pair count follows the library and the ordering is
+    still fully captured: every film ties with some of its band and stands above and
+    below some of its neighbours.
+    """
+    upper, lower = list(range(200)), list(range(200, 400))
+    budget = trainer.SAMPLING
+
+    extracted = trainer.extract(ordering(upper, lower), seed=1, sampling=NO_SAMPLING)
+
+    ties = [pair for pair in extracted if pair.target == trainer.TIED]
+    cross = [pair for pair in extracted if pair.target == 1.0]
+    assert len(ties) <= 400 * budget.tied_per_film
+    assert len(cross) <= 400 * budget.adjacent_per_film
+    for film in upper:
+        assert sum(film in (pair.a, pair.b) for pair in ties) >= budget.tied_per_film
+        assert sum(pair.a == film for pair in cross) >= budget.adjacent_per_film
+    for film in lower:
+        assert sum(pair.b == film for pair in cross) >= budget.adjacent_per_film
+
+
+def test_a_tie_group_that_fits_the_budget_still_trains_on_every_pair():
+    """The budget only bites on a seeded band; a tie the owner made by hand is whole."""
+    budget = trainer.SAMPLING
+    upper = list(range(budget.tied_per_film + 1))
+    lower = list(range(100, 100 + budget.adjacent_per_film))
+
+    extracted = trainer.extract(ordering(upper, lower), seed=1, sampling=NO_SAMPLING)
+
+    ties = {(a, b, trainer.TIED) for slot in (upper, lower) for a, b in combinations(slot, 2)}
+    assert pairs_of(extracted) == ties | {(a, b, 1.0) for a in upper for b in lower}
 
 
 LIVE_BANDS = (129, 125, 122, 81, 60, 37, 22, 15, 5, 1)
@@ -291,7 +335,7 @@ def test_a_seed_shaped_library_retrains_without_a_pair_by_feature_matrix():
     """
     ranked = taste(wide_library(597))
     rows = {film.tmdb_id: film for film in ranked}
-    extracted = trainer.extract(seed_import(ranked), seed=3)
+    extracted = trainer.extract(seed_import(ranked), seed=3, sampling=EVERY_PAIR)
     space = features.learn(ranked)
     assert len(extracted) > 50_000 and len(space) > 1_000, (len(extracted), len(space))
 

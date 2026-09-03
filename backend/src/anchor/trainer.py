@@ -20,7 +20,13 @@ evidence about it (ADR 0010).
 
 *Every adjacent pair, always.* Adjacency fully captures the order, so it is never
 sampled; long-range pairs are, and they are what teach magnitude - that the gap between
-the owner's first and fiftieth film is not the gap between their first and second.
+the owner's first and fiftieth film is not the gap between their first and second. The
+one qualification is a tie-group too big to have been made by hand: a seed import parks
+a hundred films in one band, and every pair inside it and every pair against the band
+below say the same two things a hundred times over. There each film draws a budget of
+slot-mates and of neighbours either side, which still captures the order - every film
+is tied to some of its band and stands above and below some of its neighbours - while
+the pair count follows the library rather than the square of a band (#59).
 
 *Ties are equality targets, not missing data.* "These two are the same to me" is a
 judgment, and the model is told so.
@@ -74,6 +80,15 @@ class Sampling:
     long_range_per_film: int = 4
     """Distant opponents sampled per film. Enough to teach magnitude, few enough that
     adjacency - the part that actually carries the order - is not drowned out."""
+
+    tied_per_film: int = 4
+    """Slot-mates a film is tied with, where its slot holds more than this. A slot that
+    fits the budget trains on every tie, so a tie the owner made by hand is whole."""
+
+    adjacent_per_film: int = 4
+    """Opponents a film draws from each neighbouring slot, where that slot holds more
+    than this. Drawn from both sides, so every film in a seeded band stands above some
+    of the band below and below some of the band above, whatever the bands' sizes."""
 
     explicit_weight: float = 3.0
     """What an answer the owner gave is worth against a pair the ordering merely implies."""
@@ -135,13 +150,17 @@ def extract(
         emit(above, below, TIED if seats[above] == seats[below] else 1.0)
 
     for index, slot in enumerate(slots):
-        for position, film_id in enumerate(slot.film_ids):
-            for other in slot.film_ids[position + 1 :]:
+        for film_id in slot.film_ids:
+            for other in _slot_mates(rng, slot.film_ids, film_id, sampling.tied_per_film):
                 emit(film_id, other, TIED)
         if index + 1 < len(slots):
+            next_slot = slots[index + 1].film_ids
             for film_id in slot.film_ids:
-                for below in slots[index + 1].film_ids:
-                    emit(film_id, below, 1.0)
+                for opponent in _some(rng, next_slot, sampling.adjacent_per_film):
+                    emit(film_id, opponent, 1.0)
+            for film_id in next_slot:
+                for opponent in _some(rng, slot.film_ids, sampling.adjacent_per_film):
+                    emit(opponent, film_id, 1.0)
 
     for index, slot in enumerate(slots):
         distant = [other for other in range(len(slots)) if abs(other - index) > 1]
@@ -150,6 +169,29 @@ def extract(
                 opponent = rng.choice(slots[far].film_ids)
                 emit(*((film_id, opponent) if far > index else (opponent, film_id)), 1.0)
     return pairs
+
+
+def _some(rng: random.Random, pool: Sequence[int], budget: int) -> Sequence[int]:
+    """Up to ``budget`` of the pool - the whole pool where it fits, drawn where it does not.
+
+    The rng is only consulted where a draw happens, so an ordering with no slot over
+    budget extracts exactly as it did before there was one, long-range sample included.
+    """
+    return pool if len(pool) <= budget else rng.sample(pool, budget)
+
+
+def _slot_mates(
+    rng: random.Random, slot: Sequence[int], film_id: int, budget: int
+) -> Sequence[int]:
+    """Up to ``budget`` other members of the film's own slot.
+
+    One more than the budget is drawn and the film itself dropped if it came up, which
+    is cheaper than building the slot-minus-self once per member of a fat slot.
+    """
+    if len(slot) - 1 <= budget:
+        return [other for other in slot if other != film_id]
+    drawn = rng.sample(slot, budget + 1)
+    return [other for other in drawn if other != film_id][:budget]
 
 
 def _answered(
