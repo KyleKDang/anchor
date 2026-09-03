@@ -14,19 +14,25 @@ from sqlalchemy import text
 
 import export
 import flows
+from anchor import seeding
 from export import Row
 from faketmdb import FilmFixture
 from flows import account_id
 from invariants import (
+    account_realm_tables,
     assert_bands_derived,
     assert_bands_well_formed,
     assert_ordering_well_formed,
+    comparison_log,
     dividers,
     last_synced_ratings,
     placement_trust,
     seeded_slots,
     watch_clock,
     watch_events,
+)
+from invariants import (
+    anchors as anchor_rows,
 )
 
 BANDS = (5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5)
@@ -247,3 +253,326 @@ async def test_no_within_band_order_is_fabricated(owner, stocked, db, run_jobs):
     assert await seeded_slots(db, await owner_id(owner)) == [
         sorted([SEEDS[4].tmdb_id, TWIN.tmdb_id])
     ]
+
+
+# --- What the matcher will and will not decide ---
+
+EMPIRE = FilmFixture(1891, "Star Wars: Episode V - The Empire Strikes Back", "1980-05-17")
+WALL_E = FilmFixture(10681, "WALL-E", "2008-06-22")
+MONSTERS = FilmFixture(585, "Monsters, Inc.", "2001-11-01")
+LEON = FilmFixture(101, "Leon: The Professional", "1994-09-14")
+FESTIVAL = FilmFixture(7400, "Festival Premiere", "2017-03-01")
+"""TMDB dates it to the wide release; Letterboxd dates it to the premiere a year before."""
+
+LONELY = FilmFixture(7500, "Singular Title", None, popularity=3.0)
+"""Unique on TMDB, and exported with no year: the popularity rule is all there is."""
+
+CROWD_PLEASER = FilmFixture(7600, "Common Title", "1995-01-01", popularity=200.0)
+ALSO_RAN = FilmFixture(7601, "Common Title", "1974-01-01", popularity=2.0)
+"""One landslide: nobody would pick the other, so the matcher does not ask."""
+
+REMAKE = FilmFixture(7700, "Twin Title", "2001-01-01", popularity=20.0)
+ORIGINAL = FilmFixture(7701, "Twin Title", "2001-01-01", popularity=15.0)
+"""Same title, same year, comparable standing: exactly what must not be decided alone."""
+
+EDGE_FILMS = (
+    EMPIRE,
+    WALL_E,
+    MONSTERS,
+    LEON,
+    FESTIVAL,
+    LONELY,
+    CROWD_PLEASER,
+    ALSO_RAN,
+    REMAKE,
+    ORIGINAL,
+)
+
+NBSP = " "
+EN_DASH = "–"
+
+
+@pytest.fixture
+def edges(tmdb):
+    return tmdb.with_films(*EDGE_FILMS)
+
+
+async def test_the_matcher_accepts_only_the_rows_nobody_would_argue_about(owner, edges, run_jobs):
+    """The awkward rows a real export supplied, and the ones only a synthetic one can.
+
+    Every row here is auto-accepted, each by one of the two rules: a normalized title
+    plus a year that leaves exactly one candidate, retried at plus and minus one for the
+    festival-versus-release disagreement; or a lone exact-title hit, which is what
+    carries the row whose year is missing.
+    """
+    rows = (
+        # A non-breaking space after an en dash, straight out of the real export.
+        Row(f"Star Wars: Episode V {EN_DASH}{NBSP}The Empire Strikes Back", 1980, rating=5.0),
+        Row("WALL·E", 2008, rating=4.5),  # middle dot against TMDB's hyphen
+        Row("Monsters, Inc.", 2001, rating=4.0),  # a comma inside a quoted title
+        Row("Léon: The Professional", 1994, rating=3.5),  # accents
+        Row("Festival Premiere", 2016, rating=3.0),  # a year off by one
+        Row("Singular Title", None, rating=2.5),  # no year at all
+        Row("Common Title", None, rating=2.0),  # a popularity landslide
+    )
+    await flows.upload_export(owner, export.export(ratings=rows))
+    await run_jobs()
+
+    state = await flows.import_state(owner)
+    assert (state["matched"], state["review_pending"], state["unmatched"]) == (7, 0, 0)
+    assert flows.bands_of(await flows.rated(owner)) == {
+        EMPIRE.tmdb_id: 5.0,
+        WALL_E.tmdb_id: 4.5,
+        MONSTERS.tmdb_id: 4.0,
+        LEON.tmdb_id: 3.5,
+        FESTIVAL.tmdb_id: 3.0,
+        LONELY.tmdb_id: 2.5,
+        CROWD_PLEASER.tmdb_id: 2.0,
+    }
+
+
+async def test_two_films_of_one_name_are_a_question_the_owner_answers(owner, edges, run_jobs):
+    """A duplicate title and year with no landslide between them queues to review.
+
+    Ranked by popularity, with the poster, year and director that tell them apart -
+    which is why a candidate costs its bundled TMDB call and a search hit does not.
+    """
+    await flows.upload_export(owner, export.export(ratings=(Row("Twin Title", 2001, rating=4.0),)))
+    await run_jobs()
+
+    assert (await flows.import_state(owner))["review_pending"] == 1
+    (row,) = (await flows.review_queue(owner))["rows"]
+    assert (row["name"], row["year"], row["rating"]) == ("Twin Title", 2001, 4.0)
+    assert [candidate["tmdb_id"] for candidate in row["candidates"]] == [
+        REMAKE.tmdb_id,
+        ORIGINAL.tmdb_id,
+    ]
+    assert row["candidates"][0]["directors"] == ["David Fincher"]
+
+    # Nothing has happened to the account: a row waiting on an answer affects nothing.
+    assert flows.ordering_of(await flows.rated(owner)) == []
+
+
+async def test_a_row_with_no_film_behind_it_waits_indefinitely(owner, edges, run_jobs):
+    """TV-side entries and deleted films are structurally unmatchable, not failures.
+
+    ``/search/movie`` never returns either, so the two are indistinguishable here and
+    both land in the same place: an open row that affects nothing until the owner binds
+    a film by hand or gives up on it.
+    """
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row("Some Miniseries Letterboxd Hosts", 2019, rating=4.0),
+                Row("A Film Since Deleted", 2003, rating=2.0),
+            )
+        ),
+    )
+    await run_jobs()
+
+    state = await flows.import_state(owner)
+    assert (state["unmatched"], state["matched"], state["review_pending"]) == (2, 0, 0)
+    assert [row["name"] for row in (await flows.unmatched(owner))["rows"]] == [
+        "A Film Since Deleted",
+        "Some Miniseries Letterboxd Hosts",
+    ]
+    assert flows.ordering_of(await flows.rated(owner)) == []
+
+
+# --- Resolving what is left ---
+
+TWIN_URI = "https://boxd.it/twin1"
+LOST_URI = "https://boxd.it/lost1"
+
+
+async def test_the_owner_binds_a_review_row_and_it_takes_effect_at_once(owner, edges, run_jobs):
+    """Picking a candidate applies the row there and then; there is no batch to finish."""
+    await flows.upload_export(owner, export.export(ratings=(Row("Twin Title", 2001, rating=4.0),)))
+    await run_jobs()
+    (row,) = (await flows.review_queue(owner))["rows"]
+
+    bound = await flows.bind_row(owner, row["id"], ORIGINAL.tmdb_id)
+    assert bound["film"]["tmdb_id"] == ORIGINAL.tmdb_id
+    assert flows.bands_of(await flows.rated(owner)) == {ORIGINAL.tmdb_id: 4.0}
+    assert (await flows.review_queue(owner))["rows"] == []
+
+    # It is bound now, so answering it again is refused rather than quietly re-rating.
+    await flows.bind_row(owner, row["id"], REMAKE.tmdb_id, expect=409)
+
+
+async def test_an_unmatched_row_binds_through_a_search_or_is_given_up_on(owner, edges, run_jobs):
+    """The two ways off the unmatched list: name the film by hand, or dismiss the row."""
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(Row("A Film Since Deleted", 2003, rating=2.0),),
+            watchlist=(Row("Another Ghost", 1998),),
+        ),
+    )
+    await run_jobs()
+    rows = {row["name"]: row["id"] for row in (await flows.unmatched(owner))["rows"]}
+    assert set(rows) == {"A Film Since Deleted", "Another Ghost"}
+
+    await flows.bind_row(owner, rows["A Film Since Deleted"], LONELY.tmdb_id)
+    await flows.dismiss_row(owner, rows["Another Ghost"])
+
+    assert (await flows.unmatched(owner))["rows"] == []
+    assert flows.bands_of(await flows.rated(owner)) == {LONELY.tmdb_id: 2.0}
+    # Dismissed for good: it is off the list and can no longer be answered.
+    assert (await flows.backlog(owner))["films"] == []
+    await flows.bind_row(owner, rows["Another Ghost"], WANTED.tmdb_id, expect=409)
+
+
+async def test_the_letterboxd_rescue_resolves_one_row_at_a_time(owner, edges, letterboxd, run_jobs):
+    """The rescue follows this row's own short link and reads the id off the film page."""
+    letterboxd.resolving(TWIN_URI, ORIGINAL.tmdb_id)
+    await flows.upload_export(
+        owner, export.export(ratings=(Row("Twin Title", 2001, rating=4.0, uri=TWIN_URI),))
+    )
+    await run_jobs()
+    (row,) = (await flows.review_queue(owner))["rows"]
+    assert row["rescuable"]
+
+    bound = await flows.rescue_row(owner, row["id"])
+    assert bound["film"]["tmdb_id"] == ORIGINAL.tmdb_id
+    assert flows.bands_of(await flows.rated(owner)) == {ORIGINAL.tmdb_id: 4.0}
+    # One row, one request: nothing here walks the queue.
+    assert len(letterboxd.requests) == 1
+
+
+async def test_the_rescue_fails_without_taking_the_row_with_it(owner, edges, letterboxd, run_jobs):
+    """A TV-side entry and a 403 are both expected, and neither disturbs the row."""
+    letterboxd.as_series(TWIN_URI, 1399)
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row("Twin Title", 2001, rating=4.0, uri=TWIN_URI),
+                Row("A Film Since Deleted", 2003, rating=2.0, uri=LOST_URI),
+            )
+        ),
+    )
+    await run_jobs()
+    review = {row["name"]: row["id"] for row in (await flows.review_queue(owner))["rows"]}
+    lost = {row["name"]: row["id"] for row in (await flows.unmatched(owner))["rows"]}
+
+    await flows.rescue_row(owner, review["Twin Title"], expect=502)
+    letterboxd.forbidden = True
+    await flows.rescue_row(owner, lost["A Film Since Deleted"], expect=502)
+
+    # Both rows are exactly where they were, still answerable another way.
+    assert [row["name"] for row in (await flows.review_queue(owner))["rows"]] == ["Twin Title"]
+    assert [row["name"] for row in (await flows.unmatched(owner))["rows"]] == [
+        "A Film Since Deleted"
+    ]
+
+
+@pytest.mark.settings(letterboxd_rescue_rate_limit=1)
+async def test_the_rescue_is_throttled(owner, edges, letterboxd, run_jobs):
+    """Throttled and never bulk: it is a button beside one row, not a pass over the queue."""
+    letterboxd.resolving(TWIN_URI, ORIGINAL.tmdb_id)
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row("Twin Title", 2001, rating=4.0, uri=TWIN_URI),
+                Row("A Film Since Deleted", 2003, rating=2.0, uri=LOST_URI),
+            )
+        ),
+    )
+    await run_jobs()
+    (review,) = (await flows.review_queue(owner))["rows"]
+    (lost,) = (await flows.unmatched(owner))["rows"]
+
+    await flows.rescue_row(owner, review["id"])
+    await flows.rescue_row(owner, lost["id"], expect=429)
+    assert len(letterboxd.requests) == 1
+
+
+# --- Re-import is a hard reset ---
+
+
+async def test_the_wipe_covers_every_table_an_account_owns(db):
+    """The reset's table list is declared, so a table added later fails here first.
+
+    Structural on purpose. A wipe that discovers its own scope at runtime would quietly
+    keep working while leaving a new table's rows behind, and the realm invariant would
+    hold right up until somebody noticed their old comparisons had survived a reset.
+    """
+    async with db.sessions() as session:
+        owned = set(await account_realm_tables(session))
+    assert owned == set(seeding.WIPED) | set(seeding.KEPT)
+
+
+async def test_the_warning_enumerates_what_it_is_about_to_destroy(owner, stocked, run_jobs):
+    """Counted, not described: "50 ratings, 200 comparisons" is something to weigh."""
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=_rated_rows()[:3],
+            watchlist=(Row(WANTED.title, WANTED.year),),
+            diary=(Row(SEEDS[0].title, SEEDS[0].year),),
+        ),
+    )
+    await run_jobs()
+    await flows.designate(owner, 5.0, SEEDS[0])
+
+    warning = await flows.reset_warning(owner)
+    assert (warning["rated_films"], warning["backlog_films"], warning["watch_events"]) == (3, 1, 1)
+    assert warning["anchors"] == 1
+    # Nothing has been answered yet, so the counts carry the whole warning by themselves.
+    assert (warning["comparisons"], warning["confirmation_required"]) == (0, False)
+
+
+@pytest.mark.settings(import_reset_confirm_comparisons=0)
+async def test_a_re_import_over_answered_comparisons_makes_the_owner_type(owner, stocked, run_jobs):
+    """Once the owner has actually answered questions, the log is worth stopping for."""
+    await flows.upload_export(owner, export.export(ratings=_rated_rows()[:3]))
+    await run_jobs()
+    await flows.place(owner, SEEN_ONLY, "b")
+
+    warning = await flows.reset_warning(owner)
+    assert warning["comparisons"] > 0
+    assert warning["confirmation_required"]
+
+    again = export.export(ratings=(Row(WANTED.title, WANTED.year, rating=1.0),))
+    await flows.upload_export(owner, again, expect=409)
+    await flows.upload_export(owner, again, confirm="not the phrase", expect=409)
+    # Everything is still there: a refused reset destroys nothing.
+    assert len(flows.ordering_of(await flows.rated(owner))) == 4
+
+    await flows.upload_export(owner, again, confirm=warning["confirmation_phrase"])
+
+
+async def test_a_re_import_rebuilds_from_the_new_export_alone(owner, stocked, db, run_jobs):
+    """No merge path, ever: everything the account held goes, seeded and organic alike."""
+    account = await owner_id(owner)
+    await flows.upload_export(owner, export.export(ratings=_rated_rows()[:3]))
+    await run_jobs()
+    await flows.designate(owner, 5.0, SEEDS[0])
+    await flows.add_to_backlog(owner, WANTED)  # hand-added, and it goes too
+
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(Row(SEEN_ONLY.title, SEEN_ONLY.year, rating=2.0),),
+            watchlist=(Row(TWIN.title, TWIN.year),),
+        ),
+    )
+    await run_jobs()
+
+    assert flows.ordering_of(await flows.rated(owner)) == [[SEEN_ONLY.tmdb_id]]
+    assert flows.bands_of(await flows.rated(owner)) == {SEEN_ONLY.tmdb_id: 2.0}
+    assert [film["tmdb_id"] for film in (await flows.backlog(owner))["films"]] == [TWIN.tmdb_id]
+    assert await anchor_rows(db, account) == {}
+
+    # The one exception to the comparison log's never-deleted rule: only the new export's
+    # own band judgments remain, and every one of them was made by this import.
+    log = await comparison_log(db, account)
+    assert {str(entry[6]) for entry in log} == {"seed_import"}
+    assert len(log) == 1
+    await assert_ordering_well_formed(db, account)
+
+    # The owner is still logged in on the other side of it: a session is not account data.
+    assert (await flows.import_state(owner))["counts"]["rating"] == 1

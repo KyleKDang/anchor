@@ -31,6 +31,7 @@ from anchor.db import Database
 from anchor.main import create_app
 from anchor.models import Film
 from anchor.settings import Settings
+from fakeletterboxd import FakeLetterboxd
 from faketmdb import FakeTmdb
 
 ADMIN_URL = os.environ.get(
@@ -145,8 +146,21 @@ def tmdb() -> FakeTmdb:
 
 
 @pytest.fixture
-async def app(settings: Settings, resend: FakeResend, tmdb: FakeTmdb) -> AsyncIterator[FastAPI]:
-    app = create_app(settings, resend_transport=resend.transport(), tmdb_transport=tmdb.transport())
+def letterboxd() -> FakeLetterboxd:
+    """Letterboxd's public site, faked. Only the per-row import rescue ever calls it."""
+    return FakeLetterboxd()
+
+
+@pytest.fixture
+async def app(
+    settings: Settings, resend: FakeResend, tmdb: FakeTmdb, letterboxd: FakeLetterboxd
+) -> AsyncIterator[FastAPI]:
+    app = create_app(
+        settings,
+        resend_transport=resend.transport(),
+        tmdb_transport=tmdb.transport(),
+        letterboxd_transport=letterboxd.transport(),
+    )
     async with LifespanManager(app):
         _silence_the_cron(app.state.jobs)
         yield app
