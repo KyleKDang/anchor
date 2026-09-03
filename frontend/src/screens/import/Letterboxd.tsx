@@ -72,7 +72,12 @@ export function Letterboxd() {
         <>
           <Summary state={state} />
           <Residue state={state} onChanged={reload} />
-          {warning !== null && <Reimport warning={warning} onDone={reload} />}
+          {/* Not while the import is still landing: mid-match the counts climb under a
+              destructive button, and a moving enumeration is misleading however true
+              each reading is. The matching notice carries that window instead. */}
+          {warning !== null && state.status !== "matching" && (
+            <Reimport warning={warning} onDone={reload} />
+          )}
         </>
       )}
     </section>

@@ -85,3 +85,54 @@ test("an owner who already started the account is told what importing will erase
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();
   await expect(page.getByRole("listitem").filter({ hasText: "Whiplash" })).toHaveCount(0);
 });
+
+/**
+ * The replace control waits for the import it would replace.
+ *
+ * Mid-match the account is half built, so the enumerated counts climb under a
+ * destructive button and read as counting the wrong thing - they are true at every
+ * tick, which is precisely why a moving one is misleading. The review queue already
+ * waits for the same reason; this pins the reset alongside it.
+ *
+ * The real matching window is milliseconds against a fake TMDB, so the status is held
+ * at "matching" from the test rather than raced for.
+ */
+test("the replace-everything control is held back until matching is done", async ({
+  page,
+  request,
+}) => {
+  await signUpOwner(page, request, "import-matching");
+
+  // Off until the export is in: the upload screen only shows while the status is "none".
+  let held = false;
+  await page.route("**/api/import", async (route) => {
+    if (route.request().method() !== "GET") return route.fallback();
+    const response = await route.fetch();
+    const state = await response.json();
+    await route.fulfill({
+      response,
+      json: held ? { ...state, status: "matching", pending: 2 } : state,
+    });
+  });
+
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
+    name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
+    mimeType: "application/zip",
+    buffer: letterboxdExport([{ name: "Heat", year: 1995, rating: 3 }], []),
+  });
+  held = true;
+  await page.getByRole("button", { name: "Import your export" }).click();
+
+  // Matching says its piece; the reset says nothing at all until there is a settled
+  // account to enumerate.
+  await expect(page.getByText("Matching against TMDB")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Replace with a new export" })).toHaveCount(0);
+
+  // And it comes back the moment the import lands, counting what actually settled.
+  held = false;
+  await expect(page.getByRole("heading", { name: "Replace with a new export" })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(page.getByText("This erases 1 rating")).toBeVisible();
+});
