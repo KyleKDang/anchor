@@ -42,9 +42,7 @@ from anchor.models import (
     ImportRow,
     ImportRowKind,
     LifecycleState,
-    Placement,
     PlacementProvenance,
-    PlacementTrust,
     TieGroupSlot,
     WatchEvent,
     WatchOrigin,
@@ -273,27 +271,11 @@ async def _seeded_slot(
     slot is a judgment about two particular films, and a later seed joining it would be
     asserting a tie nobody made.
     """
-    seeded = await _fully_seeded_slots(db, account_id)
+    seeded = await ordering_module.seeded_slot_ids(db, account_id)
     for index, slot in enumerate(ordering.slots):
         if slot.id in seeded and bands.band_of_slot(boundaries, index) == band:
             return await ordering_module.slot_by_id(db, slot.id)
     return None
-
-
-async def _fully_seeded_slots(db: AsyncSession, account_id: uuid.UUID) -> set[uuid.UUID]:
-    """Slots whose every member is still an untouched import seed."""
-    rows = await db.execute(
-        select(Placement.slot_id)
-        .where(Placement.account_id == account_id)
-        .group_by(Placement.slot_id)
-        .having(
-            func.bool_and(
-                (Placement.trust == PlacementTrust.provisional)
-                & (Placement.provenance == PlacementProvenance.import_seeded)
-            )
-        )
-    )
-    return {slot_id for (slot_id,) in rows}
 
 
 async def _account_film(
