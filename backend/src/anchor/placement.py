@@ -503,9 +503,16 @@ async def _advance(
     search = derive(tmdb_id, reduced, entries)
 
     if search.tied_with is not None:
+        tie_slot = await _pull_out_of_seed_group(db, account.id, reduced, search.tied_with)
+        if tie_slot is not None:
+            # The opponent moved, so everything read off the ordering is one slot stale.
+            ordering = await ordering_module.load(db, account.id)
+            reduced = ordering.without(tmdb_id)
+            boundaries = _as_reduced(ordering, await bands.load(db, account.id), tmdb_id)
         index = reduced.index_of(search.tied_with)
         assert index is not None  # derive only ties against a film it found in the ordering
-        tie_slot = await ordering_module.slot_by_id(db, reduced.slots[index].id)
+        if tie_slot is None:
+            tie_slot = await ordering_module.slot_by_id(db, reduced.slots[index].id)
         landing = Landing(index, tie_slot, PlacementProvenance.completed)
     elif search.settled or bailing:
         landing = _landing(search, bailing=bailing)
@@ -760,6 +767,35 @@ def _neighbouring_bands(band: float) -> tuple[float, ...]:
     )
 
 
+async def _pull_out_of_seed_group(
+    db: AsyncSession, account_id: uuid.UUID, ordering: Ordering, film_id: int
+) -> TieGroupSlot | None:
+    """Lift a still-seeded opponent out of its provisional tie-group, to be tied with alone.
+
+    A Tied answer is a judgment about two particular films. The rest of the seeded group
+    was never in it, and joining them would assert the placed film equal to films nobody
+    ever compared it with - the within-band order the import refuses to invent. So the
+    opponent comes out to meet it instead, at the position it already held, and the group
+    it leaves only shrinks: provisional membership is never inherited.
+
+    Returns the opened slot, or None where there is nothing to pull out of - the opponent
+    is alone, or its slot is a tie the owner actually made, which nothing may break up.
+    """
+    index = ordering.index_of(film_id)
+    if index is None or len(ordering.slots[index].film_ids) == 1:
+        return None
+    if ordering.slots[index].id not in await ordering_module.seeded_slot_ids(db, account_id):
+        return None
+    placement = await _placement_of(db, account_id, film_id)
+    assert placement is not None  # a film in the ordering is a placed film
+    # No band and no judgment: the seed is not moving, only ceasing to be grouped, so
+    # this renumbers the dividers and claims nothing new about where the film sits.
+    slot = await ordering_module.new_slot(db, account_id, index)
+    placement.slot_id = slot.id
+    await db.flush()
+    return slot
+
+
 # --- Graduation ---
 
 
@@ -971,6 +1007,16 @@ async def _placeable(db: AsyncSession, account: Account, tmdb_id: int) -> Accoun
     if account_film is None or account_film.state is LifecycleState.backlog:
         raise ApiError(409, "not_watched", "Mark this film watched before placing it.")
     return account_film
+
+
+async def _placement_of(db: AsyncSession, account_id: uuid.UUID, film_id: int) -> Placement | None:
+    """One account's placement of one film, found by the film rather than its record."""
+    placement: Placement | None = await db.scalar(
+        select(Placement)
+        .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
+        .where(Placement.account_id == account_id, AccountFilm.film_id == film_id)
+    )
+    return placement
 
 
 async def _placement(db: AsyncSession, account_film: AccountFilm) -> Placement:

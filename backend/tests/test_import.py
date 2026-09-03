@@ -23,6 +23,7 @@ from invariants import (
     assert_bands_derived,
     assert_bands_well_formed,
     assert_ordering_well_formed,
+    assert_seeded_slots_only_shrank,
     comparison_log,
     dividers,
     last_synced_ratings,
@@ -576,3 +577,85 @@ async def test_a_re_import_rebuilds_from_the_new_export_alone(owner, stocked, db
 
     # The owner is still logged in on the other side of it: a session is not account data.
     assert (await flows.import_state(owner))["counts"]["rating"] == 1
+
+
+# --- The provisional lifecycle, as it applies to seeded films ---
+
+TRIO = tuple(
+    FilmFixture(7800 + n, f"Trio {n}", release_date=f"{2000 + n}-01-01", popularity=5.0)
+    for n in range(3)
+)
+"""Three films rated the same value: one provisional tie-group with room to shrink."""
+
+
+@pytest.fixture
+def trio(tmdb):
+    return tmdb.with_films(*TRIO, *SEEDS, SEEN_ONLY)
+
+
+async def test_an_imported_film_is_an_opponent_and_the_answer_is_its_first_evidence(
+    owner, trio, db, run_jobs
+):
+    """Post-import there is nothing else to compare against, so seeds are the opponents.
+
+    And a comparison run for another film's placement is evidence about the seed too: it
+    is what pulls a seeded position towards a settled one without ever asking the owner
+    an extra question. Here one placement between two seeds settles both of them, and
+    their placements graduate - still recording that the import is what put them there.
+    """
+    account = await owner_id(owner)
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row(SEEDS[0].title, SEEDS[0].year, rating=5.0),
+                Row(SEEDS[1].title, SEEDS[1].year, rating=3.0),
+            )
+        ),
+    )
+    await run_jobs()
+    assert set((await placement_trust(db, account)).values()) == {("provisional", "import_seeded")}
+
+    await flows.place_at(owner, SEEN_ONLY, [SEEDS[0].tmdb_id, SEEDS[1].tmdb_id], 1)
+
+    trust = await placement_trust(db, account)
+    assert trust[SEEDS[0].tmdb_id] == ("full", "import_seeded")
+    assert trust[SEEDS[1].tmdb_id] == ("full", "import_seeded")
+    assert trust[SEEN_ONLY.tmdb_id] == ("full", "completed")
+
+
+async def test_a_tie_against_a_seeded_film_pulls_it_out_of_its_group(owner, trio, db, run_jobs):
+    """Provisional membership is never inherited, so the seed comes out to meet the film.
+
+    The owner judged one film equal to one other film. Joining the group would assert it
+    equal to two more it was never compared with, which is the within-band order the
+    whole design refuses to invent - so the tie opens a definitive two-film slot at the
+    position the seed already held, and the group it left only shrinks.
+    """
+    account = await owner_id(owner)
+    await flows.upload_export(
+        owner, export.export(ratings=tuple(Row(film.title, film.year, rating=4.0) for film in TRIO))
+    )
+    await run_jobs()
+    before = await seeded_slots(db, account)
+    assert before == [sorted(film.tmdb_id for film in TRIO)]
+
+    await flows.mark_watched(owner, SEEN_ONLY, "now")
+    step = await flows.begin(owner, SEEN_ONLY)
+    opponent = step["b"]["tmdb_id"]
+    await flows.answer(owner, SEEN_ONLY, opponent, "tied")
+
+    others = sorted(film.tmdb_id for film in TRIO if film.tmdb_id != opponent)
+    payload = await flows.rated(owner)
+    assert _slots(payload) == [sorted([opponent, SEEN_ONLY.tmdb_id]), others]
+    # Nothing changed band: both slots are still the 4.0 the export said they were.
+    assert set(flows.bands_of(payload).values()) == {4.0}
+
+    trust = await placement_trust(db, account)
+    assert trust[opponent] == ("full", "import_seeded")
+    assert trust[SEEN_ONLY.tmdb_id] == ("full", "completed")
+    assert {trust[film] for film in others} == {("provisional", "import_seeded")}
+
+    assert_seeded_slots_only_shrank(before, await seeded_slots(db, account))
+    await assert_ordering_well_formed(db, account)
+    await assert_bands_well_formed(db, account)
