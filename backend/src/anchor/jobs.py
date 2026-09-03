@@ -163,15 +163,32 @@ async def match_import_rows(context: JobContext, import_id: str) -> None:
             await session.commit()
 
     async with db.sessions() as session:
-        # The trainer is called rather than deferred: this is already the worker, and one
-        # retrain at the end beats six hundred queued behind the same account lock.
-        from anchor import taste
-
         record = await session.get(Import, uuid.UUID(import_id))
-        if record is not None:
-            record.status = ImportStatus.complete
-            await taste.retrain(session, account_id)
+        if record is None:
+            return  # wiped mid-run: nothing is left to complete, or to retrain over
+        record.status = ImportStatus.complete
         await session.commit()
+
+    # The trainer is called rather than deferred: this is already the worker, and one
+    # retrain at the end beats six hundred queued behind the same account lock. It runs
+    # after the completion has committed, in a transaction of its own, because the taste
+    # profile is a derived artifact and nothing about the import's outcome depends on it.
+    # Sharing the transaction meant a retrain the kernel killed took the status flip down
+    # with it, and an import that reads ``matching`` forever hides the review queue, the
+    # unmatched list and the re-import control: a finished account, wedged.
+    from anchor import taste
+
+    async with db.sessions() as session:
+        try:
+            await taste.retrain(session, account_id)
+            await session.commit()
+        except Exception:
+            # Logged rather than failing the job. The job's retry exists for TMDB going
+            # down mid-row, and re-running a finished import only reaches the same
+            # failing call. The profile stays stale until the next retrain, and every
+            # change to the ordering schedules one - starting with the review queue the
+            # owner works through next.
+            log.exception("retrain after import %s failed; the taste profile is stale", import_id)
 
 
 async def _match_row(
