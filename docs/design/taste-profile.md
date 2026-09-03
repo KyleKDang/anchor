@@ -22,6 +22,7 @@ LightGBM lambdarank is a named fallback only if the linear scorer measurably pla
 ### Pair extraction
 
 - All adjacent pairs (they fully capture the order) plus sampled long-range pairs per film (they teach magnitude).
+- Inside a tie-group, and between two adjacent ones, pairs are drawn per film up to a budget, so a seeded band of a hundred films costs hundreds of pairs rather than thousands; a group that fits the budget still trains on every pair ([#59](https://github.com/KyleKDang/anchor/issues/59)).
 - Explicit comparisons are weighted above implied pairs; provisional placements are down-weighted until graduation; ties train as equality targets.
 - No recency decay in v1: the ordering as it stands is the signal, and drift resolution is the one mechanism that owns taste change.
 - Exact weights and sample counts are implementation-tunable, validated empirically.
