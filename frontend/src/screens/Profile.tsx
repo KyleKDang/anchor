@@ -10,12 +10,14 @@ import {
   type Threshold,
 } from "../api";
 import { useAuth } from "../auth";
+import { Letterboxd } from "./import/Letterboxd";
 
 export function Profile() {
   return (
     <>
       <h1>Profile</h1>
       <ReadinessSection />
+      <Letterboxd />
       <AccountSection />
       <TmdbAttribution />
     </>

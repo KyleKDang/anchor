@@ -181,7 +181,7 @@ async def test_a_full_export_seeds_the_library_the_owner_already_recognises(
 
     state = await flows.import_state(owner)
     assert state["status"] == "complete"
-    assert (state["review_pending"], state["unmatched"]) == (0, 0)
+    assert (state["pending"], state["review_pending"], state["unmatched"]) == (0, 0, 0)
 
     payload = await flows.rated(owner)
     # Ten tie-groups, best to worst, one per half-star value - and the eleventh rating
@@ -320,7 +320,7 @@ async def test_the_matcher_accepts_only_the_rows_nobody_would_argue_about(owner,
     await run_jobs()
 
     state = await flows.import_state(owner)
-    assert (state["matched"], state["review_pending"], state["unmatched"]) == (7, 0, 0)
+    assert (state["pending"], state["review_pending"], state["unmatched"]) == (0, 0, 0)
     assert flows.bands_of(await flows.rated(owner)) == {
         EMPIRE.tmdb_id: 5.0,
         WALL_E.tmdb_id: 4.5,
@@ -373,7 +373,7 @@ async def test_a_row_with_no_film_behind_it_waits_indefinitely(owner, edges, run
     await run_jobs()
 
     state = await flows.import_state(owner)
-    assert (state["unmatched"], state["matched"], state["review_pending"]) == (2, 0, 0)
+    assert (state["unmatched"], state["pending"], state["review_pending"]) == (2, 0, 0)
     assert [row["name"] for row in (await flows.unmatched(owner))["rows"]] == [
         "A Film Since Deleted",
         "Some Miniseries Letterboxd Hosts",
@@ -659,3 +659,43 @@ async def test_a_tie_against_a_seeded_film_pulls_it_out_of_its_group(owner, trio
     assert_seeded_slots_only_shrank(before, await seeded_slots(db, account))
     await assert_ordering_well_formed(db, account)
     await assert_bands_well_formed(db, account)
+
+
+async def test_one_film_is_one_question_however_many_lines_named_it(owner, edges, run_jobs):
+    """A film rated, watched and logged is three lines the matcher failed on identically.
+
+    The owner is answering "which film is this?", not "which film is this line?", so the
+    screen asks once and the answer lands on every line naming it. Asking three times
+    would make a real export's review queue three times the work for no more information.
+    """
+    ambiguous = Row("Twin Title", 2001, rating=4.0)
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(ambiguous,),
+            watched=(ambiguous,),
+            diary=(Row("Twin Title", 2001, watched_date="2024-03-01"),),
+        ),
+    )
+    await run_jobs()
+
+    assert (await flows.import_state(owner))["review_pending"] == 1
+    (row,) = (await flows.review_queue(owner))["rows"]
+
+    await flows.bind_row(owner, row["id"], ORIGINAL.tmdb_id)
+    state = await flows.import_state(owner)
+    assert (state["review_pending"], state["unmatched"]) == (0, 0)
+    # All three lines took effect: the rating placed it, and the diary line is a watch.
+    assert flows.bands_of(await flows.rated(owner)) == {ORIGINAL.tmdb_id: 4.0}
+
+
+async def test_dismissing_a_film_dismisses_every_line_that_named_it(owner, edges, run_jobs):
+    """Giving up is about the film too, so the other lines do not come back tomorrow."""
+    lost = Row("A Film Since Deleted", 2003, rating=2.0)
+    await flows.upload_export(owner, export.export(ratings=(lost,), watched=(lost,), diary=(lost,)))
+    await run_jobs()
+    (row,) = (await flows.unmatched(owner))["rows"]
+
+    await flows.dismiss_row(owner, row["id"])
+    assert (await flows.unmatched(owner))["rows"] == []
+    assert (await flows.import_state(owner))["unmatched"] == 0

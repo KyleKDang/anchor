@@ -41,6 +41,7 @@ from anchor.letterboxd import ExportRow, NotAnExport, RescueFailed
 from anchor.matching import Candidate
 from anchor.models import (
     Account,
+    Film,
     Import,
     ImportRow,
     ImportRowKind,
@@ -69,16 +70,20 @@ class ImportCounts(BaseModel):
 
 
 class ImportState(BaseModel):
-    """The import area's whole reading: what was read, and what is left to resolve."""
+    """The import area's whole reading: what was read, and what is left to resolve.
+
+    ``pending`` counts lines, because that is what progress is measured in. The two
+    residue figures count *films*: the same film is a line in ratings.csv, another in
+    watched.csv and another in diary.csv, and the owner answers for it once.
+    """
 
     status: Literal["none", "matching", "complete"]
     source_name: str | None
     created_at: datetime | None
     counts: ImportCounts
-    matched: int
+    pending: int
     review_pending: int
     unmatched: int
-    dismissed: int
 
 
 class ReviewRow(BaseModel):
@@ -198,7 +203,7 @@ async def review(
     account: CurrentAccount, db: DbSession, tmdb: AppTmdb, settings: AppSettings
 ) -> ReviewQueue:
     """The rows the matcher would not settle, each with the films it thinks they may be."""
-    rows = list(await db.scalars(_rows_in(account.id, ImportRowState.review_pending)))
+    rows = await _one_per_film(db, account.id, ImportRowState.review_pending)
     cards = await matching.candidate_cards(
         db, tmdb, settings, [film_id for row in rows for film_id in row.candidates]
     )
@@ -221,7 +226,7 @@ async def review(
 @router.get("/unmatched")
 async def unmatched(account: CurrentAccount, db: DbSession) -> UnmatchedList:
     """The rows that found nothing. Open indefinitely, and affecting nothing meanwhile."""
-    rows = await db.scalars(_rows_in(account.id, ImportRowState.unmatched_open))
+    rows = await _one_per_film(db, account.id, ImportRowState.unmatched_open)
     return UnmatchedList(
         rows=[
             UnmatchedRow(
@@ -287,9 +292,10 @@ async def rescue(
 
 @router.delete("/rows/{row_id}", status_code=204)
 async def dismiss(row_id: uuid.UUID, account: CurrentAccount, db: DbSession) -> None:
-    """Give up on a row for good. It stops being offered and stays as a record."""
+    """Give up on a film for good. It stops being offered and stays as a record."""
     row = await _resolvable(db, account, row_id)
-    row.state = ImportRowState.dismissed
+    for twin in await _twins(db, row):
+        twin.state = ImportRowState.dismissed
     await db.commit()
 
 
@@ -339,13 +345,39 @@ async def _apply(
     row: ImportRow,
     tmdb_id: int,
 ) -> Bound:
-    """Bind a row to a film at the owner's word, and let it take effect straight away."""
-    film = await seeding.apply(db, account.id, row, tmdb_id, tmdb, settings)
-    row.state = ImportRowState.bound
+    """Bind a row to a film at the owner's word, and let it take effect straight away.
+
+    Every unresolved line naming the same film goes with it. The owner answered "this is
+    that film", not "this line is that film", and a rated-and-watched-and-logged film is
+    three lines the matcher failed on identically.
+    """
+    film: Film | None = None
+    for twin in await _twins(db, row):
+        film = await seeding.apply(db, account.id, twin, tmdb_id, tmdb, settings)
+        twin.state = ImportRowState.bound
+    assert film is not None  # the row is its own twin
     # A bound rating changes the ordering, so the taste profile is behind until it retrains.
     await jobs.schedule_retrain(db, queue, account.id)
     await db.commit()
     return Bound(row_id=row.id, film=FilmCard.of(film))
+
+
+async def _twins(db: AsyncSession, row: ImportRow) -> list[ImportRow]:
+    """This row and every other unresolved line of the same import naming the same film.
+
+    Matched on the raw name and year rather than a normalized key: the lines came out of
+    one export, which spells a film the same way in every file it appears in.
+    """
+    rows = await db.scalars(
+        select(ImportRow).where(
+            ImportRow.import_id == row.import_id,
+            ImportRow.name == row.name,
+            ImportRow.year.is_not_distinct_from(row.year),
+            ImportRow.state.in_((ImportRowState.review_pending, ImportRowState.unmatched_open)),
+        )
+    )
+    twins = list(rows)
+    return twins if any(twin.id == row.id for twin in twins) else [row, *twins]
 
 
 async def _resolvable(db: AsyncSession, account: Account, row_id: uuid.UUID) -> ImportRow:
@@ -366,8 +398,23 @@ def _rows_in(account_id: uuid.UUID, state: ImportRowState) -> Select[tuple[Impor
     return (
         select(ImportRow)
         .where(ImportRow.account_id == account_id, ImportRow.state == state)
-        .order_by(ImportRow.kind, ImportRow.name, ImportRow.id)
+        .order_by(ImportRow.name, ImportRow.kind, ImportRow.id)
     )
+
+
+async def _one_per_film(
+    db: AsyncSession, account_id: uuid.UUID, state: ImportRowState
+) -> list[ImportRow]:
+    """The rows of a state, one per film: a line and its twins are the same question.
+
+    A film the owner rated, watched and logged is three lines of the export, and the
+    matcher failed on all three identically. Asking three times would be asking the same
+    question three times, so the screen shows one and answering it settles the rest.
+    """
+    seen: dict[tuple[str, int | None], ImportRow] = {}
+    for row in await db.scalars(_rows_in(account_id, state)):
+        seen.setdefault((row.name, row.year), row)
+    return list(seen.values())
 
 
 async def _import_of(db: AsyncSession, account_id: uuid.UUID) -> Import | None:
@@ -383,10 +430,9 @@ async def _state(db: AsyncSession, account_id: uuid.UUID) -> ImportState:
             source_name=None,
             created_at=None,
             counts=ImportCounts(),
-            matched=0,
+            pending=0,
             review_pending=0,
             unmatched=0,
-            dismissed=0,
         )
     kinds = await _counted(db, account_id, ImportRow.kind)
     states = await _counted(db, account_id, ImportRow.state)
@@ -395,11 +441,21 @@ async def _state(db: AsyncSession, account_id: uuid.UUID) -> ImportState:
         source_name=record.source_name,
         created_at=record.created_at,
         counts=ImportCounts(**{kind.value: count for kind, count in kinds.items()}),
-        matched=sum(states.get(state, 0) for state in RESOLVED),
-        review_pending=states.get(ImportRowState.review_pending, 0),
-        unmatched=states.get(ImportRowState.unmatched_open, 0),
-        dismissed=states.get(ImportRowState.dismissed, 0),
+        pending=states.get(ImportRowState.pending, 0),
+        review_pending=await _distinct_films(db, account_id, ImportRowState.review_pending),
+        unmatched=await _distinct_films(db, account_id, ImportRowState.unmatched_open),
     )
+
+
+async def _distinct_films(db: AsyncSession, account_id: uuid.UUID, state: ImportRowState) -> int:
+    """How many *films* are waiting in a state, counting a line and its twins as one."""
+    return (
+        await db.scalar(
+            select(func.count(func.distinct(func.row(ImportRow.name, ImportRow.year)))).where(
+                ImportRow.account_id == account_id, ImportRow.state == state
+            )
+        )
+    ) or 0
 
 
 async def _counted(

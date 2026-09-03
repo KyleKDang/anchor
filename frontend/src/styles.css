@@ -1505,6 +1505,94 @@ select {
 
 /* Phone ------------------------------------------------------------------------------------ */
 
+/* --- The seed import ------------------------------------------------------- */
+
+.import-rows {
+  list-style: none;
+  margin: var(--s4) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--s3);
+}
+
+/* An import row is a question, not a film: it leads with the line Letterboxd wrote,
+   because that text is the only thing the owner can recognise it by. */
+.import-row {
+  display: grid;
+  gap: var(--s3);
+}
+
+.import-row-name {
+  margin: 0;
+  font-size: var(--text-base);
+  font-weight: 500;
+}
+
+.import-row-body p + p {
+  margin: 0.15rem 0 0;
+  font-size: var(--text-sm);
+}
+
+.import-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+}
+
+/* The candidates scroll sideways rather than wrapping into a block: they are one short
+   ranked run, and a wrapped grid would read as a gallery to browse. */
+.import-candidates {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 var(--s2);
+  display: flex;
+  gap: var(--s3);
+  overflow-x: auto;
+}
+
+.import-candidate {
+  display: grid;
+  justify-items: start;
+  gap: var(--s1);
+  width: 8rem;
+  padding: var(--s2);
+  border: 1px solid var(--border-control);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    border-color var(--fast) var(--ease),
+    background var(--fast) var(--ease);
+}
+
+.import-candidate:hover:not(:disabled) {
+  border-color: var(--ink);
+  background: color-mix(in srgb, var(--ink) 4%, var(--surface));
+}
+
+.import-candidate:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.import-candidate .poster {
+  width: 100%;
+  margin-bottom: var(--s1);
+}
+
+.import-candidate-title {
+  font-weight: 500;
+  line-height: var(--leading-tight);
+}
+
+.import-candidate .muted {
+  font-size: var(--text-xs);
+}
+
 @media (max-width: 640px) {
   .app {
     padding: 0 var(--s4) calc(var(--nav-h) + var(--s5));
@@ -1620,6 +1708,10 @@ select {
 
   .search-form .field {
     flex-basis: 100%;
+  }
+
+  .import-candidate {
+    width: 6.5rem;
   }
 
   .place-pair {
