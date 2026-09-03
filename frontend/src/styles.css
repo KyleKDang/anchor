@@ -1441,7 +1441,9 @@ select {
 }
 
 .danger-zone h3 {
-  margin: 0;
+  /* The container's padding-top carries the space above; only the gap below the
+     heading is this rule's to set, and zeroing both collided it with its warning. */
+  margin: 0 0 var(--s2);
 }
 
 .attribution .tmdb-logo {

@@ -67,7 +67,7 @@ export function Letterboxd() {
           {error}
         </p>
       )}
-      {state?.status === "none" && <Upload onDone={reload} />}
+      {state?.status === "none" && <Upload warning={warning} onDone={reload} />}
       {state !== null && state.status !== "none" && (
         <>
           <Summary state={state} />
@@ -233,15 +233,46 @@ function UnmatchedRow({
   );
 }
 
-/** The first import: a file, and a word about where to find it. */
-function Upload({ onDone }: { onDone: () => Promise<void> }) {
+/**
+ * The first import: a file, a word about where to find it, and what it will cost.
+ *
+ * An owner who tried Anchor before their export was ready holds films no import put
+ * there, and importing erases them like any other reset - there is no merge path, ever.
+ * So the cost is shown wherever there is a cost, rather than only once an import has
+ * run: what makes this dangerous is the account holding something, not its history.
+ */
+function Upload({
+  warning,
+  onDone,
+}: {
+  warning: ImportWarning | null;
+  onDone: () => Promise<void>;
+}) {
+  const atRisk = warning !== null && holds(warning) ? warning : null;
+
   return (
     <>
       <p className="muted">
         On Letterboxd, open Settings, then Data, and choose Export your data. Upload the zip it
         gives you, unchanged.
       </p>
-      <ExportForm label="Import your export" onDone={onDone} />
+      {atRisk === null ? (
+        <ExportForm label="Import your export" onDone={onDone} />
+      ) : (
+        <div className="danger-zone">
+          <h3>You have already started this account</h3>
+          <p className="muted">
+            Importing wipes this account and rebuilds it from the export alone. There is no merge.
+            This erases {destroyed(atRisk)}. There is no undo.
+          </p>
+          <ExportForm
+            label="Erase and import"
+            danger
+            confirmPhrase={atRisk.confirmation_required ? atRisk.confirmation_phrase : null}
+            onDone={onDone}
+          />
+        </div>
+      )}
     </>
   );
 }
@@ -347,6 +378,12 @@ function ExportForm({
 function total(state: ImportState): number {
   const { counts } = state;
   return counts.rating + counts.watchlist + counts.watched + counts.diary + counts.profile_favorite;
+}
+
+/** Whether the account holds anything an import would take from it. */
+function holds(warning: ImportWarning): boolean {
+  const { rated_films, comparisons, anchors, backlog_films, watch_events } = warning;
+  return rated_films + comparisons + anchors + backlog_films + watch_events > 0;
 }
 
 function destroyed(warning: ImportWarning): string {

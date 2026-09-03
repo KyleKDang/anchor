@@ -579,6 +579,98 @@ async def test_a_re_import_rebuilds_from_the_new_export_alone(owner, stocked, db
     assert (await flows.import_state(owner))["counts"]["rating"] == 1
 
 
+async def test_a_first_import_over_an_account_the_owner_already_started_resets_it(
+    owner, stocked, db, run_jobs
+):
+    """The gate is what the account holds, not whether it has imported before.
+
+    An owner who tries the app before their export is ready holds films no import ever
+    put there. Gating the wipe on a prior import merged the export into them, which is
+    the merge path onboarding-and-import.md forbids outright, so the wipe is now
+    unconditional: every seed import rebuilds the account from its export alone.
+    """
+    account = await owner_id(owner)
+    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]])
+    await flows.add_to_backlog(owner, WANTED)
+
+    # No import has ever run here, and there is still plenty to lose.
+    assert (await flows.import_state(owner))["status"] == "none"
+    warning = await flows.reset_warning(owner)
+    assert (warning["rated_films"], warning["backlog_films"]) == (2, 1)
+
+    await flows.upload_export(
+        owner, export.export(ratings=(Row(SEEN_ONLY.title, SEEN_ONLY.year, rating=2.0),))
+    )
+    await run_jobs()
+
+    assert flows.ordering_of(await flows.rated(owner)) == [[SEEN_ONLY.tmdb_id]]
+    assert (await flows.backlog(owner))["films"] == []
+    log = await comparison_log(db, account)
+    assert {str(entry[6]) for entry in log} == {"seed_import"}
+    await assert_ordering_well_formed(db, account)
+
+
+async def test_a_first_import_into_an_empty_account_destroys_nothing(owner, stocked, run_jobs):
+    """The unconditional wipe must stay invisible on the path it was never about.
+
+    Onboarding's whole point is an account with nothing in it, so the warning enumerates
+    nothing and the upload asks for no confirmation.
+    """
+    warning = await flows.reset_warning(owner)
+    assert (warning["rated_films"], warning["comparisons"], warning["backlog_films"]) == (0, 0, 0)
+    assert not warning["confirmation_required"]
+
+    await flows.upload_export(owner, export.export(ratings=_rated_rows()))
+    await run_jobs()
+    assert len(flows.ordering_of(await flows.rated(owner))) == 10
+
+
+@pytest.mark.settings(import_reset_confirm_comparisons=0)
+async def test_a_first_import_over_answered_comparisons_makes_the_owner_type(
+    owner, stocked, run_jobs
+):
+    """A log worth protecting is worth protecting whether or not an import made it."""
+    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]])
+
+    warning = await flows.reset_warning(owner)
+    assert warning["comparisons"] > 0
+    assert warning["confirmation_required"]
+
+    again = export.export(ratings=(Row(WANTED.title, WANTED.year, rating=1.0),))
+    await flows.upload_export(owner, again, expect=409)
+    await flows.upload_export(owner, again, confirm="not the phrase", expect=409)
+    # A refused reset destroys nothing: both hand-placed films are still there.
+    assert len(flows.ordering_of(await flows.rated(owner))) == 2
+
+    await flows.upload_export(owner, again, confirm=warning["confirmation_phrase"])
+
+
+async def test_every_rated_film_records_what_letterboxd_holds(owner, stocked, db, run_jobs):
+    """The sync list's baseline, which only the import is ever in a position to write.
+
+    It used to be skipped for exactly the films the owner had rated before importing,
+    because the seed-never-re-rates guard returned ahead of writing it. With the wipe
+    unconditional those films no longer survive to be skipped, and the guard is left
+    covering the case it was written for: one film named by two rows of one export.
+    """
+    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]])
+
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                *_rated_rows(),
+                # The same film again, lower down: the second row must not overwrite it.
+                Row(SEEDS[0].title, SEEDS[0].year, rating=1.0),
+            )
+        ),
+    )
+    await run_jobs()
+
+    rated = await flows.rated(owner)
+    assert await last_synced_ratings(db, await owner_id(owner)) == flows.bands_of(rated)
+
+
 # --- The provisional lifecycle, as it applies to seeded films ---
 
 TRIO = tuple(
