@@ -7,6 +7,7 @@ import procrastinate
 from fastapi import Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from anchor.letterboxd import Letterboxd
 from anchor.mail import Mailer
 from anchor.ratelimit import RateLimiter
 from anchor.settings import Settings
@@ -23,6 +24,10 @@ def mailer_of(request: Request) -> Mailer:
 
 def tmdb_of(request: Request) -> Tmdb:
     return request.app.state.tmdb  # type: ignore[no-any-return]
+
+
+def letterboxd_of(request: Request) -> Letterboxd:
+    return request.app.state.letterboxd  # type: ignore[no-any-return]
 
 
 def jobs_of(request: Request) -> procrastinate.App:
@@ -42,4 +47,5 @@ AppSettings = Annotated[Settings, Depends(settings_of)]
 AppJobs = Annotated[procrastinate.App, Depends(jobs_of)]
 AppMailer = Annotated[Mailer, Depends(mailer_of)]
 AppTmdb = Annotated[Tmdb, Depends(tmdb_of)]
+AppLetterboxd = Annotated[Letterboxd, Depends(letterboxd_of)]
 DbSession = Annotated[AsyncSession, Depends(db_session)]

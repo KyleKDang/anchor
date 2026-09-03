@@ -14,12 +14,13 @@ from typing import Any
 
 import procrastinate
 from procrastinate import JobContext, builtin_tasks
-from sqlalchemy import delete, func, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import catalog
+from anchor import catalog, matching, seeding
 from anchor.db import Database
-from anchor.models import AuthSession, WorkerProbe
+from anchor.errors import ApiError
+from anchor.models import AuthSession, Import, ImportRow, ImportRowState, ImportStatus, WorkerProbe
 from anchor.settings import Settings
 from anchor.tmdb import FilmNotInTmdb, Tmdb, TmdbUnavailable
 
@@ -124,6 +125,80 @@ async def retrain_taste_profile(context: JobContext, account_id: str) -> None:
         await session.commit()
 
 
+async def match_import_rows(context: JobContext, import_id: str) -> None:
+    """Work an import's rows: apply what the matcher is sure of, queue the rest to review.
+
+    Off the request path because six hundred rows is six hundred TMDB searches, and the
+    owner is meant to be using the app while it runs. Each row commits on its own, so
+    the library fills in front of them rather than appearing all at once - and so a
+    retry after TMDB goes down resumes at the row it stopped on rather than starting the
+    export again.
+    """
+    db, tmdb = database_of(context), tmdb_of(context)
+    settings = settings_of(context)
+    async with db.sessions() as session:
+        record = await session.get(Import, uuid.UUID(import_id))
+        if record is None:
+            return  # the import was wiped by a re-import while this waited its turn
+        account_id = record.account_id
+        pending = list(
+            await session.scalars(
+                select(ImportRow.id)
+                .where(ImportRow.import_id == record.id, ImportRow.state == ImportRowState.pending)
+                # Not by created_at: the whole export is inserted in one transaction, so
+                # every row carries the same stamp and the tiebreak would be a random
+                # uuid, giving a different order every run. Kind first is the useful
+                # order anyway - ratings landing before the watchlist and watched rows is
+                # what lets those skip a film the owner has already rated.
+                .order_by(ImportRow.kind, ImportRow.name, ImportRow.id)
+            )
+        )
+
+    for row_id in pending:
+        async with db.sessions() as session:
+            row = await session.get(ImportRow, row_id)
+            if row is None or row.state is not ImportRowState.pending:
+                continue
+            await _match_row(session, tmdb, settings, account_id, row)
+            await session.commit()
+
+    async with db.sessions() as session:
+        # The trainer is called rather than deferred: this is already the worker, and one
+        # retrain at the end beats six hundred queued behind the same account lock.
+        from anchor import taste
+
+        record = await session.get(Import, uuid.UUID(import_id))
+        if record is not None:
+            record.status = ImportStatus.complete
+            await taste.retrain(session, account_id)
+        await session.commit()
+
+
+async def _match_row(
+    session: AsyncSession,
+    tmdb: Tmdb,
+    settings: Settings,
+    account_id: uuid.UUID,
+    row: ImportRow,
+) -> None:
+    """One row's whole fate. A film TMDB has dropped since is unmatched, not a failure."""
+    try:
+        found = await matching.match(tmdb, settings, row.name, row.year)
+        if found.accepted is not None:
+            await seeding.apply(session, account_id, row, found.accepted, tmdb, settings)
+            row.state = ImportRowState.auto_matched
+            return
+    except ApiError as error:
+        if error.status_code != 404:
+            raise  # TMDB is down: leave the rest pending and let the retry resume
+        found = matching.Match()
+    if found.candidates:
+        row.candidates = list(found.candidates)
+        row.state = ImportRowState.review_pending
+    else:
+        row.state = ImportRowState.unmatched_open
+
+
 async def remove_old_jobs(context: JobContext, timestamp: int) -> None:
     """Nightly hygiene: drop finished job rows (health probes alone add one per check)."""
     await builtin_tasks.remove_old_jobs(context, max_hours=24)
@@ -169,6 +244,9 @@ def _declare_tasks() -> procrastinate.Blueprint:
     tasks = procrastinate.Blueprint()
     tasks.task(name=answer_probe.__name__, pass_context=True)(answer_probe)
     tasks.task(name=retrain_taste_profile.__name__, pass_context=True)(retrain_taste_profile)
+    # Retried, because the whole job is one long conversation with TMDB and the far end
+    # goes down. Every row commits on its own, so a retry resumes rather than repeats.
+    tasks.task(name=match_import_rows.__name__, retry=3, pass_context=True)(match_import_rows)
     nightly_tasks = [
         (remove_old_jobs, "0 4 * * *"),
         (prune_expired_sessions, "10 4 * * *"),

@@ -6,6 +6,8 @@ call. Failures are scripted per test: ``fake.throttle_next(2)`` makes the next t
 requests answer 429, and ``fake.down`` makes every request answer 500.
 """
 
+import re
+import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import parse_qs
@@ -13,6 +15,22 @@ from urllib.parse import parse_qs
 import httpx
 
 BASE_URL = "https://api.themoviedb.org/3"
+
+_NOT_WORD = re.compile(r"[^0-9a-z]+")
+
+
+def _searchable(title: str) -> str:
+    """How forgiving TMDB's own search is, restated rather than imported.
+
+    The real endpoint searches "original, translated and alternative titles" and does not
+    care about an accent or a dash, so a fake that matched bytes would refuse hits TMDB
+    would return and the matcher's own folding would never be reached. Written out here
+    rather than borrowed from ``anchor.letterboxd`` on purpose: a test that imports the
+    rule it is checking proves only that the rule equals itself.
+    """
+    decomposed = unicodedata.normalize("NFKD", title)
+    unaccented = "".join(char for char in decomposed if not unicodedata.combining(char))
+    return _NOT_WORD.sub(" ", unaccented.casefold()).strip()
 
 
 @dataclass(frozen=True)
@@ -32,6 +50,7 @@ class FilmFixture:
     cast: tuple[str, ...] = ("Edward Norton", "Brad Pitt")
     vote_average: float = 8.4
     vote_count: int = 27000
+    popularity: float = 25.0
 
     @property
     def year(self) -> int | None:
@@ -45,6 +64,7 @@ class FilmFixture:
             "release_date": self.release_date,
             "overview": self.overview,
             "poster_path": self.poster_path,
+            "popularity": self.popularity,
         }
 
     def detail(self) -> dict[str, Any]:
@@ -127,8 +147,8 @@ class FakeTmdb:
     def _answer(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path.removeprefix("/3")
         if path == "/search/movie":
-            query = parse_qs(request.url.query.decode())["query"][0].casefold()
-            matches = [film for film in self.catalog.values() if query in film.title.casefold()]
+            query = _searchable(parse_qs(request.url.query.decode())["query"][0])
+            matches = [film for film in self.catalog.values() if query in _searchable(film.title)]
             return httpx.Response(200, json={"page": 1, "results": [f.hit() for f in matches]})
         if path.startswith("/movie/"):
             film = self.catalog.get(int(path.removeprefix("/movie/")))

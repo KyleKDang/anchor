@@ -65,6 +65,30 @@ class Settings(BaseSettings):
     by provisional ones (so half the library must rest on real judgments).
     """
 
+    import_max_upload_bytes: int = 20 * 1024 * 1024
+    """A real export is a few hundred kilobytes; this is generous, not a target."""
+
+    import_popularity_dominance: float = 5.0
+    """How far an exact-title hit must outrank the runner-up to be accepted unasked.
+
+    Five times is a landslide, not a lead: two plausible films of the same name sit far
+    closer than this, so the rule fires on the unique-title case and stays out of the
+    remake case, which is exactly the review screen's job.
+    """
+
+    import_review_candidates: int = 6
+    """Candidates offered per review row. A page of choices is not a decision aid."""
+
+    import_reset_confirm_comparisons: int = 10
+    """Overall comparisons above which re-importing demands the typed confirmation.
+
+    Below it the enumerated counts carry the whole warning; above it the owner has
+    answered enough questions that the log is worth making them stop and type.
+    """
+
+    letterboxd_rescue_rate_limit: int = 20
+    """Per-row Letterboxd scrapes per IP per window; the rescue is never bulk."""
+
     rate_limit_window_seconds: float = 15 * 60
     """The sliding window the per-IP limits below count within."""
 

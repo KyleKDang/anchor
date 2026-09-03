@@ -54,6 +54,8 @@ class SearchHit:
     year: int | None
     overview: str
     poster_path: str | None
+    popularity: float
+    """TMDB's own popularity figure: what ranks the import's review candidates."""
 
 
 @dataclass(frozen=True)
@@ -193,6 +195,7 @@ def _hit(result: dict[str, Any]) -> SearchHit:
         year=_year(result.get("release_date")),
         overview=str(result.get("overview") or ""),
         poster_path=result.get("poster_path"),
+        popularity=float(result.get("popularity") or 0.0),
     )
 
 
