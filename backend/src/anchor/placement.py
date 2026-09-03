@@ -505,7 +505,9 @@ async def _advance(
     if search.tied_with is not None:
         tie_slot = await _pull_out_of_seed_group(db, account.id, reduced, search.tied_with)
         if tie_slot is not None:
-            # The opponent moved, so everything read off the ordering is one slot stale.
+            # The opponent moved, so everything already read off the ordering is a slot
+            # stale. All three are re-read rather than only the two this path goes on to
+            # use, so the rule stays "after a pull-out, nothing read before it is valid".
             ordering = await ordering_module.load(db, account.id)
             reduced = ordering.without(tmdb_id)
             boundaries = _as_reduced(ordering, await bands.load(db, account.id), tmdb_id)

@@ -699,3 +699,51 @@ async def test_dismissing_a_film_dismisses_every_line_that_named_it(owner, edges
     await flows.dismiss_row(owner, row["id"])
     assert (await flows.unmatched(owner))["rows"] == []
     assert (await flows.import_state(owner))["unmatched"] == 0
+
+
+# --- What an upload is not allowed to do ---
+
+
+async def test_a_member_that_decompresses_to_a_flood_is_refused(owner):
+    """A zip's claimed size is checked before it is read, not after.
+
+    A few kilobytes of compressed repetition expands to gigabytes, and the row ceiling
+    cannot help because it is only reachable once the member is already in memory.
+    """
+    await flows.upload_export(owner, _bloated(), expect=422)
+    assert (await flows.import_state(owner))["status"] == "none"
+
+
+def _bloated():
+    import io
+    import zipfile
+
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("ratings.csv", "Date,Name,Year,Letterboxd URI,Rating\n" + "a" * 40_000_000)
+    return buffer.getvalue()
+
+
+async def test_a_row_can_only_ever_point_the_rescue_at_letterboxd(
+    owner, edges, letterboxd, run_jobs
+):
+    """The URI comes out of an uploaded file, so it is a URL the owner chose for us.
+
+    The rescue fetches it server-side, which makes anything but a Letterboxd link a
+    request the owner gets to aim at the inside of the network. Only Letterboxd's own
+    hosts survive parsing; anything else is kept as a row with no link to follow.
+    """
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row("A Film Since Deleted", 2003, rating=2.0, uri="http://169.254.169.254/latest"),
+            )
+        ),
+    )
+    await run_jobs()
+
+    (row,) = (await flows.unmatched(owner))["rows"]
+    assert not row["rescuable"]
+    await flows.rescue_row(owner, row["id"], expect=409)
+    assert letterboxd.requests == []
