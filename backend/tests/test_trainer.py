@@ -8,6 +8,7 @@ test itself invented. The particular numbers a fit lands on are never asserted.
 """
 
 import random
+import tracemalloc
 import uuid
 
 from anchor import features, trainer
@@ -152,6 +153,23 @@ def test_an_ordering_too_short_to_have_a_pair_yields_none():
     assert trainer.extract(ordering(), seed=1) == []
 
 
+LIVE_BANDS = (129, 125, 122, 81, 60, 37, 22, 15, 5, 1)
+"""The tie-group sizes one real 597-film Letterboxd import seeded (#59), best band first."""
+
+
+def seed_import(ranked):
+    """The ordering a seed import leaves: one provisional tie-group per half-star band."""
+    films = iter(film.tmdb_id for film in ranked)
+    return ordering(*([next(films) for _ in range(size)] for size in LIVE_BANDS))
+
+
+def wide_library(size):
+    """A library whose feature space is production-wide: a keyword vocabulary in the
+    thousands, most of it shared by just enough films to earn a column."""
+    pool = tuple(f"keyword {n:04d}" for n in range(1500))
+    return library(size, keyword_pool=pool, keywords_per_film=12)
+
+
 # --- Quality ---
 
 
@@ -254,3 +272,35 @@ class _CountingSpace:
     def vector(self, film):
         self.calls += 1
         return self._space.vector(film)
+
+
+# --- Scale ---
+
+
+def test_a_seed_shaped_library_retrains_without_a_pair_by_feature_matrix():
+    """What keeps the retrain inside the worker's memory, pinned as an allocation bound.
+
+    A seed import parks hundreds of films in ten tie-groups, and every within-group and
+    adjacent-group pair is a training row - some eighty thousand of them for one real
+    library, against a feature space in the low thousands. A row-per-pair matrix of that
+    is over a gigabyte, and on the live box it killed the worker (#59).
+
+    The bound is what the fit is allowed to hold: the film-by-feature matrix, twice over
+    for working copies, plus a few machine words per pair. Nothing proportional to
+    *pairs times features* fits inside it, which is the property the kill was missing.
+    """
+    ranked = taste(wide_library(597))
+    rows = {film.tmdb_id: film for film in ranked}
+    extracted = trainer.extract(seed_import(ranked), seed=3)
+    space = features.learn(ranked)
+    assert len(extracted) > 50_000 and len(space) > 1_000, (len(extracted), len(space))
+
+    tracemalloc.start()
+    try:
+        trainer.fit(trainer.design(extracted, space, rows))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+
+    film_matrix = len(rows) * len(space) * 8
+    assert peak < 2 * film_matrix + 100 * len(extracted), (peak, film_matrix, len(extracted))

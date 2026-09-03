@@ -32,8 +32,12 @@ def film(tmdb_id, *, genres=(), directors=(), cast=(), keywords=(), vote=7.0, vo
     )
 
 
-def library(size, seed=7):
-    """A library of ``size`` films drawn from small shared pools, so facts recur."""
+def library(size, seed=7, *, keyword_pool=KEYWORDS, keywords_per_film=5):
+    """A library of ``size`` films drawn from small shared pools, so facts recur.
+
+    The keyword pool is the one knob, because keywords are the open-ended pile: a real
+    library's feature space is mostly keywords, and a test about its width needs one.
+    """
     rng = random.Random(seed)
     return [
         film(
@@ -41,7 +45,7 @@ def library(size, seed=7):
             genres=rng.sample(GENRES, 2),
             directors=[rng.choice(DIRECTORS)],
             cast=rng.sample(PLAYERS, 4),
-            keywords=rng.sample(KEYWORDS, 5),
+            keywords=rng.sample(keyword_pool, keywords_per_film),
             vote=rng.uniform(4.0, 9.0),
             votes=rng.randint(50, 200_000),
         )

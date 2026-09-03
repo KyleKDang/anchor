@@ -190,29 +190,63 @@ def hold_out(pairs: Sequence[Pair], *, share: float, seed: int) -> tuple[list[Pa
 
 @dataclass(frozen=True)
 class Design:
-    """Pairs as the fit reads them: one row of feature differences per pair."""
+    """Pairs as the fit reads them: one row of feature differences per pair.
 
-    x: np.ndarray
+    The rows are never built. Each is ``features(a) - features(b)``, so every product
+    the fit needs factors through the film matrix: ``X @ w`` is ``(films @ w)`` read out
+    at ``a`` minus at ``b``, and ``X.T @ r`` is ``films.T`` applied to ``r`` summed onto
+    ``a`` minus summed onto ``b``. What is held is the films-by-features matrix and two
+    index arrays, so memory follows the library and never the pair count - a seed import
+    parks hundreds of films in ten tie-groups, and the pairs that implies, times the
+    feature space, is the matrix that killed the worker (#59).
+    """
+
+    films: np.ndarray
+    """One row per distinct film in the pairs, in this space."""
+    a: np.ndarray
+    b: np.ndarray
+    """Row indices into ``films``, one pair per position."""
     y: np.ndarray
     weight: np.ndarray
 
     def __len__(self) -> int:
         return len(self.y)
 
+    @property
+    def width(self) -> int:
+        return int(self.films.shape[1])
+
+    def apply(self, vector: np.ndarray) -> np.ndarray:
+        """``X @ vector``: each pair's difference, read through the film scores."""
+        scored: np.ndarray = self.films @ vector
+        differences: np.ndarray = scored[self.a] - scored[self.b]
+        return differences
+
+    def apply_transposed(self, residual: np.ndarray) -> np.ndarray:
+        """``X.T @ residual``: each film's share of the residual, read through the features."""
+        rows = len(self.films)
+        per_film = np.bincount(self.a, residual, rows) - np.bincount(self.b, residual, rows)
+        shares: np.ndarray = self.films.T @ per_film
+        return shares
+
 
 def design(pairs: Sequence[Pair], space: FeatureSpace, films: Mapping[int, Film]) -> Design:
-    """Vectorise the pairs: each row is ``features(a) - features(b)``."""
+    """Vectorise the pairs: each row is ``features(a) - features(b)``, held factored."""
     usable = [pair for pair in pairs if pair.a in films and pair.b in films]
     # Vectorised once per film rather than once per appearance: at library scale each
     # film sits in a dozen pairs, and this is the difference between a retrain that
     # costs milliseconds and one that costs most of a second.
     # The distinct films first: keying the comprehension on the pairs would evaluate the
     # vector once per appearance and overwrite, which is the cost this exists to avoid.
-    appearing = {film_id for pair in usable for film_id in (pair.a, pair.b)}
-    vectors = {film_id: space.vector(films[film_id]) for film_id in appearing}
-    rows = [vectors[pair.a] - vectors[pair.b] for pair in usable]
+    appearing = sorted({film_id for pair in usable for film_id in (pair.a, pair.b)})
+    row = {film_id: index for index, film_id in enumerate(appearing)}
+    matrix = np.empty((len(appearing), len(space)))
+    for film_id, index in row.items():
+        matrix[index] = space.vector(films[film_id])
     return Design(
-        x=np.array(rows).reshape(len(usable), len(space)),
+        films=matrix,
+        a=np.array([row[pair.a] for pair in usable], dtype=np.intp),
+        b=np.array([row[pair.b] for pair in usable], dtype=np.intp),
         y=np.array([pair.target for pair in usable]),
         weight=np.array([pair.weight for pair in usable]),
     )
@@ -225,16 +259,16 @@ def fit(design: Design, *, l2: float = L2, iterations: int = ITERATIONS) -> np.n
     curvature, so there is no learning rate to tune and no way for one library's feature
     scale to make the fit diverge where another's converged.
     """
-    if len(design) == 0 or design.x.shape[1] == 0:
-        return np.zeros(design.x.shape[1])
+    if len(design) == 0 or design.width == 0:
+        return np.zeros(design.width)
     total = float(design.weight.sum()) or 1.0
     step = 1.0 / (0.25 * _curvature(design) / total + l2)
 
-    weights = np.zeros(design.x.shape[1])
+    weights = np.zeros(design.width)
     ahead = weights
     for iteration in range(iterations):
-        residual = design.weight * (_logistic(design.x @ ahead) - design.y)
-        gradient = design.x.T @ residual / total + l2 * ahead
+        residual = design.weight * (_logistic(design.apply(ahead)) - design.y)
+        gradient = design.apply_transposed(residual) / total + l2 * ahead
         stepped = ahead - step * gradient
         ahead = stepped + (iteration / (iteration + 3)) * (stepped - weights)
         weights = stepped
@@ -250,7 +284,7 @@ def accuracy(weights: np.ndarray, design: Design) -> float | None:
     directional = design.y != TIED
     if not directional.any():
         return None
-    predicted = design.x[directional] @ weights > 0
+    predicted = design.apply(weights)[directional] > 0
     return float((predicted == (design.y[directional] > TIED)).mean())
 
 
@@ -270,11 +304,11 @@ def _curvature(design: Design) -> float:
     The largest eigenvalue of the weighted design, which is what sets the largest step
     the fit can take without overshooting.
     """
-    vector = np.ones(design.x.shape[1])
+    vector = np.ones(design.width)
     for _ in range(POWER_ITERATIONS):
-        vector = design.x.T @ (design.weight * (design.x @ vector))
+        vector = design.apply_transposed(design.weight * design.apply(vector))
         norm = float(np.linalg.norm(vector))
         if norm == 0.0:
             return 0.0
         vector /= norm
-    return float(np.linalg.norm(design.x.T @ (design.weight * (design.x @ vector))))
+    return float(np.linalg.norm(design.apply_transposed(design.weight * design.apply(vector))))
