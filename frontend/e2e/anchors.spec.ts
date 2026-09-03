@@ -27,7 +27,10 @@ test("an owner designates a band anchor and the Rated screen groups the ordering
   await page.goto(`/films/${ARRIVAL}`);
   await page.getByLabel("Make this my canonical…").selectOption("4");
   await page.getByRole("button", { name: "Designate" }).click();
-  await expect(page.getByText("Anchor", { exact: true })).toBeVisible();
+  // Scoped to the film, not the page: the nav's wordmark is also the word "Anchor", and
+  // an unscoped match is satisfied by it the instant the page renders - which would let
+  // this walk on to the Rated screen before the designation has landed.
+  await expect(page.getByRole("article").getByText("Anchor", { exact: true })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
   const banded = page.getByRole("region", { name: "4.0 stars" });

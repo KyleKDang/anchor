@@ -1031,6 +1031,7 @@ select {
 .film-page {
   display: grid;
   grid-template-columns: 16rem 1fr;
+  grid-template-rows: auto 1fr;
   gap: 0 var(--s6);
   align-items: start;
   margin-top: var(--s4);
@@ -1122,6 +1123,13 @@ select {
   font-size: var(--text-sm);
 }
 
+.film-actions .rate-choice {
+  padding: var(--s1) var(--s3);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+}
+
+/* In a row the offer stacks in the action column, where the stack is its own boundary. */
 .film-row-actions .rate-choice {
   flex-direction: column;
   align-items: stretch;
