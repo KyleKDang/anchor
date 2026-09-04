@@ -68,7 +68,10 @@ function WarmupSection() {
       ? []
       : [
           warmup.anchors.state === "todo" && "set your anchors",
-          warmup.evidence.state === "todo" && "answer a few comparisons",
+          warmup.evidence.state === "todo" &&
+            (warmup.evidence.kind === "comparisons"
+              ? "answer a few comparisons"
+              : "log a few films you have seen"),
           warmup.backlog.state === "todo" && "fill your backlog",
         ].filter((one): one is string => one !== false);
   if (warmup === null || left.length === 0) return null;
