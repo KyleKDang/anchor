@@ -5,9 +5,14 @@ HTTP surface, so the harness itself (session, queue, inline worker) is under tes
 """
 
 import logging
+import time
+import uuid
+from datetime import timedelta
 
 import pytest
 from procrastinate.jobs import Status
+from procrastinate.manager import JobManager
+from procrastinate.utils import utcnow
 from sqlalchemy import select
 
 import export
@@ -136,6 +141,57 @@ async def test_a_job_left_running_by_a_dead_worker_is_requeued_and_re_runs(
     # Not silent: an ERROR record is what Sentry's logging integration ships as an event.
     [reported] = _reported(caplog)
     assert "requeued" in reported
+
+
+@pytest.mark.settings(stalled_job_seconds=0)
+async def test_a_requeued_job_still_runs_when_its_retry_is_stamped_ahead_of_postgres(
+    owner, stocked, jobs_app, defer, run_jobs, monkeypatch
+):
+    """#67: the sweep stamps the retry from the app's clock, the fetch reads Postgres's.
+
+    Two machines: Postgres runs in Docker Desktop's VM, whose clock drifts from the Mac's.
+    Let the app's clock lead the database's by more than the gap between the sweep's commit
+    and the worker's next fetch - tens of milliseconds is enough - and the requeued job is
+    not yet fetchable when the worker looks, which under ``wait=False`` is the last look it
+    takes. A whole second of skew stands in for that drift, because the drift itself only
+    shows on some days and this has to be red on every one of them.
+    """
+    await flows.upload_export(
+        owner, export.export(ratings=(Row(WEDGED.title, WEDGED.year, rating=4.0),))
+    )
+    wedged = await _wedge(jobs_app)
+
+    retry_job = JobManager.retry_job
+
+    async def retry_a_second_late(self, job, retry_at=None, **kwargs):
+        await retry_job(self, job, retry_at=utcnow() + timedelta(seconds=1), **kwargs)
+
+    monkeypatch.setattr(JobManager, "retry_job", retry_a_second_late)
+
+    await defer(jobs.reclaim_stalled_jobs, timestamp=0)
+    await run_jobs()
+
+    reclaimed = await _job(jobs_app, wedged.id)
+    assert (reclaimed.status, reclaimed.attempts) == ("succeeded", 2)
+    assert (await flows.import_state(owner))["status"] == "complete"
+
+
+async def test_a_drain_that_cannot_finish_gives_up_and_names_what_is_left(jobs_app, run_jobs):
+    """The fixture waits for jobs it is owed, and nothing in Anchor is owed an hour from now.
+
+    Retry stamps say "now" and the periodic tasks are deferred at their cron time, so a job
+    scheduled into the future is one no amount of waiting can satisfy. Only a test can put
+    one there - and when one does, the fixture has to end the test rather than hold the
+    suite open until CI's own timeout kills it with nothing to read.
+    """
+    await jobs_app.configure_task(
+        name=jobs.task_name(jobs.answer_probe), schedule_in={"hours": 1}
+    ).defer_async(probe_id=str(uuid.uuid4()))
+
+    started = time.monotonic()
+    with pytest.raises(AssertionError, match=jobs.task_name(jobs.answer_probe)):
+        await run_jobs()
+    assert time.monotonic() - started < 15
 
 
 @pytest.mark.settings(stalled_job_seconds=0)

@@ -8,6 +8,7 @@ import asyncio
 import json
 import os
 import re
+import time
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from dataclasses import dataclass, field
@@ -39,6 +40,12 @@ ADMIN_URL = os.environ.get(
 )
 HERE = os.path.dirname(os.path.abspath(__file__))
 ALEMBIC_INI = os.path.join(HERE, "..", "alembic.ini")
+
+# How long ``run_jobs`` waits for a job it is owed before calling the queue stuck. Long
+# enough to outlast any clock skew between this process and Postgres, short enough that a
+# test wedging the queue reports it rather than holding the suite open.
+DRAIN_SECONDS = 5.0
+DRAIN_POLL_SECONDS = 0.05
 
 
 def _url_for(database: str) -> str:
@@ -274,14 +281,38 @@ def defer(jobs_app: procrastinate.App) -> Callable[..., Awaitable[None]]:
 def run_jobs(
     jobs_app: procrastinate.App, job_context: dict[str, Any]
 ) -> Callable[[], Awaitable[None]]:
-    """``await run_jobs()`` executes every queued job inline in the test, then returns."""
+    """``await run_jobs()`` executes every queued job inline in the test, then returns.
+
+    A worker run with ``wait=False`` stops at the first fetch that comes back empty, and
+    that fetch is gated on ``scheduled_at <= now()`` read from Postgres's clock - while a
+    job requeued mid-run is stamped from this process's. The two are different machines
+    here, so a job the worker owes the test can be a few milliseconds short of fetchable
+    at the moment the worker gives up (#67). Start it again until the queue is empty.
+
+    Nothing in Anchor schedules a job into the future on purpose - retry stamps say "now",
+    and the periodic tasks are deferred at their cron time - so a job still ``todo`` is
+    always one this fixture owes, and the loop ends when the last of them has run.
+    """
 
     async def run() -> None:
-        await jobs_app.run_worker_async(
-            wait=False,
-            install_signal_handlers=False,
-            listen_notify=False,
-            additional_context=job_context,
-        )
+        deadline = time.monotonic() + DRAIN_SECONDS
+        while True:
+            await jobs_app.run_worker_async(
+                wait=False,
+                install_signal_handlers=False,
+                listen_notify=False,
+                additional_context=job_context,
+            )
+            queued = await jobs_app.job_manager.list_jobs_async(status="todo")
+            if not queued:
+                return
+            if time.monotonic() >= deadline:
+                left = ", ".join(
+                    f"{job.id} ({job.task_name}) at {job.scheduled_at}" for job in queued
+                )
+                raise AssertionError(
+                    f"run_jobs() gave up after {DRAIN_SECONDS}s with jobs still queued: {left}"
+                )
+            await asyncio.sleep(DRAIN_POLL_SECONDS)
 
     return run
