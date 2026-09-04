@@ -267,7 +267,9 @@ async def _warmup(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -
     boundaries = await bands.load(db, account_id)
     designations = await anchors_module.current(db, account_id)
 
-    anchors = await _anchor_phase(db, account_id, settings, fill, marks, ordering, boundaries)
+    anchors = await _anchor_phase(
+        db, account_id, settings, fill, marks, ordering, boundaries, designations
+    )
     evidence = await _evidence_phase(db, account_id, settings, fill, marks, len(designations))
     backlog = await _backlog_phase(db, account_id, marks)
     return Warmup(
@@ -300,8 +302,8 @@ async def _anchor_phase(
     marks: set[tuple[WarmupMark, float | None]],
     ordering: Ordering,
     boundaries: dict[float, int],
+    designations: dict[float, int],
 ) -> AnchorPhase:
-    designations = await anchors_module.current(db, account_id)
     ranked = (
         await _candidates(db, account_id, settings, ordering, boundaries, designations)
         if fill is Fill.imported
@@ -526,6 +528,9 @@ async def answer_comparison(
     ordering = await ordering_module.load(db, account.id)
     index = await _shared_seeded_slot(db, account.id, ordering, body.a_tmdb_id, body.b_tmdb_id)
 
+    # A warmup comparison has no subject the way a placement does - neither film is the
+    # one being placed - so the side the question was asked from takes the column. The
+    # log reads the same either way: every reader works out the opponent by elimination.
     db.add(
         ComparisonLogEntry(
             account_id=account.id,
