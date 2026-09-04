@@ -297,17 +297,7 @@ function BandSection({ group, onChange }: { group: BandGroup; onChange: () => vo
       </header>
       <ol className="ordering">
         {group.slots.flatMap((slot) =>
-          slot.map((film, memberIndex) => (
-            <WallCell
-              key={film.tmdb_id}
-              film={film}
-              tie={
-                slot.length > 1
-                  ? { start: memberIndex === 0, end: memberIndex === slot.length - 1 }
-                  : undefined
-              }
-            />
-          )),
+          slot.map((film) => <WallCell key={film.tmdb_id} film={film} tie={slot.length > 1} />),
         )}
       </ol>
     </section>
@@ -381,32 +371,28 @@ function AnchorPicker({
 }
 
 /**
- * One cell of the wall: a film under its rank, and where the film is tied, the marks that
- * make the run read as one.
+ * One cell of the wall: a film under its rank, marked joint where the film is tied.
  *
  * Every film gets a cell of its own, tied or not, so the wall stays a single grid of
  * same-sized posters and the film after a tie group takes the next cell like any other.
  * That means the tie cannot be a box drawn around its members - a box would have to know
- * where the grid breaks its rows, and the column count follows the viewport. So each
- * member carries the tie instead: the shared rank marked shared, and one end of the plate
- * the members paint between them (`styles.css`, "Films judged equal keep their own cells").
+ * where the grid breaks its rows, and the column count follows the viewport. So the tie is
+ * carried entirely by the stamp: the shared rank, marked shared on every member, and
+ * nothing drawn between them (`styles.css`, "Films judged equal keep their own cells").
+ *
+ * `data-tie` is what the stamp's own styling keys on; the cell needs no other hook.
  */
 function WallCell({
   film,
-  tie,
+  tie = false,
   showBand = false,
 }: {
   film: RatedFilm;
-  tie?: { start: boolean; end: boolean };
+  tie?: boolean;
   showBand?: boolean;
 }) {
   return (
-    <li
-      className="ordering-slot"
-      data-tie={tie ? "true" : undefined}
-      data-tie-start={tie?.start ? "true" : undefined}
-      data-tie-end={tie?.end ? "true" : undefined}
-    >
+    <li className="ordering-slot" data-tie={tie ? "true" : undefined}>
       <span className="ordering-rank">
         {/* A leaderboard's joint place. The equals sign is the whole mark on screen, and
             the word behind it is what a screen reader has instead. */}

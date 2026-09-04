@@ -956,21 +956,12 @@ select {
 /* The ordering is a wall: a poster is recognised faster than a title, and at three
    hundred films the wall is shorter than the list it replaces. */
 .ordering {
-  --wall-col-gap: var(--s4);
   list-style: none;
   margin: 0;
   padding: var(--s3) 0 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
-  gap: var(--s5) var(--wall-col-gap);
-  /* A tie plate runs on into the column gap to its right, and the member that ends a row
-     has no column there to run into - so clip the one axis it can escape on, and leave the
-     other visible for the posters' hover shadow, which is mostly below them anyway. The
-     clip is flush with the outer columns rather than held off them: a clip margin wide
-     enough to matter would let the same width of plate hang past the wall, and a hard edge
-     of tint reads louder than the two pixels of shadow haze it buys back. */
-  overflow-x: clip;
-  overflow-y: visible;
+  gap: var(--s5) var(--s4);
 }
 
 .ordering-slot {
@@ -994,39 +985,26 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-/* Films judged equal keep their own cells, and are tinted together instead of boxed
-   together: each member paints a plate over its own cell and the column gap to its right,
-   so neighbouring members meet edge to edge and read as one strip. A member that ends a
-   row still paints its gap, and the next member starts a fresh strip at the left edge of
-   the row below - the way selected text wraps. The shape of the group therefore falls out
-   of the wall's own layout, with nothing measuring where the rows break.
+/* Films judged equal keep their own cells, and the stamp is the whole mark: every member
+   carries the same =N, set heavier and ringed, so a run of tied films reads as a run
+   before the numbers are read. Nothing else is drawn around the group.
 
-   A surface tone, never amber: amber is reserved for whatever carries a rating, and a tie
-   is a fact about the ordering rather than a value. */
-.ordering-slot[data-tie]::before {
-  content: "";
-  position: absolute;
-  inset: calc(-1 * var(--s1)) calc(-1 * var(--wall-col-gap)) calc(-1 * var(--s1)) 0;
-  background: color-mix(in srgb, var(--ink) 8%, transparent);
-}
+   Any group mark - a plate, a caption band, a rule - has to be painted per member and
+   joined across the column gaps, because the column count follows the viewport and nothing
+   measures where the grid breaks its rows. That leaves a cut edge wherever a group meets
+   the end of a row. And an account imported before anything has been compared is all seed
+   groups, so on day one every band of this screen would be one unbroken mark, which says
+   nothing. The stamp is already the accessible mark and the leaderboard's own convention,
+   and it leaves the wall a calm grid (#69).
 
-/* Only the group's own ends are rounded. A member at a row's edge is mid-run, so it stays
-   square there and the strip reads as carrying on. */
-.ordering-slot[data-tie-start]::before {
-  border-top-left-radius: var(--r-md);
-  border-bottom-left-radius: var(--r-md);
-}
-
-.ordering-slot[data-tie-end]::before {
-  right: 0;
-  border-top-right-radius: var(--r-md);
-  border-bottom-right-radius: var(--r-md);
+   The ring is a fixed white rather than a token because the stamp sits on a poster, not on
+   the page - the same white as the stamp's own ink. */
+.ordering-slot[data-tie] .ordering-rank {
+  font-weight: 700;
+  box-shadow: 0 0 0 1px rgb(255 255 255 / 55%);
 }
 
 .ordering-film {
-  /* Positioned so it paints over the tie plate above rather than under it: both are
-     positioned boxes at z-index auto, so the later one in the markup wins. */
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -2238,9 +2216,8 @@ select {
   }
 
   .ordering {
-    --wall-col-gap: var(--s2);
     grid-template-columns: repeat(3, 1fr);
-    gap: var(--s4) var(--wall-col-gap);
+    gap: var(--s4) var(--s2);
   }
 
   .film-title {
