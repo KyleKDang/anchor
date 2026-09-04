@@ -176,6 +176,11 @@ def bars(evidence: Evidence, settings: Settings) -> dict[Readiness, tuple[Bar, .
     }
 
 
+async def state(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Readiness:
+    """Where this account stands right now: the evidence counted and classified in one call."""
+    return classify(await evidence(db, account_id), settings)
+
+
 def classify(evidence: Evidence, settings: Settings) -> Readiness:
     """Which state the evidence supports. Derived on every read, stored nowhere."""
     reachable = bars(evidence, settings)

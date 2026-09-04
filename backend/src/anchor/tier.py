@@ -190,7 +190,7 @@ async def _maintain(
 ) -> None:
     """Bring the one persisted tier into line with what the rules now say it should be."""
     await _clear_departed(db, account_id)
-    if await _state_of(db, account_id, settings) is not Readiness.ready:
+    if await readiness_module.state(db, account_id, settings) is not Readiness.ready:
         await _clear_all(db, account_id)
         return
     candidates = await _candidates(db, account_id, vector)
@@ -345,14 +345,18 @@ def _spread(candidates: Sequence[Candidate]) -> float:
 # --- The owner's overrides ---
 
 
-async def _owner_acted(db: AsyncSession, account_id: uuid.UUID) -> None:
-    """An override landed. Its own effect is immediate; the rest of the list waits.
+async def _applied(db: AsyncSession, account_film: AccountFilm, settings: Settings) -> None:
+    """Every override lands the same way: at once, and with the engine told to look again.
 
-    Eligibility just moved in a way no score and no watch records - a veto lifted, a seat
-    handed back - so the fingerprint alone would report nothing to do and the film would
-    sit out until the owner happened to rate something.
+    The immediate half is a reconcile with no swap budget, so the only displacement is
+    the one the owner asked for. The ``due`` flag is the rest of the list's turn, at the
+    next boundary: an override changes who is *eligible* without moving the fit or the
+    clock - a lifted veto is a film handed back - so the fingerprint alone would report
+    nothing to do and the film would sit out until the owner happened to rate something.
     """
-    (await _state(db, account_id)).due = True
+    (await _state(db, account_film.account_id)).due = True
+    await db.flush()
+    await reconcile(db, account_film.account_id, settings)
 
 
 async def pin(db: AsyncSession, account_film: AccountFilm, settings: Settings) -> None:
@@ -365,9 +369,7 @@ async def pin(db: AsyncSession, account_film: AccountFilm, settings: Settings) -
     account_film.pinned_at = datetime.now(UTC)
     account_film.vetoed_at = None
     account_film.tier_reentry_watch = None
-    await _owner_acted(db, account_film.account_id)
-    await db.flush()
-    await reconcile(db, account_film.account_id, settings)
+    await _applied(db, account_film, settings)
 
 
 async def unpin(db: AsyncSession, account_film: AccountFilm, settings: Settings) -> None:
@@ -379,9 +381,7 @@ async def unpin(db: AsyncSession, account_film: AccountFilm, settings: Settings)
     """
     account_film.pinned_at = None
     account_film.tier_entered_watch = await watch_clock(db, account_film.account_id)
-    await _owner_acted(db, account_film.account_id)
-    await db.flush()
-    await reconcile(db, account_film.account_id, settings)
+    await _applied(db, account_film, settings)
 
 
 async def veto(db: AsyncSession, account_film: AccountFilm, settings: Settings) -> None:
@@ -393,17 +393,13 @@ async def veto(db: AsyncSession, account_film: AccountFilm, settings: Settings) 
     """
     account_film.vetoed_at = datetime.now(UTC)
     account_film.pinned_at = None
-    await _owner_acted(db, account_film.account_id)
-    await db.flush()
-    await reconcile(db, account_film.account_id, settings)
+    await _applied(db, account_film, settings)
 
 
 async def lift(db: AsyncSession, account_film: AccountFilm, settings: Settings) -> None:
     """Take the bar off. The film is an ordinary candidate again, from this moment."""
     account_film.vetoed_at = None
-    await _owner_acted(db, account_film.account_id)
-    await db.flush()
-    await reconcile(db, account_film.account_id, settings)
+    await _applied(db, account_film, settings)
 
 
 async def not_now(db: AsyncSession, account_film: AccountFilm, settings: Settings) -> None:
@@ -414,9 +410,7 @@ async def not_now(db: AsyncSession, account_film: AccountFilm, settings: Setting
     account_film.tier_entered_watch = None
     account_film.tier_reentry_watch = clock + settings.tier_reentry_cooldown
     account_film.pinned_at = None
-    await _owner_acted(db, account_film.account_id)
-    await db.flush()
-    await reconcile(db, account_film.account_id, settings)
+    await _applied(db, account_film, settings)
 
 
 # --- The unlock dot ---
@@ -433,9 +427,14 @@ async def note_unlock(db: AsyncSession, account_id: uuid.UUID, settings: Setting
     state = await _state(db, account_id)
     if state.unlock_state is not UnlockState.locked:
         return False
-    if await _state_of(db, account_id, settings) is not Readiness.ready:
+    if await readiness_module.state(db, account_id, settings) is not Readiness.ready:
         return False
     state.unlock_state = UnlockState.pending
+    # The crossing is itself a change to what the tier is computed from, and the only one
+    # there may be: the fit and the clock can both stand where the last pre-gate read
+    # stamped them, with the retrain still queued. The next boundary has work to do
+    # whatever the fingerprint says, or the one announced moment opens on an empty screen.
+    state.due = True
     await db.flush()
     return True
 
@@ -499,12 +498,6 @@ async def _state(db: AsyncSession, account_id: uuid.UUID) -> TierState:
     fetched = await db.scalar(select(TierState).where(TierState.account_id == account_id))
     assert fetched is not None  # just inserted, or inserted by a request racing this one
     return fetched
-
-
-async def _state_of(
-    db: AsyncSession, account_id: uuid.UUID, settings: Settings
-) -> readiness_module.Readiness:
-    return readiness_module.classify(await readiness_module.evidence(db, account_id), settings)
 
 
 async def _vector(db: AsyncSession, account_id: uuid.UUID) -> WeightVector | None:

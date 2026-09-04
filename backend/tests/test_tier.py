@@ -246,6 +246,25 @@ async def test_the_dot_shows_once_and_clears_on_the_first_visit(owner):
     assert (await flows.unlocks(owner))["watchlist"] is False, "the dot never returns"
 
 
+@tuned(**PATIENT)
+async def test_the_tier_is_there_the_moment_it_unlocks(owner):
+    """The one announced moment must not open onto an empty screen.
+
+    The pre-gate read stamps the fingerprint the refresh is gated on, and the anchor that
+    crosses the bar moves neither the fit - its retrain is still queued - nor the watch
+    clock. The unlock itself has to be what makes the next read do its work.
+    """
+    await fill(owner, BACKLOG[:5])
+    await build_ordering(owner, RATED)
+    assert (await flows.tier(owner))["unlocked"] is False
+
+    await designate(owner, 4.0, RATED[0])
+
+    payload = await flows.tier(owner)
+    assert payload["unlocked"] is True
+    assert set(tier_ids(payload)) == {film.tmdb_id for film in BACKLOG[:5]}
+
+
 # --- The shape ---
 
 
@@ -340,11 +359,30 @@ async def test_reading_the_screen_again_never_moves_it(owner, run_jobs):
 
 
 @tuned(**PATIENT, tier_swap_budget=1)
+async def test_a_reload_inside_a_session_is_not_a_boundary(owner, run_jobs):
+    """The screen reloading after the owner's own action shows that action and nothing else.
+
+    A watch moves the clock, and the read that follows it on the same screen is a reload
+    rather than an arrival: the engine's next swap waits for the owner's next visit, so
+    the list never moves under the cursor (watchlist.md).
+    """
+    await with_challengers_waiting(owner, run_jobs)
+    after_one = tier_ids(await flows.tier(owner))
+    assert len(rivals_in(after_one)) == 1
+
+    await log_watches(owner, SPARE[:1])
+
+    assert tier_ids(await flows.tier(owner, boundary=False)) == after_one
+    assert len(rivals_in(tier_ids(await flows.tier(owner)))) == 2, "the next visit is"
+
+
+@tuned(**PATIENT, tier_swap_budget=1)
 async def test_a_shift_the_engine_wants_rolls_in_over_boundaries(owner, run_jobs):
     """A tier that turns over all at once is a tier the owner no longer recognises.
 
     Five films the fit prefers become eligible in one moment, and one seat changes hands
-    per boundary. Re-reading the screen is not another boundary; logging a watch is.
+    per boundary. Re-reading the screen is not another boundary; the next visit after a
+    watch is.
     """
     await with_challengers_waiting(owner, run_jobs)
 
@@ -399,7 +437,11 @@ async def test_a_fresh_seat_is_not_dropped_the_moment_it_is_taken(owner, run_job
 
 @tuned(**PATIENT, tier_swap_budget=0)
 async def test_a_watched_film_frees_its_seat_at_once(owner):
-    """Refilling a seat is not churn, so it does not wait behind the swap budget."""
+    """Refilling a seat is not churn, so it does not wait behind the swap budget.
+
+    Read as the screen's own reload rather than as a boundary, so the refill is shown to
+    be the watch's doing and not the maintenance the next visit would have run anyway.
+    """
     await fill(owner, BACKLOG[:31])
     await make_ready(owner)
     seated = tier_ids(await flows.tier(owner))
@@ -407,7 +449,7 @@ async def test_a_watched_film_frees_its_seat_at_once(owner):
 
     await flows.mark_watched(owner, BACKLOG[0])
 
-    after = tier_ids(await flows.tier(owner))
+    after = tier_ids(await flows.tier(owner, boundary=False))
     assert BACKLOG[0].tmdb_id not in after
     assert BACKLOG[30].tmdb_id in after
     assert len(after) == 30
@@ -474,12 +516,14 @@ async def test_a_film_passed_over_often_enough_rotates_out_and_comes_back(owner)
 
 
 @tuned(tier_staleness_watches=1, tier_enter_cooldown=0, tier_reentry_cooldown=1)
-async def test_a_dormant_account_never_shuffles_itself(owner, db):
+async def test_a_dormant_account_never_shuffles_itself(owner, db, run_jobs):
     """Every measure is the watch clock, so an account nobody is using does not move.
 
     The staleness threshold is one watch, which would rotate the whole tier out on the
     next one - and the account is read four times over without a single film moving,
-    because no watch happened. There is no calendar anywhere in this to freeze.
+    because no watch happened. Then the fit lands, which is a boundary that does weigh
+    every seat for staleness, and still nothing moves: the clock has not. There is no
+    calendar anywhere in this to freeze.
     """
     await fill(owner, BACKLOG[:5])
     await make_ready(owner)
@@ -489,6 +533,9 @@ async def test_a_dormant_account_never_shuffles_itself(owner, db):
     for _ in range(3):
         assert tier_ids(await flows.tier(owner)) == before
 
+    await run_jobs()
+
+    assert tier_ids(await flows.tier(owner)) == before, "a boundary with nothing stale on it"
     assert await watch_clock(db, await flows.account_id(owner)) == still
 
 
