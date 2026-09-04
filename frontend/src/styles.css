@@ -1370,6 +1370,104 @@ select {
   font-size: var(--text-lg);
 }
 
+/* The bonus question: a card the owner has already earned the right to ignore. ------------ */
+
+/* Tinted and unbordered, like a notice, because it is an aside on a screen that is already
+   finished - a bordered box the size of the neighbours list above would read as one more
+   thing to get through. Nothing here is amber: the landing's rating is the amber on this
+   screen, and a bonus question must never compete with it. */
+.criteria {
+  width: min(100%, 26rem);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s4) var(--s4) var(--s3);
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--ink) 5%, transparent);
+  text-align: center;
+}
+
+.criteria-tag {
+  margin: 0;
+  color: var(--faint);
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.criteria h2 {
+  margin: 0;
+  font-size: var(--text-md);
+}
+
+/* The two films sit together in the middle rather than spreading to the card's edges:
+   this is one question about one pair, and a pair pushed apart reads as two options that
+   arrived separately. Start, not stretch, so a button is never taller than its own film -
+   a stretched one puts an invisible target under the shorter title. */
+.criteria-films {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 9rem));
+  align-items: start;
+  justify-content: center;
+  gap: var(--s4);
+  width: 100%;
+}
+
+/* The poster is the button: there is no separate verb, because naming the film twice is
+   how a two-tap answer becomes a two-decision one. The stack lives in a span rather than
+   on the button, since a button is not a reliable flex container across browsers. */
+.criteria-film {
+  display: block;
+  width: min(100%, 9rem);
+  margin-inline: auto;
+  padding: var(--s2);
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+}
+
+.criteria-film-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+}
+
+.criteria-film:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--surface);
+}
+
+.criteria-film:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.criteria-film .poster {
+  flex: none;
+  width: 100%;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+
+.criteria-film .film-title {
+  font-weight: 500;
+}
+
+.criteria-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s3);
+}
+
 /* The ballpark guess: quiet, optional, and impossible to mistake for a rating. */
 .ballpark {
   display: flex;
@@ -1424,6 +1522,50 @@ select {
 .stage.reached .stage-mark {
   color: var(--muted);
 }
+
+/* A settings choice: one radio per option, each carrying its own plain-language hint.
+   A select would hide four of the five behind a tap, and the hints are the whole reason
+   the owner can tell "Adaptive" from "Sometimes" without reading the spec. */
+.choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  max-width: 44rem;
+  margin: var(--s4) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.choice {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: baseline;
+  column-gap: var(--s3);
+  padding: var(--s2) var(--s3);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+
+.choice:hover {
+  background: var(--surface);
+}
+
+.choice input {
+  accent-color: var(--ink);
+  /* The radio sits on the label's first line rather than its baseline, which a bare
+     baseline alignment puts a hair too low next to text this size. */
+  transform: translateY(0.1em);
+}
+
+.choice-label {
+  font-weight: 500;
+}
+
+.choice .muted {
+  grid-column: 2;
+  font-size: var(--text-sm);
+}
+
 
 .bars {
   display: flex;

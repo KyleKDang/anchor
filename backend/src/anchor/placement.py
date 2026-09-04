@@ -47,10 +47,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
 from anchor import bands, drift, jobs, rewatch, tier
+from anchor import criteria as criteria_module
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.bands import Boundaries
 from anchor.catalog import FilmCard
+from anchor.criteria import CriteriaCard
 from anchor.deps import AppJobs, AppSettings, DbSession
 from anchor.errors import ApiError
 from anchor.models import (
@@ -317,6 +319,12 @@ class PlacementLanded(BaseModel):
     placement never re-shows it: the bar was already crossed before that request began.
     """
     neighbours: Neighbours
+    criteria: CriteriaCard | None = None
+    """The optional bonus question this landing earned, and usually None (taste-profile.md).
+
+    It rides on the done screen rather than arriving from a call of its own because it is
+    a bonus: a screen that had to fetch it could be left waiting on something the owner
+    never asked for. Answering it is optional and ignoring it costs nothing."""
 
 
 PlacementStep = PlacementQuestion | BandQuestion | PlacementLanded
@@ -670,8 +678,13 @@ async def _advance(
     # that crossed the bar only if the bar was still uncrossed when the request began.
     await db.flush()
     unlocked = await tier.note_unlock(db, account.id, settings)
+    # Offered inside the landing's transaction, so a placement never commits without the
+    # card it earned and the log never carries an offer for a landing that rolled back.
+    card = await criteria_module.offer(db, account, tmdb_id, flow.context, flow.since, entries)
     await db.commit()
-    return await _landed(db, account, flow.account_film, designated=designated, unlocked=unlocked)
+    return await _landed(
+        db, account, flow.account_film, designated=designated, unlocked=unlocked, card=card
+    )
 
 
 async def _seat(
@@ -1131,7 +1144,10 @@ async def _landed(
     *,
     designated: bool = False,
     unlocked: bool = False,
+    card: CriteriaCard | None = None,
 ) -> PlacementLanded:
+    """The done screen. Only a landing carries a bonus card; a re-visit of one does not,
+    which is what keeps the card at zero or one per placement (taste-profile.md)."""
     tmdb_id = account_film.film_id
     ordering = await ordering_module.load(db, account.id)
     boundaries = await bands.load(db, account.id)
@@ -1160,6 +1176,7 @@ async def _landed(
             tied_with=[cards[film_id] for film_id in tied],
             below=[cards[film_id] for film_id in below],
         ),
+        criteria=card,
     )
 
 

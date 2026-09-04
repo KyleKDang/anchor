@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from anchor import (
     accounts,
     anchors,
+    criteria,
     drift,
     errors,
     films,
@@ -68,6 +69,7 @@ def create_app(
     app.include_router(anchors.router)
     app.include_router(drift.router)
     app.include_router(rewatch.router)
+    app.include_router(criteria.router)
     app.include_router(profile.router)
     app.include_router(imports.router)
     app.include_router(watchlist.unlocks)

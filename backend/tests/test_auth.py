@@ -340,7 +340,12 @@ async def test_an_expired_session_is_refused_and_pruned(client, resend, db, defe
     await register(client, resend)
     await log_in(client)
     async with db.sessions() as session:
-        await session.execute(update(AuthSession).values(expires_at=datetime.now(UTC)))
+        # A second in the past, not this instant: the prune compares against Postgres's
+        # clock and this line is written by Python's, so "exactly now" is a coin flip on
+        # the skew between them and the row occasionally survives the sweep.
+        await session.execute(
+            update(AuthSession).values(expires_at=datetime.now(UTC) - timedelta(seconds=1))
+        )
         await session.commit()
 
     assert (await client.get("/api/auth/me")).status_code == 401

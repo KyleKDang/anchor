@@ -78,8 +78,14 @@ WIPED = (
 )
 """Every account-owned table a re-import empties: the whole account realm."""
 
-KEPT = ("auth_sessions",)
-"""Account-owned but not account *data*: wiping these would log the owner out mid-import."""
+KEPT = ("auth_sessions", "quality_list_entries")
+"""Account-owned but not the account's film data.
+
+Wiping the sessions would log the owner out mid-import. Wiping the quality list would
+throw away the built-in dozen with nothing to re-seed it - seeding happens once, at
+account creation - and take the owner's custom qualities with it, which are statements
+about their taste rather than anything the export produced.
+"""
 
 
 @dataclass(frozen=True)
