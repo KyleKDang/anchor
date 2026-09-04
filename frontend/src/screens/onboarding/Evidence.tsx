@@ -14,11 +14,18 @@ import { Plot } from "../../films/Plot";
 import { Poster } from "../../films/Poster";
 import { releaseYear } from "../../films/tmdb";
 
-/** What each readiness state turns on, in the owner's terms rather than the engine's. */
+/**
+ * What each readiness state turns on, in the owner's terms rather than the engine's.
+ *
+ * The words are the placement's, not Profile's: this is the same moment Place announces
+ * - the answer that crossed the bar, on the screen of the act that earned it - and one
+ * unlock told two ways would read as two different unlocks. Profile's copy is a standing
+ * readout of where the account is, which is a different sentence for a different job.
+ */
 const UNLOCKED: Record<Readiness, string> = {
   cold: "",
-  forming: "Discovery is on: Anchor can suggest films you have never tracked.",
-  ready: "Your watchlist is ranked now: the backlog is ordered by what you are most likely to love next.",
+  forming: "That was enough to go on: Anchor can suggest films you have never tracked now.",
+  ready: "That was enough to go on. Your watchlist is ranked from here: Anchor puts what you are most likely to love next at the top.",
 };
 
 /**
@@ -194,9 +201,10 @@ function Placements({ phase }: { phase: EvidencePhase }) {
 
   return (
     <>
+      {/* The heading above already says what to do, so this says why it is worth doing. */}
       <p className="muted">
-        Log a few films you have seen. Each one is a handful of quick comparisons against the
-        anchors you just set, and that is what turns positions into ratings.
+        Each one is a handful of quick comparisons against the anchors you just set, and that
+        is what turns positions into ratings.
       </p>
       <p className="prompt-step muted">
         {phase.answered} of about {phase.target} logged

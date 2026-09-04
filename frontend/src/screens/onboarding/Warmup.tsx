@@ -8,6 +8,7 @@ import {
   type Warmup as WarmupState,
   type WarmupMark,
 } from "../../api";
+import { useAsyncAction } from "../../films/useAsyncAction";
 import { Designate } from "./Designate";
 import { Evidence } from "./Evidence";
 import { SeedBacklog } from "./SeedBacklog";
@@ -68,8 +69,15 @@ export function Warmup() {
         <Designate phase={state.anchors} fill={state.fill} onChanged={setState} />
       </Phase>
 
+      {/* The one heading the two fills do not share. Everything under it - the body, the
+          count, the button - already says which of the two questions is being asked, and
+          a heading contradicting all three would be the loudest thing on the step. */}
       <Phase
-        heading="2. Answer a few comparisons"
+        heading={
+          state.evidence.kind === "comparisons"
+            ? "2. Answer a few comparisons"
+            : "2. Log a few films you have seen"
+        }
         blurb="What the ordering is actually built from."
         state={state.evidence.state}
         mark="evidence"
@@ -121,16 +129,7 @@ function Phase({
   onChanged: (warmup: WarmupState) => void;
   children: ReactNode;
 }) {
-  const [busy, setBusy] = useState(false);
-
-  async function skip() {
-    setBusy(true);
-    try {
-      onChanged(await api.skipWarmup(mark));
-    } finally {
-      setBusy(false);
-    }
-  }
+  const { busy, error, run } = useAsyncAction();
 
   return (
     <section className="section warmup-phase" data-state={state}>
@@ -145,13 +144,18 @@ function Phase({
             type="button"
             className="link-button warmup-phase-skip"
             disabled={busy}
-            onClick={() => void skip()}
+            onClick={() => void run(async () => onChanged(await api.skipWarmup(mark)))}
           >
             Skip
             <span className="visually-hidden"> {heading}</span>
           </button>
         )}
       </h2>
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
       {/* The blurb is the closed state's whole explanation, so it only shows there: open,
           the body says the same thing at length and the two together read as a stutter. */}
       {state === "skipped" ? (
@@ -174,27 +178,31 @@ function Done({
   onChanged: (warmup: WarmupState) => void;
 }) {
   const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
+  const { busy, error, run } = useAsyncAction();
   const settled = [state.anchors.state, state.evidence.state, state.backlog.state].every(
     (one) => one !== "todo",
   );
 
   async function finish() {
-    setBusy(true);
-    try {
+    await run(async () => {
       onChanged(await api.dismissWarmup());
-      void navigate("/rated");
-    } finally {
-      setBusy(false);
-    }
+      await navigate("/rated");
+    });
   }
 
   return (
-    <div className="actions warmup-done">
-      <button type="button" className="button" disabled={busy} onClick={() => void finish()}>
-        {settled ? "Take me in" : "I'm done for now"}
-      </button>
-      <span className="muted">Nothing here is a gate. You can come back from Profile.</span>
-    </div>
+    <>
+      {error !== null && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="actions warmup-done">
+        <button type="button" className="button" disabled={busy} onClick={() => void finish()}>
+          {settled ? "Take me in" : "I'm done for now"}
+        </button>
+        <span className="muted">Nothing here is a gate. You can come back from Profile.</span>
+      </div>
+    </>
   );
 }
