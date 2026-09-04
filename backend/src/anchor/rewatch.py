@@ -27,7 +27,6 @@ from anchor.deps import DbSession
 from anchor.errors import ApiError
 from anchor.models import (
     AccountFilm,
-    LifecycleState,
     Placement,
     RewatchOutcome,
     WatchEvent,
@@ -154,16 +153,3 @@ async def replacing_since(
     if placed_at is not None and event.watched_at <= placed_at:
         return None
     return event.watched_at
-
-
-async def rated_film(db: AsyncSession, account_id: uuid.UUID, film_id: int) -> AccountFilm:
-    account_film = await db.scalar(
-        select(AccountFilm).where(
-            AccountFilm.account_id == account_id,
-            AccountFilm.film_id == film_id,
-            AccountFilm.state == LifecycleState.rated,
-        )
-    )
-    if account_film is None:
-        raise ApiError(409, "not_rated", "Rate this film before logging a rewatch of it.")
-    return account_film
