@@ -295,7 +295,10 @@ def run_jobs(
     """
 
     async def run() -> None:
-        deadline = time.monotonic() + DRAIN_SECONDS
+        # The budget is for waiting, not for working: a pass that clears a job earns a
+        # fresh one, so a slow task cannot spend the drain's patience on its own behalf.
+        waiting_since = time.monotonic()
+        seen: set[int] = set()
         while True:
             await jobs_app.run_worker_async(
                 wait=False,
@@ -306,12 +309,16 @@ def run_jobs(
             queued = await jobs_app.job_manager.list_jobs_async(status="todo")
             if not queued:
                 return
-            if time.monotonic() >= deadline:
+            still = {job.id for job in queued if job.id is not None}
+            if still != seen:
+                seen, waiting_since = still, time.monotonic()
+            elif time.monotonic() - waiting_since >= DRAIN_SECONDS:
                 left = ", ".join(
                     f"{job.id} ({job.task_name}) at {job.scheduled_at}" for job in queued
                 )
                 raise AssertionError(
-                    f"run_jobs() gave up after {DRAIN_SECONDS}s with jobs still queued: {left}"
+                    f"run_jobs() waited {DRAIN_SECONDS}s and these jobs never became "
+                    f"fetchable: {left}"
                 )
             await asyncio.sleep(DRAIN_POLL_SECONDS)
 

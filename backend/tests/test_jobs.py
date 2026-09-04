@@ -5,6 +5,7 @@ HTTP surface, so the harness itself (session, queue, inline worker) is under tes
 """
 
 import logging
+import re
 import time
 import uuid
 from datetime import timedelta
@@ -189,7 +190,7 @@ async def test_a_drain_that_cannot_finish_gives_up_and_names_what_is_left(jobs_a
     ).defer_async(probe_id=str(uuid.uuid4()))
 
     started = time.monotonic()
-    with pytest.raises(AssertionError, match=jobs.task_name(jobs.answer_probe)):
+    with pytest.raises(AssertionError, match=re.escape(jobs.task_name(jobs.answer_probe))):
         await run_jobs()
     assert time.monotonic() - started < 15
 
