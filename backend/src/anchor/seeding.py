@@ -74,6 +74,7 @@ WIPED = (
     "watch_events",
     "import_rows",
     "imports",
+    "warmup_progress",
     "account_films",
 )
 """Every account-owned table a re-import empties: the whole account realm."""

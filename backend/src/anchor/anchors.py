@@ -170,7 +170,21 @@ class ReplacementNeeded(BaseModel):
     film: FilmCard
 
 
-Designation = Designated | ReplacementNeeded
+class PlacementNeeded(BaseModel):
+    """The film has never been placed, so the comparisons that place it decide the band.
+
+    This is how a fresh account gets its band structure at all: the owner names a film
+    they know cold, and designating it both places it and erects the first dividers
+    (onboarding-and-import.md). The intent is still only an intent - a designation that
+    lands somewhere else is cancelled by the answers exactly as a re-placement's is.
+    """
+
+    outcome: Literal["placement"] = "placement"
+    band: float
+    film: FilmCard
+
+
+Designation = Designated | ReplacementNeeded | PlacementNeeded
 
 
 class Designate(BaseModel):
@@ -200,16 +214,26 @@ async def designate(
     """Make a rated film the canonical exemplar of a band, or start the flow that could.
 
     The app may suggest candidates but never designates on its own, so this only ever
-    runs from the owner's own tap - a rated film's page, or a Rated band header.
+    runs from the owner's own tap - a rated film's page, a Rated band header, or a
+    warmup prompt whose candidates it offered and did not choose between.
+
+    A film the owner has watched but never placed is designatable too, and that is the
+    fresh account's whole bootstrap: the comparisons that place it are what decide
+    whether the intent stands, so nothing here writes a band the owner did not earn.
     """
     _check_band(band)
-    account_film = await _rated(db, account.id, body.tmdb_id)
+    account_film = await _designatable(db, account.id, body.tmdb_id)
+    cards = await ordering_module.cards(db, [body.tmdb_id])
+    if account_film.state is not LifecycleState.rated:
+        await _hold_intent(db, account.id, account_film, band)
+        await db.commit()
+        return PlacementNeeded(band=band, film=cards[body.tmdb_id])
+
     ordering = await ordering_module.load(db, account.id)
     index = ordering.index_of(body.tmdb_id)
     assert index is not None  # a rated film is a placed film
     boundaries = await bands.load(db, account.id)
 
-    cards = await ordering_module.cards(db, [body.tmdb_id])
     if band not in bands.bands_possible_for_slot(boundaries, index):
         await _hold_intent(db, account.id, account_film, band)
         await db.commit()
@@ -409,12 +433,18 @@ def _check_band(band: float) -> None:
         raise ApiError(422, "not_a_band", "Ratings run from 0.5 to 5.0 in half-stars.")
 
 
-async def _rated(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> AccountFilm:
+async def _designatable(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> AccountFilm:
+    """The film's record, refusing anything the owner has not said they watched.
+
+    Watched is the whole bar rather than rated, because "this film is what a 4.0 is" is
+    a claim only somebody who has seen it can make, and placing it is what designating
+    an unplaced one does next. A backlog film fails: the owner has not seen it yet.
+    """
     account_film = await db.scalar(
         select(AccountFilm).where(
             AccountFilm.account_id == account_id, AccountFilm.film_id == tmdb_id
         )
     )
-    if account_film is None or account_film.state is not LifecycleState.rated:
-        raise ApiError(409, "not_rated", "Rate this film before making it an anchor.")
+    if account_film is None or account_film.state is LifecycleState.backlog:
+        raise ApiError(409, "not_watched", "Mark this film watched before making it an anchor.")
     return account_film

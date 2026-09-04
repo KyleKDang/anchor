@@ -411,3 +411,74 @@ async def reset_warning(client):
     response = await client.get("/api/import/warning")
     assert response.status_code == 200, response.text
     return response.json()
+
+
+# --- The warmup ---
+
+
+async def warmup(client):
+    response = await client.get("/api/warmup")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def enter_warmup(client):
+    response = await client.post("/api/warmup/enter")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def skip_warmup(client, mark, band=None, expect=200):
+    response = await client.post("/api/warmup/skip", json={"mark": mark, "band": band})
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+async def dismiss_warmup(client):
+    response = await client.post("/api/warmup/dismiss")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def next_comparison(client, seed=1):
+    response = await client.get("/api/warmup/comparison", params={"seed": seed})
+    assert response.status_code == 200, response.text
+    step = response.json()
+    if not step["done"]:
+        assert_no_rating_keys(step, "a warmup comparison")
+    return step
+
+
+async def answer_comparison(client, a, b, verdict, seed=1, expect=200):
+    response = await client.post(
+        "/api/warmup/comparison",
+        json={"a_tmdb_id": a, "b_tmdb_id": b, "verdict": verdict, "seed": seed},
+    )
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+async def warm_up(client, verdict="a", seed=1, limit=50):
+    """Answer warmup comparisons the same way until the phase stops asking.
+
+    Returns the pairs it answered and the step it stopped on, so a test can count the
+    questions without naming one: which films the advisory math offered is its own
+    business, and tests must not pin it (testing.md).
+    """
+    answered = []
+    step = await next_comparison(client, seed)
+    while not step["done"] and len(answered) < limit:
+        answered.append((step["a"]["tmdb_id"], step["b"]["tmdb_id"]))
+        step = await answer_comparison(client, step["a"]["tmdb_id"], step["b"]["tmdb_id"], verdict)
+    return answered, step
+
+
+async def browse(client, kind, expect=200):
+    response = await client.get("/api/films/browse", params={"kind": kind})
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+def prompt_for(phase, band):
+    """One band's designation prompt, from whichever of the two lists it lives in."""
+    return next(one for one in (*phase["prompts"], *phase["continuation"]) if one["band"] == band)

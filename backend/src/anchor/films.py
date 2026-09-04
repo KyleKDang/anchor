@@ -33,6 +33,7 @@ from anchor.models import (
     WatchOrigin,
 )
 from anchor.rewatch import RewatchPrompt
+from anchor.tmdb import Browse
 
 router = APIRouter(prefix="/api/films")
 
@@ -68,8 +69,8 @@ class MarkWatched(BaseModel):
     rate: Literal["now", "later"] | None = None
 
 
-# `/search` is declared before `/{tmdb_id}`: FastAPI matches routes in order, and the
-# literal path has to win before the id pattern gets a look at it.
+# `/search` and `/browse` are declared before `/{tmdb_id}`: FastAPI matches routes in
+# order, and the literal paths have to win before the id pattern gets a look at them.
 
 
 @router.get("/search")
@@ -85,6 +86,32 @@ async def search(
     bundled call per row, and the owner is about to care about at most one of them.
     """
     hits = await catalog.search(tmdb, query)
+    tracked = await _tracked(db, account, [hit.tmdb_id for hit in hits])
+    derived = await ordering_module.derived_bands(db, account.id)
+    return SearchResults(
+        results=[
+            SearchResult.of(hit, tracked.get(hit.tmdb_id), derived.get(hit.tmdb_id)) for hit in hits
+        ]
+    )
+
+
+@router.get("/browse")
+async def browse(
+    kind: Browse,
+    account: CurrentAccount,
+    db: DbSession,
+    tmdb: AppTmdb,
+) -> SearchResults:
+    """TMDB's popular and top-rated grids: the warmup's "need inspiration?" fallback.
+
+    Explicitly a fallback and never the headline act. A popularity grid biases hard
+    toward blockbusters, so an owner led with one designates the films everybody has
+    seen rather than the films they themselves know cold (onboarding-and-import.md).
+
+    Flagged and store-free exactly as search is, for the same reason: the owner is
+    about to care about at most one of these rows.
+    """
+    hits = await catalog.browse(tmdb, kind)
     tracked = await _tracked(db, account, [hit.tmdb_id for hit in hits])
     derived = await ordering_module.derived_bands(db, account.id)
     return SearchResults(

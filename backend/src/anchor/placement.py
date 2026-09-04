@@ -672,7 +672,7 @@ async def _advance(
     # The opponents graduate here too, not just the film that was being placed: every
     # answer was a judgment about both films, and it becomes evidence about the opponent
     # the moment this film has a slot for it to be read against (onboarding-and-import.md).
-    await _graduate(db, account.id, [tmdb_id, *_opponents(entries, tmdb_id)])
+    await graduate(db, account.id, [tmdb_id, *_opponents(entries, tmdb_id)])
     await jobs.schedule_retrain(db, queue, account.id)
     # Asked after the landing is flushed and answered once ever: this is the placement
     # that crossed the bar only if the bar was still uncrossed when the request began.
@@ -725,8 +725,19 @@ async def _seat(
 
 
 async def _settle(db: AsyncSession, account: Account, flow: Flow) -> bool:
-    """Complete or cancel a designation intent, and retire an anchor carried out of band."""
-    if flow.context is not ComparisonContext.re_placement:
+    """Complete or cancel a designation intent, and retire an anchor carried out of band.
+
+    Both flows an intent can outlive settle here. A re-placement always has settling to
+    do - even with no intent, the film may be an anchor its own answers carried out of
+    band. A first placement only has settling to do where the owner started it by
+    designating a film they had never placed, which is the fresh account's bootstrap
+    (onboarding-and-import.md); an ordinary placement has no anchor to strand.
+    """
+    if flow.context is ComparisonContext.placement:
+        held = await anchors_module.intent(db, account.id)
+        if held is None or held.account_film_id != flow.account_film.id:
+            return False
+    elif flow.context is not ComparisonContext.re_placement:
         return False
     await db.flush()
     ordering = await ordering_module.load(db, account.id)
@@ -922,7 +933,7 @@ async def _extend(
         # And the film changed places, so every other judgment about it is worth
         # re-reading: the ones that have started to disagree are drift, seen here first.
         await drift.resweep(db, account.id, [tmdb_id])
-    await _graduate(db, account.id, [tmdb_id, opponent_id])
+    await graduate(db, account.id, [tmdb_id, opponent_id])
     await jobs.schedule_retrain(db, queue, account.id)
     # A keep-comparing answer is a comparison like any other, so it can be the evidence
     # that crosses the readiness bar - and the screen it returns to is a placement-done
@@ -1040,7 +1051,7 @@ async def _pull_out_of_seed_group(
 # --- Graduation ---
 
 
-async def _graduate(db: AsyncSession, account_id: uuid.UUID, film_ids: list[int]) -> None:
+async def graduate(db: AsyncSession, account_id: uuid.UUID, film_ids: list[int]) -> None:
     """Promote a provisional placement whose answers now pin it as tightly as a full one.
 
     One rule for both kinds of provisional, seed-imported and early-bailed: the position
