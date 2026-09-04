@@ -1,6 +1,10 @@
 .playwright-mcp/
 .claude/settings.local.json
 
+# Agent worktrees: whole nested checkouts, each with its own venv and node_modules.
+# Untracked they are one `git add -A` away from being committed wholesale.
+.claude/worktrees/
+
 # Rendered by the deploy job; never committed
 deploy/.env
 
