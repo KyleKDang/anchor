@@ -928,12 +928,21 @@ select {
 /* The ordering is a wall: a poster is recognised faster than a title, and at three
    hundred films the wall is shorter than the list it replaces. */
 .ordering {
+  --wall-col-gap: var(--s4);
   list-style: none;
   margin: 0;
   padding: var(--s3) 0 0;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
-  gap: var(--s5) var(--s4);
+  gap: var(--s5) var(--wall-col-gap);
+  /* A tie plate runs on into the column gap to its right, and the member that ends a row
+     has no column there to run into - so clip the one axis it can escape on, and leave the
+     other visible for the posters' hover shadow, which is mostly below them anyway. The
+     clip is flush with the outer columns rather than held off them: a clip margin wide
+     enough to matter would let the same width of plate hang past the wall, and a hard edge
+     of tint reads louder than the two pixels of shadow haze it buys back. */
+  overflow-x: clip;
+  overflow-y: visible;
 }
 
 .ordering-slot {
@@ -957,36 +966,39 @@ select {
   font-variant-numeric: tabular-nums;
 }
 
-/* Films judged equal share one rank, so they share one slot and are boxed together. */
-.ordering-slot[data-tie] {
-  grid-column: span 2;
-  display: flex;
-  flex-direction: column;
-  gap: var(--s2);
-  padding: var(--s2);
-  border: 1px dashed var(--border-strong);
-  border-radius: var(--r-lg);
+/* Films judged equal keep their own cells, and are tinted together instead of boxed
+   together: each member paints a plate over its own cell and the column gap to its right,
+   so neighbouring members meet edge to edge and read as one strip. A member that ends a
+   row still paints its gap, and the next member starts a fresh strip at the left edge of
+   the row below - the way selected text wraps. The shape of the group therefore falls out
+   of the wall's own layout, with nothing measuring where the rows break.
+
+   A surface tone, never amber: amber is reserved for whatever carries a rating, and a tie
+   is a fact about the ordering rather than a value. */
+.ordering-slot[data-tie]::before {
+  content: "";
+  position: absolute;
+  inset: calc(-1 * var(--s1)) calc(-1 * var(--wall-col-gap)) calc(-1 * var(--s1)) 0;
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 
-.ordering-slot[data-tie] .ordering-rank {
-  position: static;
-  align-self: flex-start;
-  background: var(--ink);
-  color: var(--on-ink);
-  backdrop-filter: none;
+/* Only the group's own ends are rounded. A member at a row's edge is mid-run, so it stays
+   square there and the strip reads as carrying on. */
+.ordering-slot[data-tie-start]::before {
+  border-start-start-radius: var(--r-md);
+  border-end-start-radius: var(--r-md);
 }
 
-.ordering-films {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: var(--s3);
-}
-
-.ordering-slot[data-tie] .ordering-films {
-  grid-template-columns: 1fr 1fr;
+.ordering-slot[data-tie-end]::before {
+  right: 0;
+  border-start-end-radius: var(--r-md);
+  border-end-end-radius: var(--r-md);
 }
 
 .ordering-film {
+  /* Positioned so it paints over the tie plate above rather than under it: both are
+     positioned boxes at z-index auto, so the later one in the markup wins. */
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 0.45rem;
@@ -1643,17 +1655,9 @@ select {
   }
 
   .ordering {
+    --wall-col-gap: var(--s2);
     grid-template-columns: repeat(3, 1fr);
-    gap: var(--s4) var(--s2);
-  }
-
-  .ordering-slot[data-tie] {
-    padding: 0.35rem;
-    gap: 0.35rem;
-  }
-
-  .ordering-slot[data-tie] .ordering-films {
-    gap: var(--s2);
+    gap: var(--s4) var(--wall-col-gap);
   }
 
   .film-title {

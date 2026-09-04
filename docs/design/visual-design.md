@@ -56,7 +56,7 @@ Cards are for the few things that are genuinely a discrete object: the rating pa
 
 ## The wall-versus-rows rule
 
-The ordering is always a **wall**: posters in a grid, the rank stamped on each one, grouped under a sticky band header, with films judged equal boxed together in one slot under one rank.
+The ordering is always a **wall**: posters in a grid, the rank stamped on each one, grouped under a sticky band header, with films judged equal keeping their own cells and drawn as one run - the shared rank marked shared on every member (`=12`, a leaderboard's joint place) over a tinted plate the members paint between them, which rewraps with the grid instead of boxing a fixed number of columns.
 At three hundred films the wall is *shorter* than the same films as rows - about fifty rows of six posters against three hundred rows - so the wall scales better than the list it replaces, and there is deliberately no toggle between them: two layouts would be two layouts to keep correct in every state forever, and choosing between them is not a decision the owner should have to make.
 Sorted any way but by position the wall goes flat and each poster carries its own band underneath, because a band header over a sequence that is not in band order would be a heading over nothing.
 
