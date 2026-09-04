@@ -47,6 +47,35 @@ test("an owner watches films, places them, and reads the ordering and the queue 
   await expect(page.getByText("Waiting in your rate-later queue.")).toHaveCount(0);
 });
 
+/**
+ * The tie on the wall: films the owner called equal share one rank, and each one still
+ * gets its own cell.
+ *
+ * The wall is one grid of same-sized posters, so a tie is drawn onto its members rather
+ * than boxed around them - every member carries the shared rank, marked shared. Geometry
+ * is a by-eye check; what belongs here is that the accessible list did not collapse two
+ * films into one item to draw them together.
+ */
+test("films the owner called equal share one rank and keep their own place on the wall", async ({
+  page,
+  request,
+}) => {
+  await signUpOwner(page, request, "tie");
+
+  await markWatched(page, "Fight Club", "Rate now");
+  await page.getByRole("button", { name: "Done" }).click();
+
+  await markWatched(page, "Arrival", "Rate now");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Which did you like more?");
+  await page.getByRole("button", { name: "They're tied" }).click();
+  await page.getByRole("button", { name: "Done" }).click();
+
+  const ordering = page.getByRole("region", { name: "Your ordering" }).getByRole("listitem");
+  await expect(ordering).toHaveCount(2);
+  await expect(ordering.filter({ hasText: "Fight Club" })).toContainText("=1");
+  await expect(ordering.filter({ hasText: "Arrival" })).toContainText("=1");
+});
+
 /** Search for a film and log the watch, taking the rate-now-or-later offer. */
 async function markWatched(page: Page, title: string, choice: "Rate now" | "Later"): Promise<void> {
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();

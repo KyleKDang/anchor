@@ -81,12 +81,7 @@ export function Rated() {
             ) : (
               <ol className="ordering">
                 {rated.films?.map((film) => (
-                  <li key={film.tmdb_id} className="ordering-slot">
-                    <span className="ordering-rank">{film.position}</span>
-                    <div className="ordering-films">
-                      <OrderedFilm film={film} showBand />
-                    </div>
-                  </li>
+                  <WallCell key={film.tmdb_id} film={film} showBand />
                 ))}
               </ol>
             )}
@@ -253,20 +248,19 @@ function BandSection({ group, onChange }: { group: BandGroup; onChange: () => vo
         )}
       </header>
       <ol className="ordering">
-        {group.slots.map((slot, index) => (
-          <li
-            key={slot[0]?.tmdb_id ?? index}
-            className="ordering-slot"
-            data-tie={slot.length > 1 ? "true" : undefined}
-          >
-            <span className="ordering-rank">{slot[0]?.position}</span>
-            <div className="ordering-films">
-              {slot.map((film) => (
-                <OrderedFilm key={film.tmdb_id} film={film} />
-              ))}
-            </div>
-          </li>
-        ))}
+        {group.slots.flatMap((slot) =>
+          slot.map((film, member) => (
+            <WallCell
+              key={film.tmdb_id}
+              film={film}
+              tie={
+                slot.length > 1
+                  ? { start: member === 0, end: member === slot.length - 1 }
+                  : undefined
+              }
+            />
+          )),
+        )}
       </ol>
     </section>
   );
@@ -339,8 +333,46 @@ function AnchorPicker({
 }
 
 /**
- * One film on the wall: its poster, and the title and marks under it. Tie-group members
- * sit together under one rank, as one slot.
+ * One cell of the wall: a film under its rank, and where the film is tied, the marks that
+ * make the run read as one.
+ *
+ * Every film gets a cell of its own, tied or not, so the wall stays a single grid of
+ * same-sized posters and the film after a tie group takes the next cell like any other.
+ * That means the tie cannot be a box drawn around its members - a box would have to know
+ * where the grid breaks its rows, and the column count follows the viewport. So each
+ * member carries the tie instead: the shared rank marked shared, and one end of the plate
+ * the members paint between them (`styles.css`, "Films judged equal keep their own cells").
+ */
+function WallCell({
+  film,
+  tie,
+  showBand = false,
+}: {
+  film: RatedFilm;
+  tie?: { start: boolean; end: boolean };
+  showBand?: boolean;
+}) {
+  return (
+    <li
+      className="ordering-slot"
+      data-tie={tie ? "true" : undefined}
+      data-tie-start={tie?.start ? "true" : undefined}
+      data-tie-end={tie?.end ? "true" : undefined}
+    >
+      <span className="ordering-rank">
+        {/* A leaderboard's joint place. The equals sign is the whole mark on screen, and
+            the word behind it is what a screen reader has instead. */}
+        {tie && <span className="visually-hidden">Joint </span>}
+        {tie && <span aria-hidden="true">=</span>}
+        {film.position}
+      </span>
+      <OrderedFilm film={film} showBand={showBand} />
+    </li>
+  );
+}
+
+/**
+ * One film on the wall: its poster, and the title and marks under it.
  *
  * The poster is the point of the wall - a poster is recognised faster than a title, and
  * at three hundred films the wall is shorter than the list of rows it replaces.
