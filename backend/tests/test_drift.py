@@ -328,6 +328,9 @@ async def test_re_placement_seeds_from_the_evidence_and_closes_the_flag(owner, d
     await re_place(owner, _film(flagged))
     step = await begin(owner, _film(flagged))
     assert step["done"] is False, "re-placing asks rather than showing where it already sits"
+    # The head start, said out loud: the flow opens partway through its own count,
+    # because the in-tension judgments are questions the owner has already answered.
+    assert step["answered"] > 0, "the re-placement started from scratch"
     await replace_at(owner, _film(flagged), [i for i in ids if i != flagged], 0)
 
     assert await open_flags(db, account) == {}
@@ -413,6 +416,9 @@ async def test_changing_your_mind_at_a_rewatch_enters_a_re_placement(owner, db):
     await answer_rewatch(owner, LIBRARY[3], "changed")
     step = await begin(owner, LIBRARY[3])
     assert step["done"] is False, "the film page's re-place offer opened the flow"
+    # No in-tension evidence exists in this path, so there is nothing to head-start from
+    # and the count opens at zero - which is what makes the drift path's count mean something.
+    assert step["answered"] == 0
     await replace_at(owner, LIBRARY[3], [i for i in ids if i != LIBRARY[3].tmdb_id], 0)
 
     assert [slot[0] for slot in ordering_of(await rated(owner))][0] == LIBRARY[3].tmdb_id
