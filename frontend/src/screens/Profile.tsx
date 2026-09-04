@@ -154,8 +154,8 @@ function CriteriaSection({ frequency }: { frequency: CriteriaFrequency | null })
   }
 
   return (
-    <section className="section" aria-labelledby="criteria-heading">
-      <h2 id="criteria-heading">Bonus questions</h2>
+    <section className="section" aria-labelledby="bonus-heading">
+      <h2 id="bonus-heading">Bonus questions</h2>
       <p className="muted">
         After a placement Anchor sometimes asks one extra question about the films you just
         compared - which had the better screenplay, say. Answering is always optional, and
