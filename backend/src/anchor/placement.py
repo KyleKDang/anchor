@@ -724,8 +724,13 @@ async def _extend(
         )
     await _graduate(db, account.id, [tmdb_id, body.opponent_tmdb_id])
     await jobs.schedule_retrain(db, queue, account.id)
+    # A keep-comparing answer is a comparison like any other, so it can be the evidence
+    # that crosses the readiness bar - and the screen it returns to is a placement-done
+    # screen. The line belongs on whichever one earned it (surfacing.md).
+    await db.flush()
+    unlocked = await tier.note_unlock(db, account.id, settings)
     await db.commit()
-    return await _landed(db, account, flow.account_film)
+    return await _landed(db, account, flow.account_film, unlocked=unlocked)
 
 
 def _moves_the_film(ordering: Ordering, index: int, body: Answer) -> bool:

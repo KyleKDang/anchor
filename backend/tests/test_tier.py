@@ -81,9 +81,10 @@ def tuned(**tier):
     """The ready bars plus this test's damping numbers, as one settings mark.
 
     One mark rather than two stacked: only the closest one is read, so the bars have to
-    travel with whatever the test is actually tuning.
+    travel with whatever the test is actually tuning. Merged rather than double-splatted,
+    so a test that is about the gate itself can move a bar as well as the damping.
     """
-    return pytest.mark.settings(**READY_BARS, **tier)
+    return pytest.mark.settings(**{**READY_BARS, **tier})
 
 
 PATIENT = {
@@ -209,6 +210,27 @@ async def test_the_placement_that_crosses_the_bar_says_so_once(owner):
     assert landed["unlocked"] is True
     resumed = await flows.begin(owner, RATED[5])
     assert resumed["unlocked"] is False, "resuming a landed placement re-announces nothing"
+
+
+@tuned(readiness_ready_comparisons_per_film=1.5)
+async def test_a_keep_comparing_answer_that_crosses_the_bar_says_so_too(owner):
+    """The line goes on whichever done screen earned it, and keep-comparing has one.
+
+    A keep-comparing answer is a comparison like any other, so it can be the evidence that
+    crosses the bar - and the screen it lands on is a placement-done screen (surfacing.md).
+    The bar here is set just above what the six-film library already has, so the one extra
+    comparison is exactly what carries it over.
+    """
+    await build_ordering(owner, RATED)
+    await designate(owner, 4.0, RATED[0])
+    assert (await flows.tier(owner))["unlocked"] is False
+
+    step = await flows.keep_comparing(owner, RATED[3])
+    assert step["kind"] == "comparison"
+    landed = await flows.answer(owner, RATED[3], step["b"]["tmdb_id"], "b")
+
+    assert landed["unlocked"] is True
+    assert (await flows.tier(owner))["unlocked"] is True
 
 
 @tuned()
