@@ -6,10 +6,13 @@ import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
 import { Place } from "./screens/Place";
+import { Import } from "./screens/import/Import";
 import { Review } from "./screens/import/Review";
 import { Login } from "./screens/auth/Login";
 import { Signup } from "./screens/auth/Signup";
 import { Verify } from "./screens/auth/Verify";
+import { Warmup } from "./screens/onboarding/Warmup";
+import { Welcome } from "./screens/onboarding/Welcome";
 
 export function App() {
   return (
@@ -22,15 +25,24 @@ export function App() {
       <Route path="/debug/error" element={<DebugError />} />
       <Route element={<RequireAccount />}>
         {/* Full-screen and outside the frame: mid-placement there is nothing to do
-            but answer, so the navigation would only be a distraction. */}
+            but answer, so the navigation would only be a distraction. The entry fork
+            is outside for the same reason, one step earlier - the five destinations
+            have nothing in them yet, so showing them would be showing five dead ends. */}
         <Route path="/place/:tmdbId" element={<Place />} />
+        <Route path="/welcome" element={<Welcome />} />
         <Route element={<Shell />}>
-          <Route index element={<Navigate to={destinations[0].path} replace />} />
+          <Route index element={<Home />} />
           {destinations.map(({ path, screen: Screen }) => (
             <Route key={path} path={path} element={<Screen />} />
           ))}
           {/* Not a destination: the film page is reached by tapping a film anywhere. */}
           <Route path="/films/:tmdbId" element={<Film />} />
+          {/* Nor is the warmup, which is a flow to walk through and then leave; it is
+              reached from the fork and, afterwards, from Profile. */}
+          <Route path="/warmup" element={<Warmup />} />
+          {/* Nor is the import: the fork's first branch leads here, and Profile's
+              Letterboxd area carries the same section for every visit after that. */}
+          <Route path="/import" element={<Import />} />
           {/* Nor is the import review: it is offered from Profile's Letterboxd area,
               and it is a queue to work through rather than somewhere to live. */}
           <Route path="/import/review" element={<Review />} />
@@ -39,6 +51,30 @@ export function App() {
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   );
+}
+
+/**
+ * Where a logged-in account lands: the entry fork if it has never answered one.
+ *
+ * A read rather than a redirect rule written into the router, because "has this account
+ * been asked yet?" is the server's fact and nothing on the client can derive it. It
+ * answers once and then this is a plain redirect to the first destination forever.
+ *
+ * A failed read lands on the watchlist rather than blocking: onboarding is never a gate,
+ * and that has to hold when onboarding itself is what is broken.
+ */
+function Home() {
+  const [fork, setFork] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    api
+      .warmup()
+      .then((warmup) => setFork(warmup.fork))
+      .catch(() => setFork(false));
+  }, []);
+
+  if (fork === null) return null;
+  return <Navigate to={fork ? "/welcome" : destinations[0].path} replace />;
 }
 
 /** Fails on purpose: visiting this in production must produce a Sentry event. */

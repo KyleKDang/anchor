@@ -209,7 +209,20 @@ export interface ReplacementNeeded {
   film: FilmCard;
 }
 
-export type Designation = Designated | ReplacementNeeded;
+/**
+ * The film has never been placed, so the comparisons that place it decide the band.
+ *
+ * The fresh account's whole bootstrap: designating both places the film and erects the
+ * first dividers. The intent is still only an intent, and answers that land it elsewhere
+ * cancel it.
+ */
+export interface PlacementNeeded {
+  outcome: "placement";
+  band: number;
+  film: FilmCard;
+}
+
+export type Designation = Designated | ReplacementNeeded | PlacementNeeded;
 
 /** The ten half-star bands, best first. A fixed vocabulary, never fetched. */
 export const BANDS = [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5];
@@ -460,6 +473,84 @@ export interface ImportWarning {
   confirmation_phrase: string;
 }
 
+/** Which fill the shared warmup skeleton is running. Derived, never chosen. */
+export type WarmupFill = "imported" | "fresh";
+
+/** Where one prompt stands. Skipped and done are both terminal, and both fine. */
+export type PromptState = "todo" | "done" | "skipped";
+
+/** A phase that can be skipped as a whole; a band names one designation prompt. */
+export type WarmupMark = "anchors" | "evidence" | "backlog";
+
+export interface AnchorPrompt {
+  band: number;
+  state: PromptState;
+  /** The anchor, once one is designated. Its presence is what makes the prompt done. */
+  film: FilmCard | null;
+  /** Ranked suggestions on the import fill; empty on the fresh fill, which searches. */
+  candidates: FilmCard[];
+}
+
+export interface AnchorPhase {
+  state: PromptState;
+  /** The five whole stars, in ease-of-recall order: 5, 1, 3, 4, 2. */
+  prompts: AnchorPrompt[];
+  /** The five half stars, offered after the whole stars and never before them. */
+  continuation: AnchorPrompt[];
+  /** Offer the popular/top-rated grid as the explicit "need inspiration?" fallback. */
+  browse: boolean;
+}
+
+export interface EvidencePhase {
+  state: PromptState;
+  kind: "comparisons" | "placements";
+  answered: number;
+  /** Advisory: where the phase stops asking, never a bar the owner has to clear. */
+  target: number;
+}
+
+export interface BacklogPhase {
+  state: PromptState;
+  films: number;
+  /** Backlog films the import's watchlist put there before the owner arrived. */
+  seeded: number;
+}
+
+/** The whole warmup, read fresh on every call. Everything but the skips is derived. */
+export interface Warmup {
+  fill: WarmupFill;
+  /** Show the entry fork: the owner has not answered it either way yet. */
+  fork: boolean;
+  dismissed: boolean;
+  anchors: AnchorPhase;
+  evidence: EvidencePhase;
+  backlog: BacklogPhase;
+  readiness: Readiness;
+}
+
+/** One warmup comparison: two films the import seeded into the same tie-group. */
+export interface WarmupComparison {
+  done: false;
+  a: FilmCard;
+  b: FilmCard;
+  answered: number;
+  target: number;
+  /** The readiness this very answer crossed into, if it crossed one (ADR 0011). */
+  unlocked: Readiness | null;
+}
+
+export interface WarmupEvidenceDone {
+  done: true;
+  answered: number;
+  target: number;
+  unlocked: Readiness | null;
+}
+
+export type WarmupStep = WarmupComparison | WarmupEvidenceDone;
+
+/** The two grids TMDB offers as a list rather than an answer to a question. */
+export type Browse = "popular" | "top_rated";
+
 export class ApiError extends Error {
   constructor(
     readonly status: number,
@@ -510,6 +601,8 @@ export const api = {
 
   searchFilms: (query: string) =>
     request<{ results: SearchResult[] }>("GET", `/api/films/search?query=${encodeURIComponent(query)}`),
+  browseFilms: (kind: Browse) =>
+    request<{ results: SearchResult[] }>("GET", `/api/films/browse?kind=${kind}`),
   film: (tmdbId: number) => request<FilmDetail>("GET", `/api/films/${tmdbId}`),
   addToBacklog: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/backlog`),
   removeFromBacklog: (tmdbId: number) => request<void>("DELETE", `/api/films/${tmdbId}/backlog`),
@@ -578,6 +671,19 @@ export const api = {
   rescueImportRow: (rowId: string) =>
     request<ImportBound>("POST", `/api/import/rows/${rowId}/letterboxd`),
   dismissImportRow: (rowId: string) => request<void>("DELETE", `/api/import/rows/${rowId}`),
+
+  warmup: () => request<Warmup>("GET", "/api/warmup"),
+  enterWarmup: () => request<Warmup>("POST", "/api/warmup/enter"),
+  skipWarmup: (mark: WarmupMark, band?: number) =>
+    request<Warmup>("POST", "/api/warmup/skip", { mark, band: band ?? null }),
+  dismissWarmup: () => request<Warmup>("POST", "/api/warmup/dismiss"),
+  warmupComparison: () => request<WarmupStep>("GET", "/api/warmup/comparison"),
+  answerWarmupComparison: (aTmdbId: number, bTmdbId: number, verdict: Verdict) =>
+    request<WarmupStep>("POST", "/api/warmup/comparison", {
+      a_tmdb_id: aTmdbId,
+      b_tmdb_id: bTmdbId,
+      verdict,
+    }),
 };
 
 /**

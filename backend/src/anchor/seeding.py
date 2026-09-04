@@ -74,18 +74,22 @@ WIPED = (
     "watch_events",
     "import_rows",
     "imports",
-    "warmup_progress",
     "account_films",
 )
 """Every account-owned table a re-import empties: the whole account realm."""
 
-KEPT = ("auth_sessions", "quality_list_entries")
+KEPT = ("auth_sessions", "quality_list_entries", "warmup_progress")
 """Account-owned but not the account's film data.
 
 Wiping the sessions would log the owner out mid-import. Wiping the quality list would
 throw away the built-in dozen with nothing to re-seed it - seeding happens once, at
 account creation - and take the owner's custom qualities with it, which are statements
-about their taste rather than anything the export produced.
+about their taste rather than anything the export produced. The warmup's marks record
+which questions the owner has already been asked, and the import itself is one of the
+answers, so wiping them would send an owner who took the import branch straight back to
+the fork they had just answered - and nothing in them is account data either, because
+everything the warmup shows but a skip is derived from tables that *are* wiped, and
+comes back rebuilt from the new export.
 """
 
 

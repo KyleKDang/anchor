@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import {
   BANDS,
@@ -19,6 +19,22 @@ import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { filmPath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
+
+/** Where the flow's two exits lead: back where it was opened from, or Rated by default. */
+const EXITS = ["/rated", "/warmup"] as const;
+
+/**
+ * The screen that sent the owner here, if it named itself and is one we recognise.
+ *
+ * An allowlist rather than "any path starting with a slash": this value comes out of the
+ * URL bar, and the one thing a redirect target must never be is arbitrary. Two screens
+ * open a placement, so two is the whole list.
+ */
+function useExit(): string {
+  const [params] = useSearchParams();
+  const asked = params.get("back");
+  return EXITS.find((path) => path === asked) ?? EXITS[0];
+}
 
 /**
  * The placement flow: a full-screen guided flow, one question per step.
@@ -100,6 +116,7 @@ function Comparison({
   onGuess: (band: number) => void;
 }) {
   const { busy, error, run } = useAsyncAction();
+  const exit = useExit();
 
   // The pair is echoed back exactly as it was shown, rather than named as "the
   // opponent": most questions here are about the film being placed and some are not,
@@ -182,7 +199,7 @@ function Comparison({
         </p>
       )}
       <p className="muted place-leave">
-        <Link to="/rated">Finish this later</Link> - your answers are kept.
+        <Link to={exit}>Finish this later</Link> - your answers are kept.
       </p>
     </>
   );
@@ -226,6 +243,7 @@ function BandStep({
   onAnswered: (step: PlacementStep) => void;
 }) {
   const { busy, error, run } = useAsyncAction();
+  const exit = useExit();
 
   return (
     <>
@@ -294,7 +312,7 @@ function BandStep({
         </p>
       )}
       <p className="muted place-leave">
-        <Link to="/rated">Finish this later</Link> - your answers are kept.
+        <Link to={exit}>Finish this later</Link> - your answers are kept.
       </p>
     </>
   );
@@ -311,6 +329,7 @@ function Landed({
 }) {
   const navigate = useNavigate();
   const { busy, error, run } = useAsyncAction();
+  const exit = useExit();
   const { above, tied_with: tied, below } = landed.neighbours;
 
   return (
@@ -371,7 +390,7 @@ function Landed({
         </p>
       )}
       <div className="actions place-answers">
-        <button type="button" className="button" onClick={() => navigate("/rated")}>
+        <button type="button" className="button" onClick={() => void navigate(exit)}>
           Done
         </button>
         {/* The doubt alone moves nothing: only the answers this opens can. */}
