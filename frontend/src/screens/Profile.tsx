@@ -1,4 +1,5 @@
 import { useEffect, useState, type FormEvent } from "react";
+import { Link } from "react-router";
 
 import {
   api,
@@ -9,6 +10,7 @@ import {
   type Readiness,
   type Stage,
   type Threshold,
+  type Warmup as WarmupData,
 } from "../api";
 import { useAuth } from "../auth";
 import { Letterboxd } from "./import/Letterboxd";
@@ -33,12 +35,55 @@ export function Profile() {
   return (
     <>
       <h1>Profile</h1>
+      <WarmupSection />
       <ReadinessSection profile={profile} error={error} />
       <CriteriaSection frequency={profile?.criteria_frequency ?? null} />
       <Letterboxd />
       <AccountSection />
       <TmdbAttribution />
     </>
+  );
+}
+
+/**
+ * The warmup's home once the owner has left it: a line, and a way back.
+ *
+ * Ambient by ADR 0011's rules - it sits here and is mentioned nowhere else, it counts
+ * nothing, and it goes quiet the moment there is nothing left to offer. A dismissed
+ * warmup still shows, because dismissing is putting a thing away rather than destroying
+ * it, and an offer the owner cannot find again is worse than one sitting quietly here.
+ */
+function WarmupSection() {
+  const [warmup, setWarmup] = useState<WarmupData | null>(null);
+
+  useEffect(() => {
+    api
+      .warmup()
+      .then(setWarmup)
+      .catch(() => setWarmup(null));
+  }, []);
+
+  const left =
+    warmup === null
+      ? []
+      : [
+          warmup.anchors.state === "todo" && "set your anchors",
+          warmup.evidence.state === "todo" && "answer a few comparisons",
+          warmup.backlog.state === "todo" && "fill your backlog",
+        ].filter((one): one is string => one !== false);
+  if (warmup === null || left.length === 0) return null;
+
+  return (
+    <section className="section" aria-labelledby="warmup-heading">
+      <h2 id="warmup-heading">Warm up</h2>
+      <p className="muted">
+        Still open: {left.join(", ")}. None of it is required - it just makes Anchor's ratings
+        arrive sooner.
+      </p>
+      <Link className="button secondary" to="/warmup">
+        Pick up the warmup
+      </Link>
+    </section>
   );
 }
 

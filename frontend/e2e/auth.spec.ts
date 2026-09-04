@@ -21,7 +21,11 @@ test("a visitor signs up, verifies through the emailed link, logs out, logs in, 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Finish signing up");
   await page.getByLabel("Password").fill(password);
   await page.getByRole("button", { name: "Verify and log in" }).click();
-  await expect(page).toHaveURL(/\/watchlist$/);
+  // A brand-new account lands on the entry fork, which is the one screen before the
+  // frame; answering it either way is the last step of arriving.
+  await expect(page).toHaveURL(/\/welcome$/);
+  await page.getByRole("button", { name: "Start fresh" }).click();
+  await expect(page).toHaveURL(/\/warmup$/);
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
   await page.getByRole("button", { name: "Log out" }).click();

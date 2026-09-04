@@ -133,6 +133,31 @@ async def test_importing_after_starting_fresh_switches_the_fill(owner, run_jobs)
     assert (await warmup(owner))["fill"] == "imported"
 
 
+async def test_the_import_does_not_wipe_the_fork_the_owner_just_answered(owner, run_jobs):
+    """Importing is a hard reset of the account's data, and the warmup's marks are not it.
+
+    The owner takes the import branch, which answers the fork, and the export they upload
+    a moment later erases everything the account holds. Sending them back to the fork
+    they were mid-way through answering is exactly what the reset must not do - the same
+    reason it does not log them out.
+    """
+    await enter_warmup(owner)
+
+    await _import(owner, run_jobs, ratings=_rated_group())
+
+    assert (await warmup(owner))["fork"] is False
+
+
+async def test_a_skipped_prompt_stays_skipped_across_a_re_import(owner, run_jobs):
+    """A skip is the owner saying "stop asking me this", and a new export does not retract it."""
+    await _import(owner, run_jobs, ratings=_rated_group())
+    await skip_warmup(owner, "anchors", 5.0)
+
+    await _import(owner, run_jobs, ratings=_rated_group())
+
+    assert prompt_for((await warmup(owner))["anchors"], 5.0)["state"] == "skipped"
+
+
 # --- Phase 1, the fresh fill: search-driven designation ---
 
 

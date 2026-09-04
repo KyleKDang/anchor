@@ -5,11 +5,13 @@ import { verificationPath } from "./mail";
 export const PASSWORD = "correct horse battery staple";
 
 /**
- * Sign up, verify through the emailed link, and land logged in.
+ * Sign up, verify through the emailed link, answer the entry fork, and land in the app.
  *
- * Every journey but the auth one starts here, and none of them is testing signup, so
- * they share this rather than each repeating the four screens it takes. `prefix` keeps
- * the addresses apart when the suite runs its journeys in parallel.
+ * Every journey but the auth and onboarding ones starts here, and none of them is
+ * testing signup, so they share this rather than each repeating the five screens it
+ * takes. The fork is answered rather than skipped past, because it is genuinely where a
+ * new account lands and there is no way into the frame that does not go through it.
+ * `prefix` keeps the addresses apart when the suite runs its journeys in parallel.
  */
 export async function signUpOwner(
   page: Page,
@@ -26,5 +28,7 @@ export async function signUpOwner(
   await page.goto(await verificationPath(request, email));
   await page.getByLabel("Password").fill(PASSWORD);
   await page.getByRole("button", { name: "Verify and log in" }).click();
-  await expect(page).toHaveURL(/\/watchlist$/);
+  await expect(page).toHaveURL(/\/welcome$/);
+  await page.getByRole("button", { name: "Start fresh" }).click();
+  await expect(page).toHaveURL(/\/warmup$/);
 }

@@ -22,6 +22,7 @@ def film(
     genres: list[str],
     director: str,
     popularity: float = 20.0,
+    vote_average: float = 7.5,
 ) -> dict[str, Any]:
     return {
         "id": tmdb_id,
@@ -34,7 +35,7 @@ def film(
         "backdrop_path": None,
         "runtime": 120,
         "genres": [{"id": 100 + i, "name": name} for i, name in enumerate(genres)],
-        "vote_average": 7.5,
+        "vote_average": vote_average,
         "vote_count": 1000,
         "credits": {
             "cast": [{"id": 201, "name": "A Lead", "order": 0}],
@@ -47,14 +48,24 @@ def film(
 # Seven films, spread across genres and decades on purpose: the Rated screen groups an
 # ordering into bands and filters it, and neither shows anything worth looking at until
 # the dev stack holds enough films to make more than one band and more than one decade.
+# The popularity and vote figures disagree with each other on purpose too, so the
+# warmup's two browse grids come out as two different lists rather than one list twice.
 CATALOG = {
-    550: film(550, "Fight Club", "1999-10-15", ["Drama", "Thriller"], "David Fincher"),
-    329865: film(329865, "Arrival", "2016-11-10", ["Drama", "Science Fiction"], "Denis Villeneuve"),
-    949: film(949, "Heat", "1995-12-15", ["Crime", "Drama"], "Michael Mann"),
-    496243: film(496243, "Parasite", "2019-05-30", ["Comedy", "Thriller"], "Bong Joon-ho"),
-    244786: film(244786, "Whiplash", "2014-10-10", ["Drama", "Music"], "Damien Chazelle"),
-    348: film(348, "Alien", "1979-05-25", ["Horror", "Science Fiction"], "Ridley Scott"),
-    11104: film(11104, "Chungking Express", "1994-07-14", ["Drama", "Romance"], "Wong Kar-wai"),
+    550: film(550, "Fight Club", "1999-10-15", ["Drama", "Thriller"], "David Fincher", 42.0, 8.4),
+    329865: film(
+        329865, "Arrival", "2016-11-10", ["Drama", "Science Fiction"], "Denis Villeneuve", 31.0, 7.6
+    ),
+    949: film(949, "Heat", "1995-12-15", ["Crime", "Drama"], "Michael Mann", 18.0, 7.9),
+    496243: film(
+        496243, "Parasite", "2019-05-30", ["Comedy", "Thriller"], "Bong Joon-ho", 27.0, 8.5
+    ),
+    244786: film(
+        244786, "Whiplash", "2014-10-10", ["Drama", "Music"], "Damien Chazelle", 22.0, 8.4
+    ),
+    348: film(348, "Alien", "1979-05-25", ["Horror", "Science Fiction"], "Ridley Scott", 25.0, 8.2),
+    11104: film(
+        11104, "Chungking Express", "1994-07-14", ["Drama", "Romance"], "Wong Kar-wai", 9.0, 7.7
+    ),
 }
 
 SEARCH_FIELDS = ("id", "title", "release_date", "overview", "poster_path", "popularity")
@@ -72,6 +83,18 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "page": 1,
                     "results": [{key: hit[key] for key in SEARCH_FIELDS} for hit in hits],
+                },
+            )
+        if path in ("/movie/popular", "/movie/top_rated"):
+            # The warmup's "need inspiration?" fallback. Ranked apart so the dev stack
+            # shows two grids rather than one list under two names.
+            key = "popularity" if path.endswith("popular") else "vote_average"
+            ranked = sorted(CATALOG.values(), key=lambda entry: -float(entry[key]))
+            return self._json(
+                200,
+                {
+                    "page": 1,
+                    "results": [{field: hit[field] for field in SEARCH_FIELDS} for hit in ranked],
                 },
             )
         if path.startswith("/movie/"):
