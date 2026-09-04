@@ -457,7 +457,7 @@ async def answer(
     account_film = await _placeable(db, account, tmdb_id)
     flow = await _flow(db, account, account_film)
     if not body.about(tmdb_id):
-        return await _drift_answer(db, queue, account, flow, body)
+        return await _drift_answer(db, queue, account, settings, flow, body)
     ordering = await ordering_module.load(db, account.id)
     reduced = ordering.without(tmdb_id)
     if flow.context is ComparisonContext.keep_comparing:
@@ -766,6 +766,7 @@ async def _drift_answer(
     db: AsyncSession,
     queue: procrastinate.App,
     account: Account,
+    settings: Settings,
     flow: Flow,
     body: Answer,
 ) -> PlacementStep:
@@ -795,7 +796,7 @@ async def _drift_answer(
     )
     await db.flush()
     await drift.resweep(db, account.id, [body.a_tmdb_id, body.b_tmdb_id])
-    return await _advance(db, queue, account, flow, body.seed, (None, None))
+    return await _advance(db, queue, account, settings, flow, body.seed, (None, None))
 
 
 async def _checked_already(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> bool:
