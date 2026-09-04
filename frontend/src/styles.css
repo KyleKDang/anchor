@@ -1648,6 +1648,127 @@ select {
   font-size: var(--text-xs);
 }
 
+/* Drift ---------------------------------------------------------------------------------
+
+   The loudest drift is ever allowed to be (ADR 0011). The strip borrows the nudge's
+   amber rule rather than inventing an alarm colour: nothing here is an error, and
+   nothing is urgent - the film is already benched, so the doubt can sit as long as it
+   likes. Red is reserved for things that actually went wrong. */
+
+.needs-attention {
+  position: relative;
+  margin: 0 0 var(--s5);
+  padding: var(--s4) var(--s5) var(--s4) calc(var(--s5) + 4px);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.needs-attention::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: var(--s4);
+  bottom: var(--s4);
+  width: 3px;
+  border-radius: 3px;
+  background: var(--star);
+}
+
+.needs-attention-heading {
+  margin: 0 0 var(--s1);
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
+}
+
+.needs-attention .muted {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--text-sm);
+}
+
+.needs-attention-films {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin: var(--s3) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.needs-attention-films a.chip {
+  text-decoration: none;
+}
+
+.needs-attention-films a.chip:hover {
+  border-color: var(--faint);
+}
+
+/* On a row in the ordering the same fact has to be much quieter: it is one line of many,
+   and the strip above has already said it. */
+.chip-flagged {
+  border-color: var(--star);
+  color: var(--star-text);
+  font-size: var(--text-xs);
+  padding: 0.2rem 0.5rem;
+}
+
+.drift-panel,
+.rewatch-panel {
+  margin: 0 0 var(--s4);
+  padding: var(--s4);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--bg);
+}
+
+.drift-panel > h3,
+.rewatch-panel > h3 {
+  margin: 0 0 var(--s2);
+  font-size: var(--text-base);
+  line-height: var(--leading-tight);
+}
+
+.drift-panel .muted {
+  max-width: 62ch;
+  font-size: var(--text-sm);
+}
+
+/* The judgments in the owner's own words: the whole question is "did you mean these?",
+   so they are read as sentences rather than parsed as a table. */
+.drift-judgments {
+  margin: var(--s2) 0 var(--s3);
+  padding-left: var(--s4);
+  font-size: var(--text-sm);
+}
+
+.drift-judgments li {
+  margin-bottom: var(--s1);
+}
+
+.drift-keep .drift-judgments {
+  list-style: none;
+  padding-left: 0;
+}
+
+.drift-panel .actions,
+.rewatch-panel .actions {
+  margin-bottom: 0;
+}
+
+/* A checkbox sits inside the same control shell as every select, so a row of filters
+   stays one row of controls rather than one row plus a loose tickbox. */
+.field-check {
+  padding: 0 0.7rem;
+  cursor: pointer;
+}
+
+.field-check input {
+  margin: 0;
+  accent-color: var(--star);
+}
+
 @media (max-width: 640px) {
   .app {
     padding: 0 var(--s4) calc(var(--nav-h) + var(--s5));

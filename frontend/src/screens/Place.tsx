@@ -99,17 +99,23 @@ function Comparison({
 }) {
   const { busy, error, run } = useAsyncAction();
 
+  // The pair is echoed back exactly as it was shown, rather than named as "the
+  // opponent": most questions here are about the film being placed and some are not,
+  // and this screen deliberately cannot tell which kind it just rendered.
   async function answer(verdict: Verdict) {
-    await run(async () => onAnswered(await api.answerPlacement(tmdbId, step.b.tmdb_id, verdict)));
+    await run(async () =>
+      onAnswered(await api.answerPlacement(tmdbId, step.a.tmdb_id, step.b.tmdb_id, verdict)),
+    );
   }
 
   return (
     <>
       <header className="place-header">
         <h1>Which did you like more?</h1>
-        <p className="muted">
-          Placing {step.a.title} · judgment {step.answered + 1}
-        </p>
+        {/* No film is named here on purpose. Most of these questions are about the
+            film being placed and a few are quiet drift checks about two others, and a
+            subtitle saying which would be the one thing that gives them away. */}
+        <p className="muted">Judgment {step.answered + 1}</p>
       </header>
 
       <div className="place-pair">

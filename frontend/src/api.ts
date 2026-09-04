@@ -42,7 +42,14 @@ export interface FilmCard {
 /** Logging a watch is always a choice between rating it now and rating it later. */
 export type Rate = "now" | "later";
 
-/** The four answers a comparison offers; `a` is always the film being placed. */
+/**
+ * The four answers a comparison offers; `a` and `b` are the two films as shown.
+ *
+ * `a` is usually the film being placed, and deliberately not always: a quiet drift check
+ * rides in the same shape, about two films the owner is not placing at all. Answers name
+ * the pair they were shown rather than an opponent, so this client never has to know
+ * which kind of question it just rendered - and so it cannot leak the difference.
+ */
 export type Verdict = "a" | "b" | "tied" | "skip";
 
 export interface PlacementQuestion {
@@ -121,6 +128,8 @@ export interface RatedFilm {
   band: number | null;
   anchor: boolean;
   provisional: boolean;
+  /** An open drift flag the owner can see: this position is doubted. */
+  flagged: boolean;
 }
 
 /** One run of the ordering sharing a band, or one run that has no band yet. */
@@ -141,6 +150,8 @@ export interface Rated {
   decades: number[];
   /** No anchor exists yet: the one line explaining where the half-stars have gone. */
   anchor_nudge: boolean;
+  /** The compact strip at the top: every film carrying a flag the owner can see. */
+  needs_attention: FilmCard[];
   rate_later: FilmCard[];
 }
 
@@ -150,6 +161,7 @@ export interface RatedFilters {
   bandMax?: number | null;
   genre?: string | null;
   decade?: number | null;
+  flagged?: boolean;
 }
 
 export interface BandAnchor {
@@ -202,7 +214,48 @@ export interface FilmDetail {
   anchor: boolean;
   /** The rate-later seat; meaningful only while the film is watched-unrated. */
   rate_later: boolean;
+  /** The open drift flag and its resolution options, where the owner has one to see. */
+  drift: DriftFlag | null;
+  /** The still-feel-the-same question the last rewatch left open. */
+  rewatch: RewatchPrompt | null;
 }
+
+/** One judgment that contradicts where the film sits, in the owner's own terms. */
+export interface DriftJudgment {
+  opponent: FilmCard;
+  /** The owner put the opponent above this film, against where the two now sit. */
+  opponent_won: boolean;
+  tied: boolean;
+  answered_at: string;
+}
+
+/**
+ * An open drift flag the owner can see, and what it stands on.
+ *
+ * Three ways out, one of which is doing nothing: re-place it, keep the position, or not
+ * now. Dragging to a slot is deliberately not among them - every move goes through
+ * comparisons - and nothing here is urgent, because the film is already benched.
+ */
+export interface DriftFlag {
+  judgments: DriftJudgment[];
+  /** A re-placement is already running for this film, so the page resumes it. */
+  re_placing: boolean;
+  /** Re-placing would risk this film's anchor status, so the offer says so upfront. */
+  anchor_warning: boolean;
+}
+
+/** How the owner settled one implicated opponent when keeping the position. */
+export interface KeepOpponent {
+  opponent_tmdb_id: number;
+  resolution: "noise" | "re_point";
+}
+
+/** The still-feel-the-same offer, open until it is answered and never chased. */
+export interface RewatchPrompt {
+  watched_at: string;
+}
+
+export type RewatchAnswer = "confirmed" | "changed" | "skip";
 
 /** What the account's evidence currently supports. There is no time component. */
 export type Readiness = "cold" | "forming" | "ready";
@@ -443,9 +496,10 @@ export const api = {
       "POST",
       `/api/placements/${tmdbId}${ballpark === undefined ? "" : `?ballpark=${ballpark}`}`,
     ),
-  answerPlacement: (tmdbId: number, opponentTmdbId: number, verdict: Verdict) =>
+  answerPlacement: (tmdbId: number, aTmdbId: number, bTmdbId: number, verdict: Verdict) =>
     request<PlacementStep>("POST", `/api/placements/${tmdbId}/answers`, {
-      opponent_tmdb_id: opponentTmdbId,
+      a_tmdb_id: aTmdbId,
+      b_tmdb_id: bTmdbId,
       verdict,
     }),
   answerBand: (tmdbId: number, band: number, exemplarTmdbId: number | null) =>
@@ -461,6 +515,12 @@ export const api = {
   designate: (band: number, tmdbId: number) =>
     request<Designation>("POST", `/api/anchors/${band}`, { tmdb_id: tmdbId }),
   retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
+  rePlaceDrift: (tmdbId: number) => request<void>("POST", `/api/drift/${tmdbId}/re-place`),
+  keepPosition: (tmdbId: number, opponents: KeepOpponent[]) =>
+    request<void>("POST", `/api/drift/${tmdbId}/keep`, { opponents }),
+  logRewatch: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, {}),
+  answerRewatch: (tmdbId: number, answer: RewatchAnswer) =>
+    request<void>("POST", `/api/rewatches/${tmdbId}`, { answer }),
   profile: () => request<Profile>("GET", "/api/profile"),
   backlog: (filters: BacklogFilters = {}) =>
     request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
@@ -517,6 +577,7 @@ function ratedQuery(filters: RatedFilters): string {
   if (filters.bandMax != null) params.set("band_max", String(filters.bandMax));
   if (filters.genre) params.set("genre", filters.genre);
   if (filters.decade) params.set("decade", String(filters.decade));
+  if (filters.flagged) params.set("flagged", "true");
   const search = params.toString();
   return search ? `?${search}` : "";
 }
