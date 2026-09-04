@@ -84,6 +84,23 @@ export interface BandQuestion {
   answered: number;
 }
 
+/** The one answer a criteria card takes. Skip is absent: not answering is the default. */
+export type CriteriaVerdict = "a" | "b" | "tied";
+
+/**
+ * The optional bonus question after a placement: "Which had the better ___?"
+ *
+ * The wording is a fixed template and `quality` is the only thing that varies, drawn
+ * from the account's quality list. Nothing here is generated and there is no free-form
+ * question: the intelligence is entirely in which pair and which quality were picked.
+ */
+export interface CriteriaCard {
+  id: string;
+  quality: string;
+  film_a: FilmCard;
+  film_b: FilmCard;
+}
+
 export interface Neighbours {
   above: FilmCard[];
   tied_with: FilmCard[];
@@ -109,6 +126,8 @@ export interface PlacementLanded {
   /** This landing crossed the readiness bar: the one line announcing the ranked tier. */
   unlocked: boolean;
   neighbours: Neighbours;
+  /** The bonus question this landing earned, and usually null. Never blocking. */
+  criteria: CriteriaCard | null;
 }
 
 export type PlacementStep = PlacementQuestion | BandQuestion | PlacementLanded;
@@ -290,11 +309,18 @@ export interface Stage {
   thresholds: Threshold[];
 }
 
+/**
+ * How often the bonus criteria question is offered. `adaptive` is the default and reads
+ * the owner's engagement; `off` is complete, not merely quieter.
+ */
+export type CriteriaFrequency = "adaptive" | "often" | "sometimes" | "rarely" | "off";
+
 /** The Profile screen's engine section. `stages` omits cold: every account is already there. */
 export interface Profile {
   readiness: Readiness;
   evidence: Evidence;
   stages: Stage[];
+  criteria_frequency: CriteriaFrequency;
 }
 
 export interface BacklogFilm {
@@ -522,6 +548,10 @@ export const api = {
   answerRewatch: (tmdbId: number, answer: RewatchAnswer) =>
     request<void>("POST", `/api/rewatches/${tmdbId}`, { answer }),
   profile: () => request<Profile>("GET", "/api/profile"),
+  answerCriteria: (offerId: string, verdict: CriteriaVerdict) =>
+    request<void>("POST", `/api/criteria/${offerId}`, { verdict }),
+  setCriteriaFrequency: (frequency: CriteriaFrequency) =>
+    request<{ frequency: CriteriaFrequency }>("PUT", "/api/profile/criteria", { frequency }),
   backlog: (filters: BacklogFilters = {}) =>
     request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
   /**

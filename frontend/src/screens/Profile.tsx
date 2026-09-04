@@ -3,6 +3,7 @@ import { useEffect, useState, type FormEvent } from "react";
 import {
   api,
   messageOf,
+  type CriteriaFrequency,
   type Dimension,
   type Profile as ProfileData,
   type Readiness,
@@ -13,10 +14,27 @@ import { useAuth } from "../auth";
 import { Letterboxd } from "./import/Letterboxd";
 
 export function Profile() {
+  // One fetch for the whole screen: two sections read the same payload, and asking the
+  // server twice for it would let them disagree about what the account currently is.
+  const [profile, setProfile] = useState<ProfileData | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        setProfile(await api.profile());
+        setError(null);
+      } catch (caught) {
+        setError(messageOf(caught));
+      }
+    })();
+  }, []);
+
   return (
     <>
       <h1>Profile</h1>
-      <ReadinessSection />
+      <ReadinessSection profile={profile} error={error} />
+      <CriteriaSection frequency={profile?.criteria_frequency ?? null} />
       <Letterboxd />
       <AccountSection />
       <TmdbAttribution />
@@ -53,21 +71,13 @@ const DIMENSION_LABEL: Record<Dimension, string> = {
  *
  * Nothing here is rating-shaped, and nothing can become so: these are counts (ADR 0005).
  */
-function ReadinessSection() {
-  const [profile, setProfile] = useState<ProfileData | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    void (async () => {
-      try {
-        setProfile(await api.profile());
-        setError(null);
-      } catch (caught) {
-        setError(messageOf(caught));
-      }
-    })();
-  }, []);
-
+function ReadinessSection({
+  profile,
+  error,
+}: {
+  profile: ProfileData | null;
+  error: string | null;
+}) {
   return (
     <section className="section" aria-labelledby="readiness-heading">
       <h2 id="readiness-heading">Taste profile</h2>
@@ -92,6 +102,89 @@ function ReadinessSection() {
             {profile.evidence.explicit_comparisons === 1 ? "" : "s"} answered so far.
           </p>
         </>
+      )}
+    </section>
+  );
+}
+
+/**
+ * How often the bonus question appears, in the owner's terms rather than the engine's.
+ *
+ * The options say what the owner will experience, not what the server computes: "Adaptive"
+ * is described by what it does to them, and "Never" is spelled out as complete rather than
+ * quiet, because a control that turns out to have kept asking is worse than no control.
+ * The gaps behind each level are the engine's business and are deliberately not numbers
+ * here - a "once every 24 comparisons" label would be a promise about tuning.
+ */
+const FREQUENCY_OPTIONS: { value: CriteriaFrequency; label: string; hint: string }[] = [
+  {
+    value: "adaptive",
+    label: "Adaptive",
+    hint: "Asks more when you answer, and backs off when you don't.",
+  },
+  { value: "often", label: "Often", hint: "After most placements." },
+  { value: "sometimes", label: "Sometimes", hint: "Every few placements." },
+  { value: "rarely", label: "Rarely", hint: "Occasionally, and never twice in a row." },
+  { value: "off", label: "Never", hint: "No bonus questions at all, and none recorded." },
+];
+
+/**
+ * The criteria-question frequency control and its off switch.
+ *
+ * It saves on change rather than behind a Save button: there is one value, it is
+ * reversible, and a settings screen that needs confirming to turn something off is a
+ * settings screen people do not use. The choice moves optimistically so the radio never
+ * lags the tap, and falls back to what the server last confirmed if the write fails.
+ */
+function CriteriaSection({ frequency }: { frequency: CriteriaFrequency | null }) {
+  const [chosen, setChosen] = useState<CriteriaFrequency | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const current = chosen ?? frequency;
+
+  async function choose(value: CriteriaFrequency) {
+    const previous = current;
+    setChosen(value);
+    setError(null);
+    try {
+      await api.setCriteriaFrequency(value);
+    } catch (caught) {
+      setChosen(previous);
+      setError(messageOf(caught));
+    }
+  }
+
+  return (
+    <section className="section" aria-labelledby="criteria-heading">
+      <h2 id="criteria-heading">Bonus questions</h2>
+      <p className="muted">
+        After a placement Anchor sometimes asks one extra question about the films you just
+        compared - which had the better screenplay, say. Answering is always optional, and
+        the answers shape what Anchor recommends without ever moving your ordering.
+      </p>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {/* Nothing until the setting is known: a radio group rendered greyed out with no
+          option selected reads as a control that is broken rather than one still loading. */}
+      {current !== null && (
+        <fieldset className="choices">
+          <legend className="visually-hidden">How often to ask</legend>
+          {FREQUENCY_OPTIONS.map((option) => (
+            <label key={option.value} className="choice">
+              <input
+                type="radio"
+                name="criteria-frequency"
+                value={option.value}
+                checked={current === option.value}
+                onChange={() => void choose(option.value)}
+              />
+              <span className="choice-label">{option.label}</span>
+              <span className="muted">{option.hint}</span>
+            </label>
+          ))}
+        </fieldset>
       )}
     </section>
   );

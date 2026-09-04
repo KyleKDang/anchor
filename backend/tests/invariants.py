@@ -214,6 +214,44 @@ def _assert_tie_connected(slot: list[int], ties: list[tuple[int, int]]) -> None:
 # --- The comparison log ---
 
 
+async def quality_list(db: Database, account_id: uuid.UUID) -> list[str]:
+    """The account's quality list in list order: what the criteria rotation walks."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT name FROM quality_list_entries WHERE account_id = :id
+                ORDER BY position, created_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [row[0] for row in rows]
+
+
+async def criteria_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every criteria offer, oldest first, as (quality, film a, film b, verdict).
+
+    An offer reading ``skip`` is one the owner never engaged with - dismissed, or simply
+    left alone, which the spec requires be recorded identically.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT quality_list_entries.name, film_a_id, film_b_id, verdict
+                FROM comparison_log_entries
+                JOIN quality_list_entries ON quality_list_entries.id = quality_id
+                WHERE comparison_log_entries.account_id = :id
+                  AND comparison_log_entries.kind = 'criteria'
+                ORDER BY comparison_log_entries.created_at, comparison_log_entries.id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
 async def comparison_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
     """Every logged judgment, oldest first, as comparable tuples."""
     async with db.sessions() as session:
@@ -232,26 +270,53 @@ async def comparison_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any,
 
 
 STATUS_COLUMN = 7
-"""Where ``status`` sits in a :func:`comparison_log` tuple: the one mutable column."""
+"""Where ``status`` sits in a :func:`comparison_log` tuple: the always-mutable column."""
+
+VERDICT_COLUMN = 5
+"""Where ``verdict`` sits: mutable once, on one kind of row, and nowhere else."""
+
+# (kind, verdict) -> the verdicts that row is allowed to move to, ever.
+_ANSWERABLE = {("criteria", "skip"): {"a", "b", "tied"}}
+"""The log's one legal in-place change besides ``status``.
+
+A criteria offer is written when the card is shown, reading ``skip``, because the offer
+itself is the record the adaptive frequency counts and an ignored card must be recorded
+identically to a dismissed one. The owner's answer arrives afterwards or never, so it
+fills that row in rather than appending a second: one offer is one record. It happens at
+most once per row - answering again is refused - and no other field ever moves.
+"""
 
 
 def assert_appended_only(
     before: list[tuple[Any, ...]], after: list[tuple[Any, ...]], where: str = "the flow"
 ) -> None:
-    """The log only ever grows, and only ``status`` is ever rewritten (ADR 0010).
+    """The log only ever grows, and only two columns are ever rewritten (ADR 0010).
 
     Nothing before is deleted, and every row that already existed comes back saying
     exactly what it said. Status is the deliberate exception the data model names: it is
     how a judgment records that it later fell into tension or was settled against,
-    without erasing that the owner made it. What was *judged* is what may never change.
+    without erasing that the owner made it. The second exception is far narrower and
+    documented at :data:`_ANSWERABLE`: a criteria offer being answered, once. What was
+    *judged* is what may never change.
     """
     assert len(after) >= len(before), f"{where} deleted from the comparison log"
-    kept = [_but_status(row) for row in after[: len(before)]]
-    assert kept == [_but_status(row) for row in before], f"{where} rewrote the comparison log"
+    for was, now in zip(before, after[: len(before)], strict=True):
+        if _but_status(was) == _but_status(now):
+            continue
+        allowed = _ANSWERABLE.get((was[1], was[VERDICT_COLUMN]), set())
+        assert _but_answer(was) == _but_answer(now) and now[VERDICT_COLUMN] in allowed, (
+            f"{where} rewrote the comparison log: {was} became {now}"
+        )
 
 
 def _but_status(row: tuple[Any, ...]) -> tuple[Any, ...]:
     return row[:STATUS_COLUMN] + row[STATUS_COLUMN + 1 :]
+
+
+def _but_answer(row: tuple[Any, ...]) -> tuple[Any, ...]:
+    """The row with both mutable columns gone: everything that may never change."""
+    kept = _but_status(row)
+    return kept[:VERDICT_COLUMN] + kept[VERDICT_COLUMN + 1 :]
 
 
 # --- Drift ---

@@ -35,6 +35,22 @@ class WorkerProbe(Base):
     answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
+class CriteriaFrequency(enum.StrEnum):
+    """How often the owner wants the optional criteria bonus card after a placement.
+
+    ``adaptive`` is the default and one option among the manual ones: it reads the
+    owner's engagement with recent offers and moves the gap itself, which is what the
+    spec asks for. The manual levels are fixed gaps, and ``off`` is a complete switch -
+    no card is offered and no offer is recorded.
+    """
+
+    adaptive = "adaptive"
+    often = "often"
+    sometimes = "sometimes"
+    rarely = "rarely"
+    off = "off"
+
+
 class Account(Base):
     """A registered user of Anchor: credentials and email-verification state.
 
@@ -52,6 +68,13 @@ class Account(Base):
     verification_token_hash: Mapped[str | None] = mapped_column(String(64))
     verification_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     is_demo: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    criteria_frequency: Mapped[CriteriaFrequency] = mapped_column(
+        Enum(CriteriaFrequency, name="criteria_frequency"),
+        server_default=CriteriaFrequency.adaptive.value,
+        nullable=False,
+    )
+    """Anchor's one owner preference, so it sits on the account rather than in a settings
+    table of its own - a table would be one row per account forever, holding one enum."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -456,7 +479,12 @@ class ComparisonKind(enum.StrEnum):
 
 
 class ComparisonVerdict(enum.StrEnum):
-    """An overall comparison's four answers. ``skip`` records no judgment, on purpose."""
+    """A comparison's four answers. ``skip`` records no judgment, on purpose.
+
+    A criteria row is born ``skip`` - the offer was made and nothing has been said about
+    it yet - and stays that way if the owner dismisses the card or simply walks off,
+    which the spec requires be recorded identically.
+    """
 
     a = "a"
     b = "b"
@@ -503,6 +531,13 @@ class ComparisonLogEntry(Base):
             "(band IS NULL) <> (verdict IS NULL)",
             name="ck_comparison_log_entries_one_answer",
         ),
+        # A criteria row is a judgment *about a quality*, so it is meaningless without
+        # one; every other kind is a judgment about overall betterness, where naming a
+        # quality would claim the owner said something they did not.
+        CheckConstraint(
+            "(quality_id IS NOT NULL) = (kind = 'criteria')",
+            name="ck_comparison_log_entries_criteria_quality",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -527,6 +562,20 @@ class ComparisonLogEntry(Base):
     """How a comparison was answered. None on a band judgment, whose answer is ``band``."""
     band: Mapped[float | None] = mapped_column(Float)
     """The band a band judgment asserts. None on a comparison, whose answer is ``verdict``."""
+    quality_id: Mapped[uuid.UUID | None] = mapped_column(
+        # Deferred rather than RESTRICT, for the reason a placement's slot is: the guard
+        # wanted is "a quality is never dropped out from under a question that was asked
+        # about it", but account deletion cascades into both tables in whatever order it
+        # likes. Checking at commit refuses the bug and allows the deletion.
+        ForeignKey(
+            "quality_list_entries.id",
+            ondelete="NO ACTION",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        index=True,
+    )
+    """Which quality a criteria row asked about. None on every other kind."""
     context: Mapped[ComparisonContext] = mapped_column(
         Enum(ComparisonContext, name="comparison_context"), nullable=False
     )
@@ -706,6 +755,74 @@ class DriftEvidence(Base):
         ForeignKey("comparison_log_entries.id", ondelete="CASCADE"), nullable=False
     )
     attached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+BUILT_IN_QUALITIES: tuple[str, ...] = (
+    "Acting",
+    "Screenplay",
+    "Direction",
+    "Shots",
+    "Score",
+    "Message",
+    "Tension",
+    "Pacing",
+    "Emotional impact",
+    "Ending",
+    "Humor",
+    "Rewatchability",
+)
+"""The closed built-in vocabulary: six craft qualities, then six feel ones.
+
+It lives in code rather than in a table because it is account-independent and never
+changes at runtime - it is the key space that quality tags and seeded list entries
+reference (data-model.md). Craft and feel only: mood-framed qualities ("which would you
+rewatch tonight") are banned, and the timeless form is the admissible one.
+"""
+
+
+class QualityOrigin(enum.StrEnum):
+    """Where a list entry came from. Downstream, the two are treated identically."""
+
+    built_in = "built_in"
+    custom = "custom"
+    """An owner addition through the quality picker's free text (#35)."""
+
+
+class QualityListEntry(Base):
+    """One entry in the account's canonical quality list.
+
+    One list per account behind both the quality picker and criteria questions. The
+    built-in dozen is seeded at account creation and owner customs are added later; both
+    are askable and treated identically everywhere downstream. The origin exists only so
+    the shared, account-independent quality tags can join against built-in entries - a
+    custom quality is never tagged, so it reaches a criteria question only through the
+    rotation fallback.
+
+    The system never invents entries: everything here is either the built-in vocabulary
+    or something the owner typed.
+    """
+
+    __tablename__ = "quality_list_entries"
+    __table_args__ = (
+        # One list, so a name appears once on it: a second "Acting" would split the
+        # rotation and the picker between two entries that mean the same thing.
+        UniqueConstraint("account_id", "name", name="uq_quality_list_entries_account_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin: Mapped[QualityOrigin] = mapped_column(
+        Enum(QualityOrigin, name="quality_origin"), nullable=False
+    )
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Where the entry sits in the list, and so in the criteria rotation. Seeded entries
+    take the vocabulary's own order; a custom entry lands after everything present."""
+    created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 

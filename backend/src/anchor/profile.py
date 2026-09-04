@@ -22,6 +22,7 @@ from pydantic import BaseModel
 from anchor import readiness as readiness_module
 from anchor.accounts import CurrentAccount
 from anchor.deps import AppSettings, DbSession
+from anchor.models import CriteriaFrequency
 from anchor.readiness import Bar, Dimension, Readiness
 
 router = APIRouter(prefix="/api/profile")
@@ -65,6 +66,14 @@ class Profile(BaseModel):
     readiness: Readiness
     evidence: Evidence
     stages: list[Stage]
+    criteria_frequency: CriteriaFrequency
+    """How often the owner wants the bonus question after a placement, off included."""
+
+
+class CriteriaSetting(BaseModel):
+    """The owner's choice of how often to be asked."""
+
+    frequency: CriteriaFrequency
 
 
 @router.get("")
@@ -92,4 +101,20 @@ async def profile(account: CurrentAccount, db: DbSession, settings: AppSettings)
             )
             for reachable_state, state_bars in reachable.items()
         ],
+        criteria_frequency=account.criteria_frequency,
     )
+
+
+@router.put("/criteria")
+async def set_criteria_frequency(
+    body: CriteriaSetting, account: CurrentAccount, db: DbSession
+) -> CriteriaSetting:
+    """Set how often the bonus question is offered, ``off`` included.
+
+    A complete off switch, not a quieter setting: on ``off`` no card is offered and no
+    offer is recorded, so nothing accumulates in the log while it is off and turning it
+    back on does not surface a backlog of questions.
+    """
+    account.criteria_frequency = body.frequency
+    await db.commit()
+    return CriteriaSetting(frequency=account.criteria_frequency)

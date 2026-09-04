@@ -25,6 +25,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 
+from anchor import qualities
 from anchor.deps import AppMailer, AppSettings, DbSession
 from anchor.errors import ApiError
 from anchor.mail import verification_message
@@ -172,6 +173,10 @@ async def verify(
     account.verified_at = _now()
     account.verification_token_hash = None
     account.verification_sent_at = None
+    # The first rows the account is allowed to have. Until this moment it was inert and
+    # the account record was the only row it could own (data-model.md), so account
+    # creation - the point the quality list is spec'd to be seeded at - is here.
+    await qualities.seed(db, account.id)
     await _open_session(db, account, settings, response)
     return AccountOut.of(account)
 

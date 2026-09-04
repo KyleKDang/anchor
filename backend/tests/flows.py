@@ -233,6 +233,23 @@ async def profile(client):
     return response.json()
 
 
+# --- The criteria bonus card ---
+
+
+async def ask_criteria(client, frequency):
+    """Set how often the bonus question is offered, ``off`` included."""
+    response = await client.put("/api/profile/criteria", json={"frequency": frequency})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def answer_criteria(client, card, verdict, expect=204):
+    """Answer the bonus card. Not answering is the other half of the flow, and is nothing."""
+    response = await client.post(f"/api/criteria/{card['id']}", json={"verdict": verdict})
+    assert response.status_code == expect, response.text
+    return response.json() if expect not in (204,) else None
+
+
 async def backlog(client, **params):
     response = await client.get("/api/watchlist/backlog", params=params)
     assert response.status_code == 200, response.text

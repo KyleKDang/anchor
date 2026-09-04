@@ -6,6 +6,8 @@ import {
   api,
   messageOf,
   type BandQuestion,
+  type CriteriaCard,
+  type CriteriaVerdict,
   type FilmCard,
   type PlacementLanded,
   type PlacementQuestion,
@@ -359,6 +361,10 @@ function Landed({
         </p>
       )}
 
+      {/* Below the unlock, on the rare landing that carries both: one is news about what
+          the owner has just earned, the other is a favour being asked of them. */}
+      {landed.criteria && <CriteriaBonus card={landed.criteria} />}
+
       {error && (
         <p className="error" role="alert">
           {error}
@@ -379,6 +385,75 @@ function Landed({
         </button>
       </div>
     </>
+  );
+}
+
+/**
+ * The optional bonus question, sitting under the landing it came with.
+ *
+ * Everything about it is built to cost nothing. It is below the Done button rather than
+ * over it, so the owner has already finished before they meet it; it never blocks, never
+ * navigates, and dismissing it is a real, visible choice rather than a thing to hunt for.
+ * Walking away without touching it is recorded exactly as dismissing it, so the card
+ * simply disappears on an answer and says nothing congratulatory afterwards.
+ *
+ * The wording is a fixed template with the quality dropped in. Anchor never invents the
+ * question, and this component is the only place the template exists.
+ */
+function CriteriaBonus({ card }: { card: CriteriaCard }) {
+  const { busy, error, run } = useAsyncAction();
+  const [gone, setGone] = useState(false);
+  if (gone) return null;
+
+  const answer = (verdict: CriteriaVerdict) =>
+    void run(async () => {
+      await api.answerCriteria(card.id, verdict);
+      setGone(true);
+    });
+
+  return (
+    <section className="criteria" aria-labelledby="criteria-heading">
+      <p className="criteria-tag">One more, if you like</p>
+      <h2 id="criteria-heading">Which had the better {card.quality.toLowerCase()}?</h2>
+      <div className="criteria-films">
+        {[
+          { film: card.film_a, verdict: "a" as const },
+          { film: card.film_b, verdict: "b" as const },
+        ].map(({ film, verdict }) => (
+          <button
+            key={film.tmdb_id}
+            type="button"
+            className="criteria-film"
+            disabled={busy}
+            onClick={() => answer(verdict)}
+          >
+            <span className="criteria-film-body">
+              <Poster title={film.title} path={film.poster_path} size="w154" />
+              <span className="film-title">{film.title}</span>
+              <span className="muted">{releaseYear(film.year)}</span>
+            </span>
+          </button>
+        ))}
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="criteria-actions">
+        <button
+          type="button"
+          className="button secondary"
+          disabled={busy}
+          onClick={() => answer("tied")}
+        >
+          Tied
+        </button>
+        <button type="button" className="link-button" onClick={() => setGone(true)}>
+          No thanks
+        </button>
+      </div>
+    </section>
   );
 }
 

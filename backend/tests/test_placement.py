@@ -330,7 +330,11 @@ async def test_every_logged_judgment_carries_its_films_verdict_context_and_statu
     await build_ordering(owner, [FIRST])
     await place(owner, SECOND, "a")
 
-    [entry] = await comparison_log(db, await account_id(owner))
+    # The bonus criteria offer rides in the same log as a typed sibling (#34); this is
+    # about the comparison itself.
+    [entry] = [
+        row for row in await comparison_log(db, await account_id(owner)) if row[1] == "overall"
+    ]
     _id, kind, subject, film_a, film_b, verdict, context, status, created_at = entry
     assert (kind, subject, film_a, film_b) == (
         "overall",
