@@ -150,6 +150,18 @@ class FakeTmdb:
             query = _searchable(parse_qs(request.url.query.decode())["query"][0])
             matches = [film for film in self.catalog.values() if query in _searchable(film.title)]
             return httpx.Response(200, json={"page": 1, "results": [f.hit() for f in matches]})
+        if path in ("/movie/popular", "/movie/top_rated"):
+            # The two grids differ by what they rank on, and the fake keeps that apart:
+            # a test that could not tell them apart would not be testing the fallback.
+            ranked = sorted(
+                self.catalog.values(),
+                key=(
+                    (lambda film: -film.popularity)
+                    if path.endswith("popular")
+                    else (lambda film: -film.vote_average)
+                ),
+            )
+            return httpx.Response(200, json={"page": 1, "results": [f.hit() for f in ranked]})
         if path.startswith("/movie/"):
             film = self.catalog.get(int(path.removeprefix("/movie/")))
             if film is None:

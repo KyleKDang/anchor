@@ -13,6 +13,7 @@ fake boundary (testing.md).
 """
 
 import asyncio
+import enum
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
 from time import monotonic
@@ -76,8 +77,22 @@ class FilmBundle:
     vote_count: int
 
 
+class Browse(enum.StrEnum):
+    """The two grids TMDB offers as a list rather than an answer to a question.
+
+    They are the warmup's "need inspiration?" fallback and nothing more: popularity
+    grids bias hard toward blockbusters, so search stays the headline act and this is
+    what the owner reaches for when they cannot think of a film to name.
+    """
+
+    popular = "popular"
+    top_rated = "top_rated"
+
+
 class Tmdb(Protocol):
     async def search(self, query: str) -> list[SearchHit]: ...
+
+    async def browse(self, kind: Browse) -> list[SearchHit]: ...
 
     async def film(self, tmdb_id: int) -> FilmBundle: ...
 
@@ -129,6 +144,10 @@ class TmdbClient:
         payload = await self._get("/search/movie", {"query": query, "include_adult": "false"})
         return [_hit(result) for result in payload.get("results") or []]
 
+    async def browse(self, kind: Browse) -> list[SearchHit]:
+        payload = await self._get(f"/movie/{kind}", {})
+        return [_hit(result) for result in payload.get("results") or []]
+
     async def film(self, tmdb_id: int) -> FilmBundle:
         """The one bundled call: detail, credits, and keywords in a single request."""
         payload = await self._get(f"/movie/{tmdb_id}", {"append_to_response": APPENDED})
@@ -159,6 +178,9 @@ class UnconfiguredTmdb:
     """No TMDB credential: every call fails outright rather than half-working."""
 
     async def search(self, query: str) -> list[SearchHit]:
+        raise TmdbUnavailable(UNCONFIGURED)
+
+    async def browse(self, kind: Browse) -> list[SearchHit]:
         raise TmdbUnavailable(UNCONFIGURED)
 
     async def film(self, tmdb_id: int) -> FilmBundle:

@@ -129,6 +129,19 @@ class Settings(BaseSettings):
     letterboxd_rescue_rate_limit: int = 20
     """Per-row Letterboxd scrapes per IP per window; the rescue is never bulk."""
 
+    warmup_comparisons: int = 10
+    warmup_placements: int = 5
+    """How much evidence the warmup asks for, per path. Advisory targets, not gates.
+
+    Both are the spec's own indicative numbers and both are tuning knobs: the warmup is
+    skippable at every point, so these decide when it stops asking rather than when the
+    owner is allowed to leave. Five placements at a handful of comparisons each roughly
+    matches the import path's ten, which is why the two differ (onboarding-and-import.md).
+    """
+
+    warmup_candidates_per_band: int = 5
+    """Anchor candidates offered per band on the import path. A page is not a decision aid."""
+
     rate_limit_window_seconds: float = 15 * 60
     """The sliding window the per-IP limits below count within."""
 

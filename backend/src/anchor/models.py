@@ -1045,3 +1045,66 @@ class ImportRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class WarmupMark(enum.StrEnum):
+    """One thing the owner did with onboarding that leaves no other trace.
+
+    Everything else the warmup shows is derived - which bands have anchors, how many
+    comparisons are answered, what is in the backlog - so the only facts worth a row are
+    the ones whose whole content is "the owner moved past this and does not want asking
+    again". A skip is exactly that: it records no judgment (onboarding-and-import.md).
+    """
+
+    entered = "entered"
+    """The entry fork has been answered, whichever way. It is never asked twice."""
+    anchors = "anchors"
+    """Designation skipped: for one band with a ``band``, for the phase without one."""
+    evidence = "evidence"
+    """The evidence phase skipped, however few of its questions were answered."""
+    backlog = "backlog"
+    """The backlog phase skipped."""
+    dismissed = "dismissed"
+    """The whole warmup put away. The app was fully usable before this and after it."""
+
+
+class WarmupProgress(Base):
+    """One warmup mark, appended per account; absence is the unanswered state.
+
+    Deliberately not a per-account row with a column per step: a step gains meaning by
+    appearing, so an account that never opened the warmup owns no rows at all, and the
+    unverified-inert invariant holds without anything having to remember to skip it.
+    """
+
+    __tablename__ = "warmup_progress"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    mark: Mapped[WarmupMark] = mapped_column(Enum(WarmupMark, name="warmup_mark"), nullable=False)
+    band: Mapped[float | None] = mapped_column(Float)
+    """The band a skipped designation prompt was for; None for every other mark."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    __table_args__ = (
+        # Two partial indexes rather than one over both columns: in Postgres NULLs are
+        # distinct, so a plain unique constraint would let "entered" be marked twice.
+        Index(
+            "uq_warmup_progress_phase",
+            "account_id",
+            "mark",
+            unique=True,
+            postgresql_where=text("band IS NULL"),
+        ),
+        Index(
+            "uq_warmup_progress_band",
+            "account_id",
+            "mark",
+            "band",
+            unique=True,
+            postgresql_where=text("band IS NOT NULL"),
+        ),
+    )

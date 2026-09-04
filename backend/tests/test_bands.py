@@ -142,13 +142,27 @@ async def test_retiring_an_anchor_changes_no_rating_and_no_divider(owner, db):
     )
 
 
-async def test_designating_a_film_the_owner_has_not_rated_is_refused(owner):
+async def test_designating_a_watched_film_starts_the_placement_that_decides_it(owner):
+    """The fresh account's bootstrap: naming a band for a film nobody has placed yet."""
     await mark_watched(owner, LIBRARY[0], "later")
 
     response = await owner.post("/api/anchors/4.0", json={"tmdb_id": LIBRARY[0].tmdb_id})
 
+    assert response.status_code == 200, response.text
+    assert response.json()["outcome"] == "placement", "the comparisons decide, not the intent"
+
+
+async def test_designating_a_film_the_owner_has_not_watched_is_refused(owner):
+    """ "This is what a 4.0 is" is a claim only somebody who has seen the film can make."""
+    response = await owner.post(
+        f"/api/films/{LIBRARY[0].tmdb_id}/backlog", json={"tmdb_id": LIBRARY[0].tmdb_id}
+    )
+    assert response.status_code == 200, response.text
+
+    response = await owner.post("/api/anchors/4.0", json={"tmdb_id": LIBRARY[0].tmdb_id})
+
     assert response.status_code == 409, response.text
-    assert response.json()["error"]["code"] == "not_rated"
+    assert response.json()["error"]["code"] == "not_watched"
 
 
 async def test_a_value_that_is_not_a_half_star_band_is_refused(owner):

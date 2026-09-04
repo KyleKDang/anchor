@@ -22,6 +22,7 @@ from anchor import (
     rewatch,
     sentry,
     tmdb,
+    warmup,
     watchlist,
 )
 from anchor.db import Database
@@ -73,6 +74,7 @@ def create_app(
     app.include_router(profile.router)
     app.include_router(imports.router)
     app.include_router(watchlist.unlocks)
+    app.include_router(warmup.router)
     return app
 
 

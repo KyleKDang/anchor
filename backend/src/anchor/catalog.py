@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor.errors import ApiError
 from anchor.models import AccountFilm, Film, LifecycleState
-from anchor.tmdb import FilmBundle, FilmNotInTmdb, SearchHit, Tmdb, TmdbUnavailable
+from anchor.tmdb import Browse, FilmBundle, FilmNotInTmdb, SearchHit, Tmdb, TmdbUnavailable
 
 # --- Wire shapes ---
 
@@ -174,6 +174,12 @@ def _names(film: Film, role: str) -> list[str]:
 async def search(tmdb: Tmdb, query: str) -> list[SearchHit]:
     async with _translated_errors():
         return await tmdb.search(query)
+
+
+async def browse(tmdb: Tmdb, kind: Browse) -> list[SearchHit]:
+    """A grid of films to recognize rather than a query to answer."""
+    async with _translated_errors():
+        return await tmdb.browse(kind)
 
 
 async def ensure_film(db: AsyncSession, tmdb: Tmdb, tmdb_id: int, refresh_days: int) -> Film:
