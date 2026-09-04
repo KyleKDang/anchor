@@ -55,6 +55,10 @@ WIPED = (
     # Children before parents, though the two references that would care - a placement's
     # slot and a divider's judgment - are deferred to commit precisely so this wipe can
     # delete both halves in one transaction (data-model.md).
+    "tier_states",
+    # The tier goes with everything else, unlock dot included: the reset re-locks the
+    # ranked tier until evidence re-accumulates (watchlist.md), and an account that has
+    # already seen the dot would otherwise cross the bar a second time in silence.
     "exemplars",
     "weight_vectors",
     "taste_metrics",

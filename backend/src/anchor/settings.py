@@ -73,6 +73,38 @@ class Settings(BaseSettings):
     by provisional ones (so half the library must rest on real judgments).
     """
 
+    tier_swap_budget: int = 3
+    """Engine-initiated swaps one session-boundary refresh may make.
+
+    Damping is spec and the numbers are tuning (watchlist.md). Three is small enough that
+    a wholesale change of taste rolls in over several sessions rather than arriving as a
+    tier the owner does not recognise, and large enough that a real shift is visible the
+    next time they look. Vacancy refills and a newly backlogged film are not counted
+    against it - neither is churn.
+    """
+
+    tier_hysteresis: float = 0.05
+    """How far a challenger must beat an incumbent, as a share of the backlog's score spread.
+
+    Scores are a dot product against a per-account feature space, so their scale means
+    nothing between two accounts and an absolute margin would damp one library to a
+    standstill and another not at all. Measuring the margin against the spread of the
+    scores actually on offer is the one reading that behaves the same everywhere.
+    """
+
+    tier_enter_cooldown: int = 3
+    """Watches a film keeps a fresh seat for before the engine may drop it: no immediate drops."""
+
+    tier_reentry_cooldown: int = 5
+    """Watches a dropped film waits before it may return: no bounce-backs."""
+
+    tier_staleness_watches: int = 10
+    """Watches a tier film may be passed over before it rotates out.
+
+    watchlist.md's indicative number. Denominated in the watch clock like every other
+    measure here, so a dormant account never rotates anything.
+    """
+
     import_max_upload_bytes: int = 20 * 1024 * 1024
     """A real export is a few hundred kilobytes; this is generous, not a target."""
 

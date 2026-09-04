@@ -271,6 +271,7 @@ select {
 }
 
 .nav a {
+  position: relative;
   padding: 0.35rem 0.6rem;
   border-radius: var(--r-md);
   color: var(--muted);
@@ -290,6 +291,19 @@ select {
 .nav a.active {
   color: var(--text);
   background: color-mix(in srgb, var(--ink) 9%, transparent);
+}
+
+/* The one-time unlock dot: the only nav-level marker in the product, and the only place
+   outside a rating the amber is spent (surfacing.md). It is a dot and never a count -
+   there is nothing to be behind on, only something new to go and look at. */
+.dot {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.15rem;
+  width: 0.375rem;
+  height: 0.375rem;
+  border-radius: 50%;
+  background: var(--star);
 }
 
 .wordmark {
@@ -530,6 +544,7 @@ select {
 
 .anchor-badge,
 .provisional-mark,
+.pin-mark,
 .state-flag,
 .chip {
   display: inline-flex;
@@ -565,6 +580,15 @@ select {
   padding: 0.2rem 0.4rem;
   color: var(--muted);
   border: 1px dashed var(--border-strong);
+  font-weight: 500;
+}
+
+/* A pin is the owner overruling the engine, so it is marked as a fact about the row and
+   not as a rating: a surface tone, never the amber. */
+.pin-mark {
+  padding: 0.2rem 0.45rem;
+  color: var(--muted);
+  background: color-mix(in srgb, var(--ink) 6%, transparent);
   font-weight: 500;
 }
 
@@ -669,6 +693,17 @@ select {
   align-items: center;
   gap: var(--s2);
   margin: 0.15rem 0 0;
+  font-size: var(--text-sm);
+}
+
+/* The overrides, under the film they are about: quiet verbs on one line, so a row of
+   thirty reads as thirty films rather than as a hundred and twenty buttons. */
+.row-verbs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin: var(--s2) 0 0;
   font-size: var(--text-sm);
 }
 
@@ -1436,6 +1471,21 @@ select {
   display: block;
   block-size: 100%;
   background: var(--faint);
+}
+
+/* The pre-gate Watchlist's progress bar, which is the whole of what that screen says
+   about the unlock: no figures, no target, no countdown. The Profile screen is where the
+   arithmetic lives, and the line under this one links to it. */
+.unlock-bar {
+  display: block;
+  margin: var(--s3) 0;
+  max-width: 22rem;
+}
+
+/* The track is a span, and a span with nothing to stretch it in is nought pixels wide.
+   On Profile a grid column gives it its width; here the line it sits on has to. */
+.unlock-bar .bar-track {
+  display: block;
 }
 
 .bar-figures {

@@ -46,12 +46,12 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands, jobs
+from anchor import bands, jobs, tier
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.bands import Boundaries
 from anchor.catalog import FilmCard
-from anchor.deps import AppJobs, DbSession
+from anchor.deps import AppJobs, AppSettings, DbSession
 from anchor.errors import ApiError
 from anchor.models import (
     Account,
@@ -68,6 +68,7 @@ from anchor.models import (
     TieGroupSlot,
 )
 from anchor.ordering import Ordering
+from anchor.settings import Settings
 
 router = APIRouter(prefix="/api/placements")
 
@@ -270,6 +271,13 @@ class PlacementLanded(BaseModel):
     """Position-only and no anchor exists yet: the one line that explains the missing stars."""
     designated: bool
     """A designation-mismatch re-placement landed in its band and completed the intent."""
+    unlocked: bool
+    """This very landing crossed the readiness bar and unlocked the ranked tier.
+
+    One line, once ever, on the screen of the act that earned it (surfacing.md) - the
+    only other marker the unlock gets is the nav's one-time dot. Resuming a landed
+    placement never re-shows it: the bar was already crossed before that request began.
+    """
     neighbours: Neighbours
 
 
@@ -339,6 +347,7 @@ async def begin(
     account: CurrentAccount,
     db: DbSession,
     queue: AppJobs,
+    settings: AppSettings,
     seed: Seed = None,
     ballpark: Ballpark = None,
     ballpark_to: Ballpark = None,
@@ -354,12 +363,17 @@ async def begin(
     flow = await _flow(db, account, account_film)
     if flow.context is ComparisonContext.keep_comparing:
         return await _landed(db, account, account_film)
-    return await _advance(db, queue, account, flow, seed, (ballpark, ballpark_to))
+    return await _advance(db, queue, account, settings, flow, seed, (ballpark, ballpark_to))
 
 
 @router.post("/{tmdb_id}/answers")
 async def answer(
-    tmdb_id: int, body: Answer, account: CurrentAccount, db: DbSession, queue: AppJobs
+    tmdb_id: int,
+    body: Answer,
+    account: CurrentAccount,
+    db: DbSession,
+    queue: AppJobs,
+    settings: AppSettings,
 ) -> PlacementStep:
     """Record one comparison and ask the next question, or land the film."""
     account_film = await _placeable(db, account, tmdb_id)
@@ -367,18 +381,23 @@ async def answer(
     ordering = await ordering_module.load(db, account.id)
     reduced = ordering.without(tmdb_id)
     if flow.context is ComparisonContext.keep_comparing:
-        return await _extend(db, queue, account, flow, ordering, reduced, body)
+        return await _extend(db, queue, account, settings, flow, ordering, reduced, body)
 
     search = derive(tmdb_id, reduced, await _entries(db, account.id, flow))
     _check_answerable(reduced, search, body.opponent_tmdb_id)
     db.add(_comparison(account.id, flow, tmdb_id, body.opponent_tmdb_id, body.verdict))
     await db.flush()
-    return await _advance(db, queue, account, flow, body.seed, (None, None))
+    return await _advance(db, queue, account, settings, flow, body.seed, (None, None))
 
 
 @router.post("/{tmdb_id}/band")
 async def band_answer(
-    tmdb_id: int, body: BandAnswer, account: CurrentAccount, db: DbSession, queue: AppJobs
+    tmdb_id: int,
+    body: BandAnswer,
+    account: CurrentAccount,
+    db: DbSession,
+    queue: AppJobs,
+    settings: AppSettings,
 ) -> PlacementStep:
     """Record the band judgment that settles a landing sitting exactly on a divider."""
     account_film = await _placeable(db, account, tmdb_id)
@@ -425,12 +444,12 @@ async def band_answer(
         )
     )
     await db.flush()
-    return await _advance(db, queue, account, flow, body.seed, (None, None))
+    return await _advance(db, queue, account, settings, flow, body.seed, (None, None))
 
 
 @router.post("/{tmdb_id}/bail")
 async def bail(
-    tmdb_id: int, account: CurrentAccount, db: DbSession, queue: AppJobs
+    tmdb_id: int, account: CurrentAccount, db: DbSession, queue: AppJobs, settings: AppSettings
 ) -> PlacementStep:
     """Stop here: the band is locked, so land provisionally and let the rest settle later.
 
@@ -447,7 +466,7 @@ async def bail(
     lifted = _as_reduced(ordering, await bands.load(db, account.id), tmdb_id)
     if locked_band(lifted, search) is None:
         raise ApiError(409, "band_not_locked", "Answer until the rating settles, then stop.")
-    return await _advance(db, queue, account, flow, None, (None, None), bailing=True)
+    return await _advance(db, queue, account, settings, flow, None, (None, None), bailing=True)
 
 
 @router.post("/{tmdb_id}/keep-comparing")
@@ -488,6 +507,7 @@ async def _advance(
     db: AsyncSession,
     queue: procrastinate.App,
     account: Account,
+    settings: Settings,
     flow: Flow,
     seed: int | None,
     ballpark: tuple[float | None, float | None],
@@ -552,8 +572,12 @@ async def _advance(
     # the moment this film has a slot for it to be read against (onboarding-and-import.md).
     await _graduate(db, account.id, [tmdb_id, *_opponents(entries, tmdb_id)])
     await jobs.schedule_retrain(db, queue, account.id)
+    # Asked after the landing is flushed and answered once ever: this is the placement
+    # that crossed the bar only if the bar was still uncrossed when the request began.
+    await db.flush()
+    unlocked = await tier.note_unlock(db, account.id, settings)
     await db.commit()
-    return await _landed(db, account, flow.account_film, designated=designated)
+    return await _landed(db, account, flow.account_film, designated=designated, unlocked=unlocked)
 
 
 async def _seat(
@@ -650,6 +674,7 @@ async def _extend(
     db: AsyncSession,
     queue: procrastinate.App,
     account: Account,
+    settings: Settings,
     flow: Flow,
     ordering: Ordering,
     reduced: Ordering,
@@ -904,6 +929,7 @@ async def _landed(
     account_film: AccountFilm,
     *,
     designated: bool = False,
+    unlocked: bool = False,
 ) -> PlacementLanded:
     tmdb_id = account_film.film_id
     ordering = await ordering_module.load(db, account.id)
@@ -927,6 +953,7 @@ async def _landed(
         provisional=placement.trust is PlacementTrust.provisional,
         anchor_nudge=rating is None and not anchors,
         designated=designated,
+        unlocked=unlocked,
         neighbours=Neighbours(
             above=[cards[film_id] for film_id in above],
             tied_with=[cards[film_id] for film_id in tied],

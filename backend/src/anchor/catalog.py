@@ -138,6 +138,12 @@ class BacklogFilm(BaseModel):
     poster_path: str | None
     genres: list[str]
     added_at: datetime
+    vetoed: bool
+    """Barred from the ranked tier until lifted, and still every bit a backlog film.
+
+    Carried on the row because the row is where the owner would undo it: a vetoed film
+    that still offered to be vetoed would be the screen forgetting what it was told.
+    """
 
     @classmethod
     def of(cls, film: Film, account_film: AccountFilm) -> "BacklogFilm":
@@ -148,6 +154,7 @@ class BacklogFilm(BaseModel):
             poster_path=film.poster_path,
             genres=list(film.genres),
             added_at=account_film.added_at,
+            vetoed=account_film.vetoed_at is not None,
         )
 
 

@@ -99,6 +99,8 @@ export interface PlacementLanded {
   anchor_nudge: boolean;
   /** A designation-mismatch re-placement landed in its band and completed the intent. */
   designated: boolean;
+  /** This landing crossed the readiness bar: the one line announcing the ranked tier. */
+  unlocked: boolean;
   neighbours: Neighbours;
 }
 
@@ -249,6 +251,8 @@ export interface BacklogFilm {
   poster_path: string | null;
   genres: string[];
   added_at: string;
+  /** Barred from the ranked tier until lifted, and still every bit a backlog film. */
+  vetoed: boolean;
 }
 
 /** Every sort the backlog offers. There is deliberately no engine-score sort (ADR 0005). */
@@ -262,9 +266,44 @@ export interface BacklogFilters {
 
 export interface Backlog {
   films: BacklogFilm[];
-  /** Every genre and decade the whole backlog offers, so a filter never empties its own menu. */
+  /** Every genre and decade the listed backlog offers, so a filter never empties its own menu. */
   genres: string[];
   decades: number[];
+}
+
+/**
+ * A ranked-tier row.
+ *
+ * There is deliberately no score and no rank number: position is the whole of the
+ * engine's statement, and it is carried by the order of the list (ADR 0005).
+ */
+export interface TierFilm extends BacklogFilm {
+  /** The owner put this here, so the row offers to take it back rather than to pin it. */
+  pinned: boolean;
+}
+
+/** How close the account is to unlocking the tier. Ambient only: one line, one thin bar. */
+export interface TierProgress {
+  share: number;
+  thresholds: Threshold[];
+}
+
+/** The Watchlist's top half, and what stands in for it before the unlock. */
+export interface Tier {
+  readiness: Readiness;
+  unlocked: boolean;
+  /** Why there is no tier yet. Null once there is one. */
+  progress: TierProgress | null;
+  /** Strictly ordered: a real "watch these next" statement, pins first. */
+  up_next: TierFilm[];
+  /** The rest of the top thirty, loosely ordered. */
+  pool: TierFilm[];
+  vetoed: BacklogFilm[];
+}
+
+/** The nav's one-time dots. Reserved for the readiness unlocks, and nothing else ever. */
+export interface Unlocks {
+  watchlist: boolean;
 }
 
 /** Which of the export's five files a row came out of; the rest is discarded unread. */
@@ -423,7 +462,16 @@ export const api = {
     request<Designation>("POST", `/api/anchors/${band}`, { tmdb_id: tmdbId }),
   retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
   profile: () => request<Profile>("GET", "/api/profile"),
-  backlog: (filters: BacklogFilters = {}) => request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
+  backlog: (filters: BacklogFilters = {}) =>
+    request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
+  /** Reading the tier is what maintains it, and what clears the Watchlist's dot. */
+  tier: () => request<Tier>("GET", "/api/watchlist/tier"),
+  pin: (tmdbId: number) => request<void>("POST", `/api/watchlist/${tmdbId}/pin`),
+  unpin: (tmdbId: number) => request<void>("DELETE", `/api/watchlist/${tmdbId}/pin`),
+  veto: (tmdbId: number) => request<void>("POST", `/api/watchlist/${tmdbId}/veto`),
+  liftVeto: (tmdbId: number) => request<void>("DELETE", `/api/watchlist/${tmdbId}/veto`),
+  notNow: (tmdbId: number) => request<void>("POST", `/api/watchlist/${tmdbId}/not-now`),
+  unlocks: () => request<Unlocks>("GET", "/api/unlocks"),
 
   importState: () => request<ImportState>("GET", "/api/import"),
   importWarning: () => request<ImportWarning>("GET", "/api/import/warning"),
