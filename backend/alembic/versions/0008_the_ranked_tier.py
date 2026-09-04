@@ -52,7 +52,7 @@ def upgrade() -> None:
         sa.Column("refreshed_watch_clock", sa.Integer(), nullable=True),
         sa.Column("due", sa.Boolean(), server_default="false", nullable=False),
         sa.Column("unlock_state", UNLOCK_STATE, server_default="locked", nullable=False),
-        sa.UniqueConstraint("account_id"),
+        sa.UniqueConstraint("account_id", name="uq_tier_states_account_id"),
     )
     op.create_index("ix_tier_states_account_id", "tier_states", ["account_id"])
 

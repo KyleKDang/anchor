@@ -464,8 +464,13 @@ export const api = {
   profile: () => request<Profile>("GET", "/api/profile"),
   backlog: (filters: BacklogFilters = {}) =>
     request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
-  /** Reading the tier is what maintains it, and what clears the Watchlist's dot. */
-  tier: () => request<Tier>("GET", "/api/watchlist/tier"),
+  /**
+   * Reading the tier is what maintains it, and what clears the Watchlist's dot. Arriving
+   * at the screen is the session boundary the maintenance runs at; the screen reloading
+   * after the owner's own action is not one, and says so.
+   */
+  tier: ({ boundary = true }: { boundary?: boolean } = {}) =>
+    request<Tier>("GET", `/api/watchlist/tier${boundary ? "" : "?boundary=false"}`),
   pin: (tmdbId: number) => request<void>("POST", `/api/watchlist/${tmdbId}/pin`),
   unpin: (tmdbId: number) => request<void>("DELETE", `/api/watchlist/${tmdbId}/pin`),
   veto: (tmdbId: number) => request<void>("POST", `/api/watchlist/${tmdbId}/veto`),

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import {
@@ -46,27 +46,36 @@ export function Watchlist() {
   const [backlog, setBacklog] = useState<Backlog | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const load = useCallback(async () => {
-    try {
-      // The tier first: reading it is what maintains it, so the backlog below is then
-      // fetched against a list that has already settled and no film appears in both.
-      setTier(await api.tier());
-      setBacklog(
-        await api.backlog({
-          sort,
-          genre: genre === ANY ? null : genre,
-          decade: decade === ANY ? null : Number(decade),
-        }),
-      );
-      // Cleared on success too, or one transient failure pins the banner for the session.
-      setError(null);
-    } catch (caught) {
-      setError(messageOf(caught));
-    }
-  }, [sort, genre, decade]);
+  const load = useCallback(
+    async (boundary: boolean) => {
+      try {
+        // The tier first: reading it is what maintains it, so the backlog below is then
+        // fetched against a list that has already settled and no film appears in both.
+        setTier(await api.tier({ boundary }));
+        setBacklog(
+          await api.backlog({
+            sort,
+            genre: genre === ANY ? null : genre,
+            decade: decade === ANY ? null : Number(decade),
+          }),
+        );
+        // Cleared on success too, or one transient failure pins the banner for the session.
+        setError(null);
+      } catch (caught) {
+        setError(messageOf(caught));
+      }
+    },
+    [sort, genre, decade],
+  );
+  /** The screen after the owner's own action: what the action did, and nothing else. */
+  const reload = useCallback(() => load(false), [load]);
 
+  // Arriving is the session boundary the engine maintains the tier at. A re-read for a
+  // sort or a filter is the same session, so it cannot move the list under the cursor.
+  const arrived = useRef(false);
   useEffect(() => {
-    void load();
+    void load(!arrived.current);
+    arrived.current = true;
   }, [load]);
 
   return (
@@ -78,7 +87,7 @@ export function Watchlist() {
         </p>
       )}
       {tier !== null &&
-        (tier.unlocked ? <Ranked tier={tier} onChange={load} /> : <Locked tier={tier} />)}
+        (tier.unlocked ? <Ranked tier={tier} onChange={reload} /> : <Locked tier={tier} />)}
       {backlog !== null && (
         <section className="section" aria-labelledby="backlog-heading">
           <h2 id="backlog-heading">Backlog</h2>
@@ -144,7 +153,7 @@ export function Watchlist() {
                   key={film.tmdb_id}
                   film={film}
                   ranked={tier?.unlocked === true}
-                  onChange={load}
+                  onChange={reload}
                 />
               ))}
             </ul>
@@ -243,7 +252,7 @@ function Ranked({ tier, onChange }: { tier: Tier; onChange: () => void }) {
             <p className="muted">In order. Pin anything you want held at the top.</p>
             <ul className="film-list">
               {tier.up_next.map((film) => (
-                <Row key={film.tmdb_id} film={film} ranked onChange={onChange} />
+                <Row key={film.tmdb_id} film={film} ranked seated onChange={onChange} />
               ))}
             </ul>
           </>
@@ -258,7 +267,7 @@ function Ranked({ tier, onChange }: { tier: Tier; onChange: () => void }) {
           </p>
           <ul className="film-list">
             {tier.pool.map((film) => (
-              <Row key={film.tmdb_id} film={film} ranked onChange={onChange} />
+              <Row key={film.tmdb_id} film={film} ranked seated onChange={onChange} />
             ))}
           </ul>
         </section>
@@ -294,15 +303,17 @@ function Ranked({ tier, onChange }: { tier: Tier; onChange: () => void }) {
 function Row({
   film,
   ranked,
+  seated = false,
   onChange,
 }: {
   film: BacklogFilm | TierFilm;
   /** The tier exists, so this row can offer to manage the queue. */
   ranked: boolean;
+  /** This row holds a tier seat, so not-now has a seat to rotate out of. */
+  seated?: boolean;
   onChange: () => void;
 }) {
   const pinned = "pinned" in film && film.pinned;
-  const seated = "pinned" in film;
   return (
     <li className="film-row">
       <Identity film={film} pinned={pinned}>
@@ -370,8 +381,8 @@ function Identity({
           <span className="muted">
             {[releaseYear(film.year), film.genres.join(", ")].filter(Boolean).join(" · ")}
           </span>
-          {pinned && <span className="pin-mark">Pinned</span>}
-          {film.vetoed && <span className="pin-mark">Not from my queue</span>}
+          {pinned && <span className="state-flag">Pinned</span>}
+          {film.vetoed && <span className="state-flag">Not from my queue</span>}
         </p>
         {children}
       </div>

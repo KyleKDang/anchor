@@ -10,9 +10,11 @@ score. ADR 0005 bars anything rating-shaped on unwatched films, and a score-orde
 backlog would quietly become a second, undamped ranked tier. The sort parameter is a
 closed set, so asking for a score sort is refused rather than silently ignored.
 
-The two halves never show the same film twice: a film holding a tier seat is listed in
+The two halves never list the same film twice: a film holding a tier seat is listed in
 the tier and left out of the backlog below it, which is the same set the spec describes
-read as one screen rather than as two overlapping queries.
+read as one screen rather than as two overlapping queries. A vetoed film is a backlog
+film, and the tier's vetoed list is not a second listing of it but the place its undo
+lives, so the owner can review what they barred without hunting the backlog for it.
 
 Reading the tier is also the moment the tier is maintained, and the moment the one-time
 unlock dot is cleared. Both are deliberate: a session boundary is a moment rather than a
@@ -70,7 +72,7 @@ async def backlog(
     rows = await db.execute(
         select(Film, AccountFilm)
         .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
-        .where(_in_backlog(account.id), AccountFilm.tier_zone.is_(None), *_filters(genre, decade))
+        .where(_below_the_tier(account.id), *_filters(genre, decade))
         .order_by(*_ordering(sort))
     )
     films = [BacklogFilm.of(film, account_film) for film, account_film in rows]
@@ -83,6 +85,11 @@ async def backlog(
 
 def _in_backlog(account_id: uuid.UUID) -> ColumnElement[bool]:
     return and_(AccountFilm.account_id == account_id, AccountFilm.state == LifecycleState.backlog)
+
+
+def _below_the_tier(account_id: uuid.UUID) -> ColumnElement[bool]:
+    """The backlog as the screen lists it: every backlog film not holding a tier seat."""
+    return and_(_in_backlog(account_id), AccountFilm.tier_zone.is_(None))
 
 
 def _filters(genre: str | None, decade: int | None) -> list[ColumnElement[bool]]:
@@ -110,7 +117,7 @@ async def _available_genres(db: AsyncSession, account_id: uuid.UUID) -> list[str
     rows = await db.scalars(
         select(Film.genres)
         .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
-        .where(_in_backlog(account_id), AccountFilm.tier_zone.is_(None))
+        .where(_below_the_tier(account_id))
     )
     return sorted({genre for genres in rows for genre in genres})
 
@@ -119,11 +126,7 @@ async def _available_decades(db: AsyncSession, account_id: uuid.UUID) -> list[in
     rows = await db.scalars(
         select(Film.release_year)
         .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
-        .where(
-            _in_backlog(account_id),
-            AccountFilm.tier_zone.is_(None),
-            Film.release_year.is_not(None),
-        )
+        .where(_below_the_tier(account_id), Film.release_year.is_not(None))
     )
     return sorted({year - year % DECADE_SPAN for year in rows if year is not None}, reverse=True)
 
@@ -184,16 +187,25 @@ class Unlocks(BaseModel):
 
 
 @router.get("/tier")
-async def tier(account: CurrentAccount, db: DbSession, settings: AppSettings) -> Tier:
+async def tier(
+    account: CurrentAccount, db: DbSession, settings: AppSettings, boundary: bool = True
+) -> Tier:
     """The ranked tier as it now stands - which is also the moment it is maintained.
 
-    The maintenance is a no-op unless the fit or the watch clock has moved since the last
-    one, so re-reading this endpoint with a different sort, in a second tab, or after a
-    filter never spends another swap budget: what the owner is looking at only changes at
-    a boundary, never under their cursor (watchlist.md).
+    A session boundary is the owner arriving at the screen, and that is the only read
+    that maintains the tier. The screen reloading after the owner's own action - a watch,
+    a pin, a veto - says so with ``boundary=false``, and gets back what the action did and
+    nothing else: the engine's own swaps and rotations wait for the next arrival, so the
+    list the owner is acting on never moves under their cursor (watchlist.md). The one
+    exception is the first visit after the unlock, which is an arrival whatever the
+    client calls it - the dot it clears was pointing at a tier that has to be there.
+
+    The maintenance is also a no-op unless the fit or the watch clock has moved since the
+    last one, so an arrival in a second tab spends no second swap budget.
     """
     await tier_module.note_unlock(db, account.id, settings)
-    await tier_module.refresh(db, account.id, settings)
+    if boundary or await tier_module.pending_unlock(db, account.id):
+        await tier_module.refresh(db, account.id, settings)
     await tier_module.clear_unlock(db, account.id)
     await db.commit()
     return await _tier(db, account, settings)
@@ -323,7 +335,7 @@ async def _overridable(
     about where a film sits in the engine's list, and the honest answer before the unlock
     is that there is no list (onboarding-and-import.md).
     """
-    if await _readiness(db, account.id, settings) is not Readiness.ready:
+    if await readiness_module.state(db, account.id, settings) is not Readiness.ready:
         raise ApiError(409, "tier_locked", "Your ranked tier is not unlocked yet.")
     account_film = await db.scalar(
         select(AccountFilm).where(
@@ -333,7 +345,3 @@ async def _overridable(
     if account_film is None or account_film.state is not LifecycleState.backlog:
         raise ApiError(404, "not_in_backlog", "That film is not in your backlog.")
     return account_film
-
-
-async def _readiness(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Readiness:
-    return readiness_module.classify(await readiness_module.evidence(db, account_id), settings)

@@ -199,9 +199,14 @@ async def remove_from_backlog(client, film, expect=204):
 # --- The ranked tier ---
 
 
-async def tier(client):
-    """Read the Watchlist's top half - which is also what maintains it (watchlist.md)."""
-    response = await client.get("/api/watchlist/tier")
+async def tier(client, *, boundary=True):
+    """Read the Watchlist's top half - which is also what maintains it (watchlist.md).
+
+    ``boundary=False`` is the screen reloading after the owner's own action: the read
+    shows what the action did and leaves the engine's own maintenance to the next visit.
+    """
+    params = {} if boundary else {"boundary": "false"}
+    response = await client.get("/api/watchlist/tier", params=params)
     assert response.status_code == 200, response.text
     return response.json()
 
