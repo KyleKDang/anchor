@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from anchor import anchors as anchors_module
 from anchor import catalog
 from anchor import ordering as ordering_module
+from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmDetail, SearchResult
 from anchor.deps import AppSettings, AppTmdb, DbSession
@@ -29,7 +30,6 @@ from anchor.models import (
     LifecycleState,
     WatchEvent,
     WatchOrigin,
-    WatchStanding,
 )
 
 router = APIRouter(prefix="/api/films")
@@ -93,6 +93,11 @@ async def add_to_backlog(
             account_id=account.id, film_id=tmdb_id, state=LifecycleState.backlog
         )
         db.add(account_film)
+        await db.flush()
+        # The newly-backlogged exception (watchlist.md): a film the owner just added takes
+        # a seat the moment it scores in, rather than waiting behind the swap budget. The
+        # owner told the app something, and reacting to it is the point.
+        await tier_module.reconcile(db, account.id, settings, admit=tmdb_id)
         await db.commit()
     elif account_film.state is not LifecycleState.backlog:
         raise ApiError(409, "already_watched", "You have already watched this film.")
@@ -100,7 +105,9 @@ async def add_to_backlog(
 
 
 @router.delete("/{tmdb_id}/backlog", status_code=204)
-async def remove_from_backlog(tmdb_id: int, account: CurrentAccount, db: DbSession) -> None:
+async def remove_from_backlog(
+    tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings
+) -> None:
     """Take a film back out of the backlog, leaving it untracked - and so, no record."""
     account_film = await _account_film(db, account, tmdb_id)
     if account_film is None:
@@ -108,6 +115,8 @@ async def remove_from_backlog(tmdb_id: int, account: CurrentAccount, db: DbSessi
     if account_film.state is not LifecycleState.backlog:
         raise ApiError(409, "not_in_backlog", "That film is not in your backlog.")
     await db.execute(delete(AccountFilm).where(AccountFilm.id == account_film.id))
+    await db.flush()
+    await tier_module.reconcile(db, account.id, settings)
     await db.commit()
 
 
@@ -138,25 +147,30 @@ async def mark_watched(
     elif account_film.state is LifecycleState.rated:
         # Marking a rated film watched is the rewatch flow, which arrives with #30.
         raise ApiError(409, "already_rated", "You have already rated this film.")
+    # Read before the state moves: the standing stamp is capture-or-lose-forever, and
+    # a watched film's seat is cleared by the very next line of maintenance.
+    db.add(_watch_event(account, account_film))
     account_film.state = LifecycleState.watched_unrated
     account_film.rate_later = True
-    db.add(_watch_event(account, tmdb_id))
+    await db.flush()
+    # A seat the owner just emptied by watching what was in it: refilling it is not churn,
+    # so it happens now rather than at the next session boundary (watchlist.md).
+    await tier_module.reconcile(db, account.id, settings)
     await db.commit()
     return await _detail(db, account, film, account_film)
 
 
-def _watch_event(account: Account, tmdb_id: int) -> WatchEvent:
+def _watch_event(account: Account, account_film: AccountFilm) -> WatchEvent:
     """The watch, stamped with where the film stood and how it got there.
 
     Both stamps are capture-or-lose-forever (evaluation.md): tier membership churns and
-    keeps no history, so nothing could reconstruct them later. Everything is plain
-    backlog until the ranked tier exists (#33), and hand-added until discovery (#32) and
-    the seed import (#29) can put a film in the owner's world any other way.
+    keeps no history, so nothing could reconstruct them later. The origin is hand-added
+    until discovery can put a film in the owner's world another way.
     """
     return WatchEvent(
         account_id=account.id,
-        film_id=tmdb_id,
-        standing=WatchStanding.plain_backlog,
+        film_id=account_film.film_id,
+        standing=tier_module.standing(account_film),
         origin=WatchOrigin.hand_added,
     )
 

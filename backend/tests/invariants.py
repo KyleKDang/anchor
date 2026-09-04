@@ -466,6 +466,21 @@ async def watch_events(db: Database, account_id: uuid.UUID) -> list[tuple[Any, .
         return [tuple(row) for row in rows]
 
 
+async def watch_standings(db: Database, account_id: uuid.UUID) -> dict[int, str]:
+    """Where each watched film stood on the watchlist at the moment it was watched.
+
+    Capture-or-lose-forever (evaluation.md): tier membership keeps no history, so this is
+    the only record that a watch came out of the up-next zone rather than off the backlog,
+    and nothing could reconstruct it afterwards.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text("SELECT film_id, standing FROM watch_events WHERE account_id = :id"),
+            {"id": account_id},
+        )
+    return {film_id: str(standing) for film_id, standing in rows}
+
+
 async def last_synced_ratings(db: Database, account_id: uuid.UUID) -> dict[int, float]:
     """What Letterboxd holds per film, as far as Anchor knows: the sync list's baseline."""
     async with db.sessions() as session:

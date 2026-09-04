@@ -1,5 +1,7 @@
-import { Link, Navigate, NavLink, Outlet, Route, Routes } from "react-router";
+import { useEffect, useState } from "react";
+import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router";
 
+import { api } from "./api";
 import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
@@ -46,6 +48,7 @@ function DebugError(): never {
 
 /** The logged-in frame: the five destinations and the screen they open. */
 function Shell() {
+  const dots = useUnlockDots();
   return (
     <div className="app">
       <nav className="nav" aria-label="Main">
@@ -57,6 +60,12 @@ function Shell() {
         {destinations.map(({ path, label }) => (
           <NavLink key={path} to={path}>
             {label}
+            {dots.has(path) && (
+              <>
+                <span className="dot" aria-hidden="true" />
+                <span className="visually-hidden"> - new</span>
+              </>
+            )}
           </NavLink>
         ))}
       </nav>
@@ -65,4 +74,31 @@ function Shell() {
       </main>
     </div>
   );
+}
+
+/**
+ * The one-time unlock dots, and the only nav-level marker in the product.
+ *
+ * Reserved for the two readiness unlocks and cleared on the first visit, which happens
+ * server-side when the screen itself is read - so this only has to re-ask on every
+ * navigation and leave the dot off the destination the owner is standing on. Nothing
+ * else in Anchor ever gets one: no counts, no unread, no badge that grows.
+ */
+function useUnlockDots(): Set<string> {
+  const { pathname } = useLocation();
+  const [pending, setPending] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const unlocks = await api.unlocks();
+        setPending(new Set(unlocks.watchlist ? ["/watchlist"] : []));
+      } catch {
+        // A dot is the quietest thing on the screen; failing to fetch one is not worth
+        // a banner, and the next navigation asks again.
+      }
+    })();
+  }, [pathname]);
+
+  return new Set([...pending].filter((path) => path !== pathname));
 }

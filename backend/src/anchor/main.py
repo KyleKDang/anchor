@@ -66,6 +66,7 @@ def create_app(
     app.include_router(anchors.router)
     app.include_router(profile.router)
     app.include_router(imports.router)
+    app.include_router(watchlist.unlocks)
     return app
 
 

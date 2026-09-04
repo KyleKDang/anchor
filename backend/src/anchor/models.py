@@ -113,6 +113,31 @@ class LifecycleState(enum.StrEnum):
     rated = "rated"
 
 
+class TierZone(enum.StrEnum):
+    """Which half of the ranked tier a seat is in.
+
+    The up-next zone is a real "watch these next" statement, so its order is strict; the
+    pool is the rest of the top thirty and its order floats freely (watchlist.md).
+    """
+
+    up_next = "up_next"
+    pool = "pool"
+
+
+class UnlockState(enum.StrEnum):
+    """How far the Watchlist's one-time unlock dot has got.
+
+    The dot is the only nav-level marker in the whole product and it fires once ever
+    (surfacing.md), which is precisely the kind of fact that cannot be derived: readiness
+    is a pure function of the evidence and would light the dot again on every read.
+    """
+
+    locked = "locked"
+    pending = "pending"
+    """Ready has been reached and the owner has not been to the Watchlist since."""
+    seen = "seen"
+
+
 class AccountFilm(Base):
     """One (account, film) pair, holding that film's lifecycle state in that account."""
 
@@ -140,6 +165,79 @@ class AccountFilm(Base):
     """
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # --- Tier bookkeeping ---
+    #
+    # The ranked tier is persisted visible state hanging off backlog account-films, never
+    # derived at read time (data-model.md), so it lives here rather than in a table of its
+    # own: pin and veto apply to any backlog film whether or not it holds a seat, and the
+    # cooldown marks have to outlive the seat they were earned by.
+
+    tier_zone: Mapped[TierZone | None] = mapped_column(Enum(TierZone, name="tier_zone"))
+    """The seat this film holds, or None for a backlog film the tier does not hold."""
+    tier_position: Mapped[int | None] = mapped_column(Integer)
+    """Rank within the whole tier, best first; pins occupy the front of the up-next zone."""
+    tier_entered_watch: Mapped[int | None] = mapped_column(Integer)
+    """The watch clock when this seat was taken.
+
+    Two measures are read off it rather than counted alongside it. Staleness is the
+    watches this film survived without being picked - which is exactly the watches since
+    it sat down, because picking a tier film means watching it and a watched film is not
+    in the backlog at all. And the enter cooldown, the "no immediate drops" half of the
+    damping, is the same subtraction against a smaller number. A stored counter would be
+    a second copy of one fact, free to disagree with it.
+    """
+    tier_reentry_watch: Mapped[int | None] = mapped_column(Integer)
+    """The watch clock before which this film may not take a seat again: no bounce-backs.
+
+    Set when the engine drops a film or the owner says not-now, and deliberately not when
+    a veto pushes it out - lifting a veto is an owner action and answers immediately.
+    """
+    pinned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner pinned this film. Pins sit above the engine's picks in pin order."""
+    vetoed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner barred this film from the tier. Reversible, and never distaste."""
+
+
+class TierState(Base):
+    """The account-level half of the tier bookkeeping: what the last refresh saw.
+
+    There is no staged next tier (data-model.md). A session boundary is a moment rather
+    than a record, so what is stored is not a plan but the fingerprint of the inputs the
+    one persisted tier was last computed against - the fit it was scored with, and the
+    watch clock its cooldowns were measured against. A refresh whose fingerprint has not
+    moved has nothing to do, which is what keeps re-reading the screen from quietly
+    spending another swap budget under the owner's cursor.
+    """
+
+    __tablename__ = "tier_states"
+    __table_args__ = (UniqueConstraint("account_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    refreshed_trained_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """The fit the seated tier was scored with; None where it was scored without one."""
+    refreshed_watch_clock: Mapped[int | None] = mapped_column(Integer)
+    """The watch clock the last refresh ran at, and None until one ever has.
+
+    Nullable rather than zero-defaulted so that "never refreshed" is a state of its own.
+    A brand-new account has no fit and no watches, and a zero here would read as a tier
+    already up to date with exactly that - which is how an account can sit at *ready*
+    looking at an empty tier that nothing will ever fill.
+    """
+    due: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
+    """The next boundary has work to do that the fingerprint cannot see.
+
+    An override changes who is *eligible* without touching the fit or the clock: lifting
+    a veto puts a film back in the running, and unpinning hands a seat back to the engine.
+    The immediate half of both already happened; this is what makes the engine reconsider
+    the rest of the list at the next boundary rather than at the next request.
+    """
+    unlock_state: Mapped[UnlockState] = mapped_column(
+        Enum(UnlockState, name="unlock_state"), server_default="locked", nullable=False
     )
 
 

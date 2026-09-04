@@ -191,6 +191,67 @@ async def add_to_backlog(client, film):
     return response.json()
 
 
+async def remove_from_backlog(client, film, expect=204):
+    response = await client.delete(f"/api/films/{film.tmdb_id}/backlog")
+    assert response.status_code == expect, response.text
+
+
+# --- The ranked tier ---
+
+
+async def tier(client):
+    """Read the Watchlist's top half - which is also what maintains it (watchlist.md)."""
+    response = await client.get("/api/watchlist/tier")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def pin(client, film, expect=204):
+    response = await client.post(f"/api/watchlist/{film.tmdb_id}/pin")
+    assert response.status_code == expect, response.text
+
+
+async def unpin(client, film, expect=204):
+    response = await client.delete(f"/api/watchlist/{film.tmdb_id}/pin")
+    assert response.status_code == expect, response.text
+
+
+async def veto(client, film, expect=204):
+    response = await client.post(f"/api/watchlist/{film.tmdb_id}/veto")
+    assert response.status_code == expect, response.text
+
+
+async def lift_veto(client, film, expect=204):
+    response = await client.delete(f"/api/watchlist/{film.tmdb_id}/veto")
+    assert response.status_code == expect, response.text
+
+
+async def not_now(client, film, expect=204):
+    response = await client.post(f"/api/watchlist/{film.tmdb_id}/not-now")
+    assert response.status_code == expect, response.text
+
+
+async def unlocks(client):
+    response = await client.get("/api/unlocks")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def log_watches(client, films):
+    """Advance the watch clock without touching the backlog: the only clock the tier reads.
+
+    Every cooldown and staleness measure is denominated in this, so a test that wants
+    time to pass logs watches - there is no calendar clock anywhere to freeze (testing.md).
+    """
+    for film in films:
+        await mark_watched(client, film, "later")
+
+
+def tier_ids(payload):
+    """Every seated film, up-next zone first: the tier read as one ordered list."""
+    return [film["tmdb_id"] for film in payload["up_next"] + payload["pool"]]
+
+
 def stage_of(payload, state):
     """One readiness state's row on the Profile screen, with its bars."""
     return next(stage for stage in payload["stages"] if stage["state"] == state)

@@ -345,8 +345,22 @@ def _curvature(design: Design) -> float:
 
     The largest eigenvalue of the weighted design, which is what sets the largest step
     the fit can take without overshooting.
+
+    Two starts, because one is not safe. The all-ones vector reads every film as the sum
+    of its feature values, so a library whose films all carry the same *number* of
+    symbols - every difference falling on one column - hands the iteration a vector the
+    design annihilates, and it would report a curvature of zero for data that has plenty.
+    A step sized off that zero is the whole of 1/l2, which is a thousand times too far
+    and leaves the fit at nothing at all. The second start is deterministic, so a retrain
+    is still reproducible; only a design that really is empty reaches zero.
     """
-    vector = np.ones(design.width)
+    for start in (np.ones(design.width), np.random.default_rng(0).normal(size=design.width)):
+        if (found := _power_iterate(design, start)) > 0.0:
+            return found
+    return 0.0
+
+
+def _power_iterate(design: Design, vector: np.ndarray) -> float:
     for _ in range(POWER_ITERATIONS):
         vector = design.apply_transposed(design.weight * design.apply(vector))
         norm = float(np.linalg.norm(vector))

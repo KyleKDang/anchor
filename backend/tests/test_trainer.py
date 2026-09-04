@@ -14,6 +14,7 @@ import tracemalloc
 import uuid
 from itertools import combinations
 
+import library as library_module
 from anchor import features, trainer
 from anchor.ordering import Ordering, Slot
 from library import library, taste
@@ -240,6 +241,32 @@ def test_held_out_accuracy_clearly_beats_chance_on_a_synthetic_taste():
 
     accuracy = trainer.accuracy(weights, trainer.design(held_out, space, rows))
     assert accuracy is not None and accuracy > 0.72, accuracy
+
+
+def test_a_library_separated_by_one_feature_still_learns_it():
+    """The step size is read off the data, and the reading has to survive a plain library.
+
+    Every film here is alike but for its genre, which is exactly the shape that defeats a
+    curvature probe started from the all-ones vector: each film sums to the same value, so
+    every pair difference reads as zero and the fit is handed a step a thousand times too
+    long. The signal could hardly be simpler - westerns above horrors, every time - and a
+    scorer that cannot recover it is not a scorer.
+    """
+    plain = [library_film(9000 + index, "Western" if index < 3 else "Horror") for index in range(6)]
+    rows = {film.tmdb_id: film for film in plain}
+    line = ordering(*([film.tmdb_id] for film in plain))
+
+    space = features.learn(plain)
+    weights = trainer.fit(trainer.design(trainer.extract(line, seed=1), space, rows))
+
+    assert trainer.score(weights, space, rows[9000]) > trainer.score(weights, space, rows[9005])
+
+
+def library_film(tmdb_id, genre):
+    """One film of a library alike in everything but genre, and flat in both priors."""
+    return library_module.film(
+        tmdb_id, genres=(genre,), directors=("D",), cast=("A", "B"), keywords=("k",)
+    )
 
 
 def test_a_taste_with_no_signal_in_it_lands_near_chance():

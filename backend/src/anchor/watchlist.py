@@ -1,12 +1,23 @@
-"""The Watchlist screen's backlog half: the unwatched films the owner has added.
+"""The Watchlist screen: the engine's ranked tier, and the backlog it is drawn from.
 
-The ranked tier sits above this and arrives with #33; before taste-profile readiness
-the screen is honestly just the backlog, so that is all this serves.
+One screen, two tiers. Below taste-profile readiness *ready* there is only the backlog,
+honestly unranked, with an explainer and an ambient line saying how far off the unlock
+is: a fake popularity-ranked tier would teach the owner on day one that the tier's
+opinion is worthless (onboarding-and-import.md).
 
-Its sorts are recently-added, title, and year - and deliberately not engine score.
-ADR 0005 bars anything rating-shaped on unwatched films, and a score-ordered backlog
-would quietly become a second, undamped ranked tier. The sort parameter is a closed
-set, so asking for a score sort is refused rather than silently ignored.
+The backlog's sorts are recently-added, title, and year - and deliberately not engine
+score. ADR 0005 bars anything rating-shaped on unwatched films, and a score-ordered
+backlog would quietly become a second, undamped ranked tier. The sort parameter is a
+closed set, so asking for a score sort is refused rather than silently ignored.
+
+The two halves never show the same film twice: a film holding a tier seat is listed in
+the tier and left out of the backlog below it, which is the same set the spec describes
+read as one screen rather than as two overlapping queries.
+
+Reading the tier is also the moment the tier is maintained, and the moment the one-time
+unlock dot is cleared. Both are deliberate: a session boundary is a moment rather than a
+record (data-model.md), and the maintenance a read triggers is gated on the fingerprint
+of its own inputs, so the list a second read returns is the list the first one did.
 """
 
 import uuid
@@ -14,16 +25,25 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import ColumnElement, and_, select
+from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.elements import UnaryExpression
 
+from anchor import readiness as readiness_module
+from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import BacklogFilm
-from anchor.deps import DbSession
-from anchor.models import AccountFilm, Film, LifecycleState
+from anchor.deps import AppSettings, DbSession
+from anchor.errors import ApiError
+from anchor.models import Account, AccountFilm, Film, LifecycleState, TierZone
+from anchor.profile import Threshold
+from anchor.readiness import Readiness
+from anchor.settings import Settings
 
 router = APIRouter(prefix="/api/watchlist")
+unlocks = APIRouter(prefix="/api/unlocks")
+"""The nav's own read. Separate because the dot has to show from any screen, and because
+surfacing.md has exactly two of them - Discovery's arrives with its own ticket."""
 
 BacklogSort = Literal["added", "title", "year"]
 """Every sort the backlog offers. "score" is absent on purpose (ADR 0005)."""
@@ -50,7 +70,7 @@ async def backlog(
     rows = await db.execute(
         select(Film, AccountFilm)
         .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
-        .where(_in_backlog(account.id), *_filters(genre, decade))
+        .where(_in_backlog(account.id), AccountFilm.tier_zone.is_(None), *_filters(genre, decade))
         .order_by(*_ordering(sort))
     )
     films = [BacklogFilm.of(film, account_film) for film, account_film in rows]
@@ -90,7 +110,7 @@ async def _available_genres(db: AsyncSession, account_id: uuid.UUID) -> list[str
     rows = await db.scalars(
         select(Film.genres)
         .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
-        .where(_in_backlog(account_id))
+        .where(_in_backlog(account_id), AccountFilm.tier_zone.is_(None))
     )
     return sorted({genre for genres in rows for genre in genres})
 
@@ -99,6 +119,221 @@ async def _available_decades(db: AsyncSession, account_id: uuid.UUID) -> list[in
     rows = await db.scalars(
         select(Film.release_year)
         .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
-        .where(_in_backlog(account_id), Film.release_year.is_not(None))
+        .where(
+            _in_backlog(account_id),
+            AccountFilm.tier_zone.is_(None),
+            Film.release_year.is_not(None),
+        )
     )
     return sorted({year - year % DECADE_SPAN for year in rows if year is not None}, reverse=True)
+
+
+# --- The ranked tier ---
+
+
+class TierFilm(BacklogFilm):
+    """A tier row. Unwatched like every backlog row, so nothing rating-shaped exists.
+
+    Position is the whole of the engine's statement and it is carried by the order of the
+    list, not by a number on the row: a rank printed beside a film is one short step from
+    a score printed beside it, and ADR 0005 rules out the second.
+    """
+
+    pinned: bool
+    """The owner put this here, so the row offers to take it back rather than to pin it."""
+
+    @classmethod
+    def seated(cls, film: Film, account_film: AccountFilm) -> "TierFilm":
+        return cls(
+            **BacklogFilm.of(film, account_film).model_dump(),
+            pinned=account_film.pinned_at is not None,
+        )
+
+
+class Progress(BaseModel):
+    """How close the account is to unlocking the tier: one line and one subtle bar.
+
+    Ambient only, and the loudness ceiling for the pre-gate screen (surfacing.md). The
+    thresholds are the engine's own bars, so the screen cannot promise a number the
+    engine is not gating on; ``share`` is those bars averaged, which is the bar to draw.
+    """
+
+    share: float
+    thresholds: list[Threshold]
+
+
+class Tier(BaseModel):
+    """The Watchlist screen's top half, and what stands in for it before the unlock."""
+
+    readiness: Readiness
+    unlocked: bool
+    """The tier exists. Below ready both lists are empty and ``progress`` says why."""
+    progress: Progress | None
+    up_next: list[TierFilm]
+    """Strictly ordered: a real "watch these next" statement, pins first."""
+    pool: list[TierFilm]
+    """The rest of the top thirty, loosely ordered - the order floats freely."""
+    vetoed: list[BacklogFilm]
+    """Barred from the tier until lifted, and never presented as distaste."""
+
+
+class Unlocks(BaseModel):
+    """The nav's dots. One per readiness unlock, and nothing else ever gets one."""
+
+    watchlist: bool
+
+
+@router.get("/tier")
+async def tier(account: CurrentAccount, db: DbSession, settings: AppSettings) -> Tier:
+    """The ranked tier as it now stands - which is also the moment it is maintained.
+
+    The maintenance is a no-op unless the fit or the watch clock has moved since the last
+    one, so re-reading this endpoint with a different sort, in a second tab, or after a
+    filter never spends another swap budget: what the owner is looking at only changes at
+    a boundary, never under their cursor (watchlist.md).
+    """
+    await tier_module.note_unlock(db, account.id, settings)
+    await tier_module.refresh(db, account.id, settings)
+    await tier_module.clear_unlock(db, account.id)
+    await db.commit()
+    return await _tier(db, account, settings)
+
+
+@router.post("/{tmdb_id}/pin", status_code=204)
+async def pin(tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings) -> None:
+    """Hold this film at the top until it is watched, unpinned, or dropped from the backlog."""
+    account_film = await _overridable(db, account, tmdb_id, settings)
+    if account_film.pinned_at is None and await _pins(db, account.id) >= tier_module.UP_NEXT:
+        raise ApiError(409, "pin_cap", f"You can pin at most {tier_module.UP_NEXT} films.")
+    await tier_module.pin(db, account_film, settings)
+    await db.commit()
+
+
+@router.delete("/{tmdb_id}/pin", status_code=204)
+async def unpin(
+    tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings
+) -> None:
+    """Give the seat back to the engine, which may keep the film in it on its own merits."""
+    await tier_module.unpin(db, await _overridable(db, account, tmdb_id, settings), settings)
+    await db.commit()
+
+
+@router.post("/{tmdb_id}/veto", status_code=204)
+async def veto(tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings) -> None:
+    """Keep this out of the queue. Not distaste: the film keeps its place in the backlog."""
+    await tier_module.veto(db, await _overridable(db, account, tmdb_id, settings), settings)
+    await db.commit()
+
+
+@router.delete("/{tmdb_id}/veto", status_code=204)
+async def lift(tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings) -> None:
+    """Put it back in the running, at exactly the standing it would have had."""
+    await tier_module.lift(db, await _overridable(db, account, tmdb_id, settings), settings)
+    await db.commit()
+
+
+@router.post("/{tmdb_id}/not-now", status_code=204)
+async def not_now(
+    tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings
+) -> None:
+    """Rotate it out for a while. The mood-level version of a veto, and just as reversible."""
+    await tier_module.not_now(db, await _overridable(db, account, tmdb_id, settings), settings)
+    await db.commit()
+
+
+@unlocks.get("")
+async def unlock_dots(account: CurrentAccount, db: DbSession, settings: AppSettings) -> Unlocks:
+    """Whether the nav is showing a dot. Read from every screen, so it arms the dot too."""
+    await tier_module.note_unlock(db, account.id, settings)
+    await db.commit()
+    return Unlocks(watchlist=await tier_module.pending_unlock(db, account.id))
+
+
+# --- Reading the tier ---
+
+
+async def _tier(db: AsyncSession, account: Account, settings: Settings) -> Tier:
+    """The persisted tier, read back verbatim: nothing here decides anything."""
+    counted = await readiness_module.evidence(db, account.id)
+    state = readiness_module.classify(counted, settings)
+    if state is not Readiness.ready:
+        return Tier(
+            readiness=state,
+            unlocked=False,
+            progress=_progress(counted, settings),
+            up_next=[],
+            pool=[],
+            vetoed=[],
+        )
+    rows = list(
+        await db.execute(
+            select(Film, AccountFilm)
+            .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
+            .where(_in_backlog(account.id), AccountFilm.tier_zone.is_not(None))
+            .order_by(AccountFilm.tier_position)
+        )
+    )
+    return Tier(
+        readiness=state,
+        unlocked=True,
+        progress=None,
+        up_next=[TierFilm.seated(*row) for row in rows if row[1].tier_zone is TierZone.up_next],
+        pool=[TierFilm.seated(*row) for row in rows if row[1].tier_zone is TierZone.pool],
+        vetoed=await _vetoed(db, account.id),
+    )
+
+
+def _progress(evidence: readiness_module.Evidence, settings: Settings) -> Progress:
+    """How far along the unlock is. The ready bars, and their average as one number."""
+    bars = readiness_module.bars(evidence, settings)[Readiness.ready]
+    shares = [min(bar.have / bar.need, 1.0) if bar.need else 1.0 for bar in bars]
+    return Progress(
+        share=sum(shares) / len(shares) if shares else 0.0,
+        thresholds=[Threshold.of(bar) for bar in bars],
+    )
+
+
+async def _vetoed(db: AsyncSession, account_id: uuid.UUID) -> list[BacklogFilm]:
+    """The vetoed list behind the screen's overflow: reviewable, and liftable one by one."""
+    rows = await db.execute(
+        select(Film, AccountFilm)
+        .join(AccountFilm, AccountFilm.film_id == Film.tmdb_id)
+        .where(_in_backlog(account_id), AccountFilm.vetoed_at.is_not(None))
+        .order_by(AccountFilm.vetoed_at.desc(), Film.title)
+    )
+    return [BacklogFilm.of(film, account_film) for film, account_film in rows]
+
+
+async def _pins(db: AsyncSession, account_id: uuid.UUID) -> int:
+    return (
+        await db.scalar(
+            select(func.count())
+            .select_from(AccountFilm)
+            .where(_in_backlog(account_id), AccountFilm.pinned_at.is_not(None))
+        )
+    ) or 0
+
+
+async def _overridable(
+    db: AsyncSession, account: Account, tmdb_id: int, settings: Settings
+) -> AccountFilm:
+    """The backlog film an override is about, refused where the tier does not exist yet.
+
+    Below ready there is no queue to manage: pin, veto, and not-now are all statements
+    about where a film sits in the engine's list, and the honest answer before the unlock
+    is that there is no list (onboarding-and-import.md).
+    """
+    if await _readiness(db, account.id, settings) is not Readiness.ready:
+        raise ApiError(409, "tier_locked", "Your ranked tier is not unlocked yet.")
+    account_film = await db.scalar(
+        select(AccountFilm).where(
+            AccountFilm.account_id == account.id, AccountFilm.film_id == tmdb_id
+        )
+    )
+    if account_film is None or account_film.state is not LifecycleState.backlog:
+        raise ApiError(404, "not_in_backlog", "That film is not in your backlog.")
+    return account_film
+
+
+async def _readiness(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Readiness:
+    return readiness_module.classify(await readiness_module.evidence(db, account_id), settings)

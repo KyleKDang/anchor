@@ -343,6 +343,16 @@ function Landed({
 
       {landed.anchor_nudge && <AnchorNudge film={landed.film} />}
 
+      {/* The one line the ranked-tier unlock gets, on the screen of the act that earned
+          it. It appears once ever and is never repeated: the other half of the moment is
+          the nav's one-time dot, and there is no third mention anywhere. */}
+      {landed.unlocked && (
+        <p className="nudge">
+          That was enough to go on. Your <Link to="/watchlist">watchlist</Link> is ranked from
+          here: Anchor puts what you are most likely to love next at the top.
+        </p>
+      )}
+
       {error && (
         <p className="error" role="alert">
           {error}
