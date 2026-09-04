@@ -628,7 +628,7 @@ async def _advance(
             search,
             _seed(account.id, tmdb_id, seed),
             await _ballpark_opponent(db, account.id, ballpark, flow),
-            await drift.benched(db, account.id) - {tmdb_id},
+            await drift.benched(db, account.id),
         )
     ) is not None:
         await db.commit()
@@ -1202,9 +1202,11 @@ async def _ballpark_opponent(
 async def _current_neighbour(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> int | None:
     """The film sitting where this one sits, read against the ordering without it.
 
-    Only for a re-placement, and only as an opening question. Every other flow has a
-    better first move: a placement has the ballpark or the midpoint, and a re-placement
-    driven by drift has the evidence, which says far more than "start where it is".
+    Only for a re-placement, and only ever as a preference for the first question: a
+    first placement has the ballpark or the midpoint, and there is no "where it is" to
+    start from anyway. It is offered to every re-placement rather than only the rewatch's
+    - where drift evidence has already narrowed the search, the preference simply falls
+    outside the live range and is ignored, which is the right answer without a special case.
     """
     if flow.context is not ComparisonContext.re_placement:
         return None
