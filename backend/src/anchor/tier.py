@@ -300,6 +300,12 @@ def _displace(
     not cost anybody their seat, or the tier would churn on noise the owner cannot see the
     cause of. The loop stops at the first challenger that fails the margin, since the
     challengers are sorted and no later one can pass it either.
+
+    The test is on the *difference*, never ``incumbent + margin``: the margin is a share
+    of the backlog's spread, and a difference of two scores can never round above the
+    spread they both sit inside, whereas ``low + (high - low)`` can round below ``high``
+    by an ulp. A margin as wide as the spread then means what it says - nothing moves -
+    instead of depending on the last bit of a fit that differs between machines.
     """
     swaps = 0
     while challengers and swaps < budget:
@@ -308,7 +314,7 @@ def _displace(
             return
         incumbent = min(droppable, key=lambda one: (one.score, -one.film_id))
         challenger = challengers[0]
-        if challenger.score <= incumbent.score + margin:
+        if challenger.score - incumbent.score <= margin:
             return
         held.remove(incumbent)
         _unseat(incumbent, reentry=clock + settings.tier_reentry_cooldown)
