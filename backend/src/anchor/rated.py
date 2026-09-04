@@ -22,7 +22,7 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands
+from anchor import bands, drift
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
@@ -60,6 +60,8 @@ class RatedFilm(BaseModel):
     """This film is the canonical exemplar of its band."""
     provisional: bool
     """The ambient settling marker: trusted less until its evidence catches up."""
+    flagged: bool
+    """An open drift flag the owner can see: this position is doubted and being asked about."""
 
 
 class BandGroup(BaseModel):
@@ -84,6 +86,13 @@ class Rated(BaseModel):
     """Every value the whole rated set offers, so a filter never empties its own menu."""
     anchor_nudge: bool
     """No anchor exists yet: the one line explaining where the half-stars have gone."""
+    needs_attention: list[FilmCard]
+    """The compact strip at the top: every film carrying a flag the owner can see.
+
+    Listed whole rather than counted, and never filtered, because it is what the screen
+    is *for* when it is not empty - and it stays a strip on one screen rather than
+    becoming a notification anywhere else (ADR 0011).
+    """
     rate_later: list[FilmCard]
     """Watched-unrated films seated in the queue, awaiting an optional placement."""
 
@@ -97,6 +106,7 @@ async def rated(
     band_max: Annotated[float | None, Query(ge=0.5, le=5.0)] = None,
     genre: Annotated[str | None, Query(max_length=100)] = None,
     decade: Annotated[int | None, Query(ge=1000, le=9990)] = None,
+    flagged: bool = False,
 ) -> Rated:
     ordering = await ordering_module.load(db, account.id)
     boundaries = await bands.load(db, account.id)
@@ -104,9 +114,15 @@ async def rated(
     anchors = await anchors_module.current(db, account.id)
     films = await _films(db, ordering.all_film_ids())
     provisional = await _provisional(db, account.id)
+    # Only surfaced flags: a quiet one is a suspicion the engine is still checking, and
+    # putting it on a filter menu would be the loud phase arriving through a side door.
+    surfaced = set(await drift.surfaced(db, account.id))
 
     rows = [
-        (index, _row(film_id, index, films[film_id], derived[film_id], anchors, provisional))
+        (
+            index,
+            _row(film_id, index, films[film_id], derived[film_id], anchors, provisional, surfaced),
+        )
         for index, slot in enumerate(ordering.slots)
         for film_id in slot.film_ids
         if film_id in films
@@ -114,7 +130,7 @@ async def rated(
     kept = [
         row
         for row in rows
-        if _passes(row[1], films[row[1].tmdb_id], band_min, band_max, genre, decade)
+        if _passes(row[1], films[row[1].tmdb_id], band_min, band_max, genre, decade, flagged)
     ]
 
     seated = await _rate_later_queue(db, account.id)
@@ -133,6 +149,7 @@ async def rated(
             reverse=True,
         ),
         anchor_nudge=not anchors,
+        needs_attention=_queue(await ordering_module.cards(db, list(surfaced)), list(surfaced)),
         rate_later=_queue(await ordering_module.cards(db, seated), seated),
     )
 
@@ -148,6 +165,7 @@ def _row(
     band: float | None,
     anchors: dict[float, int],
     provisional: set[int],
+    surfaced: set[int],
 ) -> RatedFilm:
     return RatedFilm(
         tmdb_id=film_id,
@@ -159,6 +177,7 @@ def _row(
         band=band,
         anchor=band is not None and anchors.get(band) == film_id,
         provisional=film_id in provisional,
+        flagged=film_id in surfaced,
     )
 
 
@@ -174,8 +193,11 @@ def _passes(
     band_max: float | None,
     genre: str | None,
     decade: int | None,
+    flagged: bool,
 ) -> bool:
     """A band filter excludes films with no band: they have none to fall in the range."""
+    if flagged and not film.flagged:
+        return False
     if band_min is not None or band_max is not None:
         if film.band is None:
             return False

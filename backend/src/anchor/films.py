@@ -16,12 +16,13 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import catalog
+from anchor import catalog, drift, rewatch
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmDetail, SearchResult
 from anchor.deps import AppSettings, AppTmdb, DbSession
+from anchor.drift import DriftFlagView
 from anchor.errors import ApiError
 from anchor.models import (
     Account,
@@ -31,6 +32,7 @@ from anchor.models import (
     WatchEvent,
     WatchOrigin,
 )
+from anchor.rewatch import RewatchPrompt
 
 router = APIRouter(prefix="/api/films")
 
@@ -41,10 +43,29 @@ class SearchResults(BaseModel):
     results: list[SearchResult]
 
 
-class MarkWatched(BaseModel):
-    """Logging a watch is always a choice between rating it now and rating it later."""
+class FilmPage(FilmDetail):
+    """The film page: a film's standing, plus the two things only a rated film carries.
 
-    rate: Literal["now", "later"]
+    Both are absent on every other film, and null on a rated one with nothing pending,
+    which is why they live here rather than on the shared detail: an unwatched film has
+    no drift to have and no rewatch to answer, and ADR 0005 wants that said by absence.
+    """
+
+    drift: DriftFlagView | None = None
+    """The open drift flag and its resolution options, where the owner has one to see."""
+    rewatch: RewatchPrompt | None = None
+    """The still-feel-the-same question the last rewatch left open."""
+
+
+class MarkWatched(BaseModel):
+    """Logging a watch is always a choice between rating it now and rating it later.
+
+    Except on a film that is already rated, where there is nothing to rate later and the
+    same button means a rewatch: the answer is the still-feel-the-same question instead,
+    so the field is left off rather than given a meaning it does not have there.
+    """
+
+    rate: Literal["now", "later"] | None = None
 
 
 # `/search` is declared before `/{tmdb_id}`: FastAPI matches routes in order, and the
@@ -76,7 +97,7 @@ async def search(
 @router.get("/{tmdb_id}")
 async def film_page(
     tmdb_id: int, account: CurrentAccount, db: DbSession, tmdb: AppTmdb, settings: AppSettings
-) -> FilmDetail:
+) -> FilmPage:
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
     return await _detail(db, account, film, await _account_film(db, account, tmdb_id))
 
@@ -84,7 +105,7 @@ async def film_page(
 @router.post("/{tmdb_id}/backlog")
 async def add_to_backlog(
     tmdb_id: int, account: CurrentAccount, db: DbSession, tmdb: AppTmdb, settings: AppSettings
-) -> FilmDetail:
+) -> FilmPage:
     """Put an untracked film in the backlog; adding one already there changes nothing."""
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
     account_film = await _account_film(db, account, tmdb_id)
@@ -128,10 +149,14 @@ async def mark_watched(
     db: DbSession,
     tmdb: AppTmdb,
     settings: AppSettings,
-) -> FilmDetail:
+) -> FilmPage:
     """Log a watch, and take the owner's answer to rate now or rate later.
 
-    Either answer makes the film watched-unrated, appends a watch event, and seats the
+    On a film already rated this is the rewatch instead, and nothing below applies: the
+    film keeps its state, its slot, and its rating, because watching something twice is
+    not a judgment about it.
+
+    Otherwise: either answer makes the film watched-unrated, appends a watch event, and seats the
     film in the rate-later queue. The seat is not the "later" branch's doing: it is the
     resting state of any watched-unrated film, and taking it here is what makes walking
     away safe at every point without the client having to signal that it happened.
@@ -139,14 +164,17 @@ async def mark_watched(
     """
     film = await catalog.ensure_film(db, tmdb, tmdb_id, settings.film_refresh_days)
     account_film = await _account_film(db, account, tmdb_id)
+    if account_film is not None and account_film.state is LifecycleState.rated:
+        # Marking a rated film watched is the rewatch flow: the film stays rated, the
+        # watch is appended, and the owner is offered one light question about it.
+        await rewatch.log(db, account.id, account_film)
+        await db.commit()
+        return await _detail(db, account, film, account_film)
     if account_film is None:
         account_film = AccountFilm(
             account_id=account.id, film_id=tmdb_id, state=LifecycleState.watched_unrated
         )
         db.add(account_film)
-    elif account_film.state is LifecycleState.rated:
-        # Marking a rated film watched is the rewatch flow, which arrives with #30.
-        raise ApiError(409, "already_rated", "You have already rated this film.")
     # Read before the state moves: the standing stamp is capture-or-lose-forever, and
     # a watched film's seat is cleared by the very next line of maintenance.
     db.add(_watch_event(account, account_film))
@@ -194,7 +222,7 @@ async def leave_rate_later(tmdb_id: int, account: CurrentAccount, db: DbSession)
 
 async def _detail(
     db: AsyncSession, account: Account, film: Film, account_film: AccountFilm | None
-) -> FilmDetail:
+) -> FilmPage:
     """The film page, with the band its position derives into where it has one.
 
     Nothing rating-shaped is computed for an unwatched film (ADR 0005): the derivation
@@ -202,12 +230,15 @@ async def _detail(
     everything else - including a rated film whose bracketing dividers are unpinned.
     """
     if account_film is None or account_film.state is not LifecycleState.rated:
-        return FilmDetail.of(film, account_film)
+        return FilmPage.of(film, account_film)
     band = (await ordering_module.derived_bands(db, account.id)).get(film.tmdb_id)
     anchors = await anchors_module.current(db, account.id)
-    return FilmDetail.of(
+    page = FilmPage.of(
         film, account_film, band, anchor=band is not None and anchors.get(band) == film.tmdb_id
     )
+    page.drift = await drift.view(db, account.id, film.tmdb_id)
+    page.rewatch = await rewatch.prompt(db, account.id, film.tmdb_id)
+    return page
 
 
 async def _account_film(db: AsyncSession, account: Account, tmdb_id: int) -> AccountFilm | None:

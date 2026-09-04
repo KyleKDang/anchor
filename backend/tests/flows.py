@@ -41,11 +41,26 @@ async def begin(client, film, seed=1, **params):
 
 
 async def answer(client, film, opponent_tmdb_id, verdict, seed=1):
+    """Answer the question about this film and one opponent, as the flow showed the pair."""
+    return await answer_pair(client, film, film.tmdb_id, opponent_tmdb_id, verdict, seed)
+
+
+async def answer_pair(client, film, a_tmdb_id, b_tmdb_id, verdict, seed=1, expect=200):
+    """Answer whatever pair the step showed, which is not always about ``film``.
+
+    A quiet drift check rides in the placement of another film and is about two others
+    entirely, so the answer echoes back the pair rather than naming an opponent.
+    """
     response = await client.post(
         f"/api/placements/{film.tmdb_id}/answers",
-        json={"opponent_tmdb_id": opponent_tmdb_id, "verdict": verdict, "seed": seed},
+        json={
+            "a_tmdb_id": a_tmdb_id,
+            "b_tmdb_id": b_tmdb_id,
+            "verdict": verdict,
+            "seed": seed,
+        },
     )
-    assert response.status_code == 200, response.text
+    assert response.status_code == expect, response.text
     return response.json()
 
 
@@ -95,7 +110,9 @@ async def place(client, film, verdict, seed=1, band=None, **params):
             continue
         assert_no_rating_keys(step, "a mid-flow question")
         asked += 1
-        step = await answer(client, film, step["b"]["tmdb_id"], verdict, seed)
+        step = await answer_pair(
+            client, film, step["a"]["tmdb_id"], step["b"]["tmdb_id"], verdict, seed
+        )
     return step, asked
 
 
@@ -156,6 +173,43 @@ async def anchored(client, band, film):
     """Place a film and make it a band's exemplar, which is the fresh-account bootstrap."""
     await place(client, film, "b")
     return await designate(client, band, film)
+
+
+# --- Drift ---
+
+
+async def re_place(client, film, expect=204):
+    """Resolve a drift flag by choosing to re-place: "my opinion changed"."""
+    response = await client.post(f"/api/drift/{film.tmdb_id}/re-place")
+    assert response.status_code == expect, response.text
+
+
+async def keep_position(client, film, opponents=None, expect=204):
+    """Resolve by keeping the position, with the per-opponent follow-up answered."""
+    response = await client.post(
+        f"/api/drift/{film.tmdb_id}/keep", json={"opponents": opponents or []}
+    )
+    assert response.status_code == expect, response.text
+
+
+async def flag_of(client, film):
+    """The open drift flag on a film's page, or None where the owner has none to see."""
+    return (await film_page(client, film))["drift"]
+
+
+# --- Rewatches ---
+
+
+async def log_rewatch(client, film, expect=200):
+    """Mark an already-rated film watched, which is the rewatch flow."""
+    response = await client.post(f"/api/films/{film.tmdb_id}/watched", json={})
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+async def answer_rewatch(client, film, answer, expect=204):
+    response = await client.post(f"/api/rewatches/{film.tmdb_id}", json={"answer": answer})
+    assert response.status_code == expect, response.text
 
 
 # --- Reading the screens ---

@@ -559,6 +559,18 @@ class WatchOrigin(enum.StrEnum):
     import_seeded = "import_seeded"
 
 
+class RewatchOutcome(enum.StrEnum):
+    """The still-feel-the-same answer: the three the data model names.
+
+    Offered once, at the rewatch moment, and never chased: "skipped" is a first-class
+    answer rather than a missing one, because the question is an offer (rating-system.md).
+    """
+
+    confirmed = "confirmed"
+    re_placed = "re_placed"
+    skipped = "skipped"
+
+
 class WatchEvent(Base):
     """One timestamped watch, appended per account; history, not truth about watched-ness.
 
@@ -587,6 +599,115 @@ class WatchEvent(Base):
     )
     rewatch: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     """The owner had seen this film before. Imported diary rows carry Letterboxd's flag."""
+    rewatch_outcome: Mapped[RewatchOutcome | None] = mapped_column(
+        Enum(RewatchOutcome, name="rewatch_outcome")
+    )
+    """How the still-feel-the-same question was answered, on a rewatch that asked it.
+
+    None means the question is still open, which is what the film page reads to know it
+    has one to ask. An imported diary rewatch is never asked, so it is None forever -
+    the offer belongs to the moment, and the moment is long past.
+    """
+
+
+class DriftStage(enum.StrEnum):
+    """How loud a flag is allowed to be. Escalation stops here: no auto-move, ever."""
+
+    quiet = "quiet"
+    """Thin evidence: the app may slip a targeted drift check into a comparison moment."""
+    surfaced = "surfaced"
+    """The owner sees it, and the film is benched as an opponent - a doubted ruler is bent."""
+
+
+class DriftOutcome(enum.StrEnum):
+    """What closed a flag. ``self_resolved`` is the one nobody chose."""
+
+    re_placed = "re_placed"
+    kept = "kept"
+    re_pointed = "re_pointed"
+    """The owner said the opponent is the misplaced one, so the tension moved to it."""
+    self_resolved = "self_resolved"
+    """The evidence stopped contradicting on its own, so the flag had nothing left to stand on."""
+
+
+class DriftFlag(Base):
+    """The per-film aggregation of in-tension judgments: drift, tracked where it lands.
+
+    Drift is a condition of a *film*, not of a judgment, which is why this is a row of
+    its own rather than a status on the log: several judgments can implicate one film,
+    and the owner resolves the film once rather than each judgment separately.
+
+    A flag never moves anything (ADR 0001). It escalates from quiet to surfaced, benches
+    the film as an opponent, and offers the owner three choices - and that is the whole
+    of its power. Closed flags are kept: the outcome is the record of what the owner
+    decided, and the judgments themselves keep their own statuses in the log.
+    """
+
+    __tablename__ = "drift_flags"
+    __table_args__ = (
+        # At most one open flag per film. A second one could only ever say the same
+        # thing, and the owner would have to resolve the same doubt twice.
+        Index(
+            "uq_drift_flags_open_film",
+            "account_id",
+            "account_film_id",
+            unique=True,
+            postgresql_where=text("closed_at IS NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    account_film_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("account_films.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    stage: Mapped[DriftStage] = mapped_column(Enum(DriftStage, name="drift_stage"), nullable=False)
+    re_placing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner chose re-place, which is what makes the placement flow a re-placement.
+
+    The placement search deliberately keeps no state of its own, so the one thing it
+    cannot re-derive from the log is which flow the owner thinks they are in. This is
+    that, and nothing more: it is cleared when the re-placement lands.
+    """
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    outcome: Mapped[DriftOutcome | None] = mapped_column(Enum(DriftOutcome, name="drift_outcome"))
+    """Set exactly when ``closed_at`` is; an open flag has no outcome yet."""
+
+
+class DriftEvidence(Base):
+    """Which in-tension judgment hangs on which open flag.
+
+    The pointer exists because a contradiction implicates *two* films and the flag sits
+    on one of them - so "the in-tension judgments touching this film" is not the same
+    set as "this flag's evidence", and re-pointing at the opponent moves a judgment from
+    one flag to the other without changing the judgment at all.
+
+    Rows live only as long as the flag is open: closing it drops them, because what
+    became of each judgment is recorded where it belongs, on the judgment's own status
+    in the append-only log. Nothing auditable is lost, and ``entry_id`` stays unique.
+    """
+
+    __tablename__ = "drift_evidence"
+    __table_args__ = (UniqueConstraint("entry_id", name="uq_drift_evidence_entry_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    flag_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("drift_flags.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    entry_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("comparison_log_entries.id", ondelete="CASCADE"), nullable=False
+    )
+    attached_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 class WeightVector(Base):

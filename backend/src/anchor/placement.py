@@ -46,7 +46,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands, jobs, tier
+from anchor import bands, drift, jobs, rewatch, tier
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
 from anchor.bands import Boundaries
@@ -176,7 +176,11 @@ def _as_reduced(ordering: Ordering, boundaries: Boundaries, film_id: int) -> Bou
 
 
 def choose_opponent(
-    ordering: Ordering, search: Search, seed: int, prefer: int | None = None
+    ordering: Ordering,
+    search: Search,
+    seed: int,
+    prefer: int | None = None,
+    benched: frozenset[int] = frozenset(),
 ) -> int | None:
     """The advisory pick: which film to ask about next, or None when none is left.
 
@@ -185,9 +189,15 @@ def choose_opponent(
     slot below, and between the members of one tie-group. A skipped film drops out, which
     is how Skip swaps in another opponent. ``prefer`` is the ballpark guess's whole
     effect: it jumps the queue for one question and constrains nothing.
+
+    ``benched`` films drop out too, and for a different reason: a film with a surfaced
+    drift flag has a position nobody currently believes, and measuring against a bent
+    ruler produces a reading worth less than no reading. A range with nothing left to
+    ask about lands provisionally, which is the honest result rather than a bad one.
     """
     rng = random.Random(seed)
-    if prefer is not None and prefer not in search.skipped:
+    unavailable = search.skipped | benched
+    if prefer is not None and prefer not in unavailable:
         index = ordering.index_of(prefer)
         if index is not None and search.lo <= index < search.hi:
             return prefer
@@ -196,11 +206,39 @@ def choose_opponent(
     )
     for index in ranked:
         members = [
-            film_id for film_id in ordering.slots[index].film_ids if film_id not in search.skipped
+            film_id for film_id in ordering.slots[index].film_ids if film_id not in unavailable
         ]
         if members:
             return rng.choice(members)
     return None
+
+
+def consistent_core(
+    subject: int,
+    ordering: Ordering,
+    seeds: list[ComparisonLogEntry],
+    answers: list[ComparisonLogEntry],
+) -> list[ComparisonLogEntry]:
+    """The head start a re-placement gets: as much of the old evidence as still hangs together.
+
+    The in-tension judgments are why the owner is re-placing at all, so they are already
+    answered questions and the search resumes from what they imply. But evidence that
+    contradicts the ordering can contradict itself too - a film cannot be both above and
+    below the same one - and the spec's answer is that only the consistent core seeds the
+    search, with fresh questions breaking the rest.
+
+    Newest wins, because the newest judgment is the most current taste: seeds are offered
+    youngest first and each is kept only while the bounds still hold. ``answers`` - what
+    the owner has said inside this very re-placement - are never dropped, which is what
+    makes a fresh question able to break a disagreement rather than merely join it.
+    """
+    kept = list(answers)
+    for entry in reversed(seeds):
+        trial = [entry, *kept]
+        bounds = derive(subject, ordering, trial)
+        if bounds.lo <= bounds.hi:
+            kept = trial
+    return kept
 
 
 # --- Wire shapes ---
@@ -291,11 +329,25 @@ Ballpark = Annotated[float | None, Query(ge=0.5, le=5.0)]
 
 
 class Answer(BaseModel):
-    """One judgment. ``a`` means the film being placed won; ``b`` means the opponent did."""
+    """One judgment about the pair the question showed, echoed back as it was shown.
 
-    opponent_tmdb_id: int
+    Both films are named rather than only the opponent, because not every question in
+    this flow is about the film being placed: a quiet drift check rides in the same
+    shape, about two other films entirely, and the owner must not be able to tell. The
+    answer therefore says which pair it settled instead of leaving the server to assume.
+    """
+
+    a_tmdb_id: int
+    b_tmdb_id: int
     verdict: ComparisonVerdict
     seed: int | None = None
+
+    def opponent(self, subject: int) -> int:
+        """The other film, where this answer is about the one being placed."""
+        return self.b_tmdb_id if self.a_tmdb_id == subject else self.a_tmdb_id
+
+    def about(self, subject: int) -> bool:
+        return subject in (self.a_tmdb_id, self.b_tmdb_id)
 
 
 class BandAnswer(BaseModel):
@@ -335,7 +387,33 @@ async def _flow(db: AsyncSession, account: Account, account_film: AccountFilm) -
     held = await anchors_module.intent(db, account.id)
     if held is not None and held.account_film_id == account_film.id:
         return Flow(account_film, ComparisonContext.re_placement, held.designated_at)
+    started = await _re_placement_started(db, account.id, account_film)
+    if started is not None:
+        return Flow(account_film, ComparisonContext.re_placement, started)
     return Flow(account_film, ComparisonContext.keep_comparing, None)
+
+
+async def _re_placement_started(
+    db: AsyncSession, account_id: uuid.UUID, account_film: AccountFilm
+) -> datetime | None:
+    """When a re-placement the owner asked for began, from either door into one.
+
+    Two doors: resolving a drift flag, and changing your mind at a rewatch. Both are the
+    owner saying "this is in the wrong place" outside any flow, which is the one thing
+    the search cannot re-derive from its own answers - so each door leaves a mark, and
+    this reads whichever one is current.
+    """
+    return max(
+        (
+            moment
+            for moment in (
+                await drift.replacing_since(db, account_id, account_film.film_id),
+                await rewatch.replacing_since(db, account_id, account_film),
+            )
+            if moment is not None
+        ),
+        default=None,
+    )
 
 
 # --- The flow ---
@@ -378,14 +456,17 @@ async def answer(
     """Record one comparison and ask the next question, or land the film."""
     account_film = await _placeable(db, account, tmdb_id)
     flow = await _flow(db, account, account_film)
+    if not body.about(tmdb_id):
+        return await _drift_answer(db, queue, account, flow, body)
     ordering = await ordering_module.load(db, account.id)
     reduced = ordering.without(tmdb_id)
     if flow.context is ComparisonContext.keep_comparing:
         return await _extend(db, queue, account, settings, flow, ordering, reduced, body)
 
+    opponent = body.opponent(tmdb_id)
     search = derive(tmdb_id, reduced, await _entries(db, account.id, flow))
-    _check_answerable(reduced, search, body.opponent_tmdb_id)
-    db.add(_comparison(account.id, flow, tmdb_id, body.opponent_tmdb_id, body.verdict))
+    _check_answerable(reduced, search, opponent)
+    db.add(_comparison(account.id, flow, body.a_tmdb_id, body.b_tmdb_id, body.verdict))
     await db.flush()
     return await _advance(db, queue, account, settings, flow, body.seed, (None, None))
 
@@ -538,12 +619,16 @@ async def _advance(
         landing = Landing(index, tie_slot, PlacementProvenance.completed)
     elif search.settled or bailing:
         landing = _landing(search, bailing=bailing)
+    elif (check := await _drift_check(db, account.id, flow, search, boundaries)) is not None:
+        await db.commit()
+        return check
     elif (
         opponent := choose_opponent(
             reduced,
             search,
             _seed(account.id, tmdb_id, seed),
-            await _ballpark_opponent(db, account.id, ballpark),
+            await _ballpark_opponent(db, account.id, ballpark, flow),
+            await drift.benched(db, account.id) - {tmdb_id},
         )
     ) is not None:
         await db.commit()
@@ -567,6 +652,15 @@ async def _advance(
 
     await _seat(db, account, flow, ordering, landing, judgment)
     designated = await _settle(db, account, flow)
+    if flow.context is ComparisonContext.re_placement:
+        # The owner has just answered their way to a position, so every judgment about
+        # this film is re-read against it: the ones it settled against are superseded
+        # rather than left in tension, and the flag that sent them here closes.
+        await drift.settle(db, account.id, tmdb_id)
+    else:
+        # Nothing else moved, but a Tied answer can lift an opponent out of a seeded
+        # group, and a film that changed places is a film worth re-reading.
+        await drift.resweep(db, account.id, [tmdb_id, *_opponents(entries, tmdb_id)])
     # The opponents graduate here too, not just the film that was being placed: every
     # answer was a judgment about both films, and it becomes evidence about the opponent
     # the moment this film has a slot for it to be read against (onboarding-and-import.md).
@@ -634,6 +728,93 @@ async def _settle(db: AsyncSession, account: Account, flow: Flow) -> bool:
     return designated
 
 
+# --- The quiet drift check ---
+
+
+async def _drift_check(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    flow: Flow,
+    search: Search,
+    boundaries: Boundaries,
+) -> PlacementQuestion | None:
+    """The one targeted question this placement is allowed to carry, or None.
+
+    Indistinguishable from a normal comparison on purpose: same shape, same four
+    answers, same ``band_locked``, and nothing naming it a check - an owner who knows
+    they are being tested answers the test rather than the question. It never comes
+    first, because the owner opened this flow to place *their* film and should be
+    answering about it before being asked to do the engine a favour.
+    """
+    if search.answered < 1 or await _checked_already(db, account_id, flow):
+        return None
+    suspicion = await drift.pending_check(db, account_id)
+    if suspicion is None or flow.film_id in (suspicion.film_id, suspicion.opponent_id):
+        return None
+    cards = await ordering_module.cards(db, [suspicion.film_id, suspicion.opponent_id])
+    if len(cards) != 2:
+        return None
+    return PlacementQuestion(
+        a=cards[suspicion.film_id],
+        b=cards[suspicion.opponent_id],
+        answered=search.answered,
+        band_locked=locked_band(boundaries, search) is not None,
+    )
+
+
+async def _drift_answer(
+    db: AsyncSession,
+    queue: procrastinate.App,
+    account: Account,
+    flow: Flow,
+    body: Answer,
+) -> PlacementStep:
+    """Fold a drift check's answer in, then carry on with the placement it rode in on.
+
+    The answer is a judgment like any other and goes in the log as one; what makes it a
+    drift check is the context, and what it does is send both films back through the
+    sweep, which is where a suspicion is either confirmed into a louder flag or dropped.
+    """
+    if await _checked_already(db, account.id, flow):
+        raise ApiError(409, "stale_question", "That comparison is no longer the one being asked.")
+    suspicion = await drift.pending_check(db, account.id)
+    if suspicion is None or {suspicion.film_id, suspicion.opponent_id} != {
+        body.a_tmdb_id,
+        body.b_tmdb_id,
+    }:
+        raise ApiError(409, "stale_question", "That comparison is no longer the one being asked.")
+    db.add(
+        _comparison(
+            account.id,
+            flow,
+            body.a_tmdb_id,
+            body.b_tmdb_id,
+            body.verdict,
+            context=ComparisonContext.drift_check,
+        )
+    )
+    await db.flush()
+    await drift.resweep(db, account.id, [body.a_tmdb_id, body.b_tmdb_id])
+    return await _advance(db, queue, account, flow, body.seed, (None, None))
+
+
+async def _checked_already(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> bool:
+    """Whether this placement has already carried its one drift check.
+
+    Scoped exactly as the flow's own answers are - by the moment it began - so a later
+    re-placement of the same film gets its own one, and a placement resumed after being
+    abandoned does not get a second.
+    """
+    query = select(ComparisonLogEntry.id).where(
+        ComparisonLogEntry.account_id == account_id,
+        ComparisonLogEntry.subject_film_id == flow.film_id,
+        ComparisonLogEntry.context == ComparisonContext.drift_check,
+    )
+    if flow.since is not None:
+        query = query.where(ComparisonLogEntry.created_at > flow.since)
+    return await db.scalar(query.limit(1)) is not None
+
+
 # --- Keep comparing ---
 
 
@@ -688,27 +869,29 @@ async def _extend(
     tmdb_id = flow.film_id
     index = ordering.index_of(tmdb_id)
     assert index is not None  # keep-comparing only runs on a landed film
-    if body.opponent_tmdb_id not in _neighbours(ordering, index):
+    opponent_id = body.opponent(tmdb_id)
+    if opponent_id not in _neighbours(ordering, index):
         raise ApiError(409, "stale_question", "That comparison is no longer the one being asked.")
-    db.add(_comparison(account.id, flow, tmdb_id, body.opponent_tmdb_id, body.verdict))
+    db.add(_comparison(account.id, flow, body.a_tmdb_id, body.b_tmdb_id, body.verdict))
     await db.flush()
 
-    opponent = reduced.index_of(body.opponent_tmdb_id)
+    opponent = reduced.index_of(opponent_id)
     assert opponent is not None  # a neighbour is a rated film other than this one
     placement = await _placement(db, flow.account_film)
     moved = False
+    subject_won = (body.verdict is ComparisonVerdict.a) == (body.a_tmdb_id == tmdb_id)
     if body.verdict is ComparisonVerdict.tied:
         slot = await ordering_module.slot_by_id(db, reduced.slots[opponent].id)
         await ordering_module.reseat(db, account.id, placement, ordering, tmdb_id, slot=slot)
         moved = True
-    elif _moves_the_film(ordering, index, body):
+    elif _moves_the_film(ordering, index, opponent_id, body.verdict, subject_won):
         await ordering_module.reseat(
             db,
             account.id,
             placement,
             ordering,
             tmdb_id,
-            index=opponent if body.verdict is ComparisonVerdict.a else opponent + 1,
+            index=opponent if subject_won else opponent + 1,
         )
         moved = True
     if moved:
@@ -722,7 +905,10 @@ async def _extend(
             await ordering_module.load(db, account.id),
             await bands.load(db, account.id),
         )
-    await _graduate(db, account.id, [tmdb_id, body.opponent_tmdb_id])
+        # And the film changed places, so every other judgment about it is worth
+        # re-reading: the ones that have started to disagree are drift, seen here first.
+        await drift.resweep(db, account.id, [tmdb_id])
+    await _graduate(db, account.id, [tmdb_id, opponent_id])
     await jobs.schedule_retrain(db, queue, account.id)
     # A keep-comparing answer is a comparison like any other, so it can be the evidence
     # that crosses the readiness bar - and the screen it returns to is a placement-done
@@ -733,10 +919,19 @@ async def _extend(
     return await _landed(db, account, flow.account_film, unlocked=unlocked)
 
 
-def _moves_the_film(ordering: Ordering, index: int, body: Answer) -> bool:
-    """Whether the answer contradicts the film's current position, which is the only mover."""
-    above = index > 0 and body.opponent_tmdb_id in ordering.slots[index - 1].film_ids
-    return body.verdict is (ComparisonVerdict.a if above else ComparisonVerdict.b)
+def _moves_the_film(
+    ordering: Ordering, index: int, opponent: int, verdict: ComparisonVerdict, subject_won: bool
+) -> bool:
+    """Whether the answer contradicts the film's current position, which is the only mover.
+
+    A Skip is not an answer at all, so it moves nothing - it is checked here rather than
+    left to fall out of the arithmetic, because "the owner declined to judge" and "the
+    owner judged the film worse" are the same shape once the verdict stops being read.
+    """
+    if verdict is ComparisonVerdict.skip:
+        return False
+    above = index > 0 and opponent in ordering.slots[index - 1].film_ids
+    return subject_won is above
 
 
 def _neighbours(ordering: Ordering, index: int) -> list[int]:
@@ -978,17 +1173,25 @@ def _seed(account_id: uuid.UUID, tmdb_id: int, given: int | None) -> int:
 
 
 async def _ballpark_opponent(
-    db: AsyncSession, account_id: uuid.UUID, ballpark: tuple[float | None, float | None]
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    ballpark: tuple[float | None, float | None],
+    flow: Flow,
 ) -> int | None:
     """The anchor nearest the owner's hunch, which is the whole of a ballpark's effect.
 
     Nothing about it is recorded and nothing about it constrains the search: it moves
     one anchor to the front of the queue and then it is gone. A guess that pinned a
     divider would be an absolute rating in disguise (onboarding-and-import.md).
+
+    A re-placement started at a rewatch has no hunch and no in-tension evidence to
+    resume from, so its head start is the film's own current slot: the neighbour it sits
+    against is asked about first. That is a starting point, not a constraint - it can be
+    the first answer that moves the film clean across the ordering.
     """
     low, high = ballpark
     if low is None:
-        return None
+        return await _current_neighbour(db, account_id, flow)
     top, bottom = max(low, high or low), min(low, high or low)
     anchors = await anchors_module.current(db, account_id)
     if not anchors:
@@ -996,17 +1199,49 @@ async def _ballpark_opponent(
     return min(anchors.items(), key=lambda item: max(bottom - item[0], item[0] - top, 0.0))[1]
 
 
+async def _current_neighbour(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> int | None:
+    """The film sitting where this one sits, read against the ordering without it.
+
+    Only for a re-placement, and only as an opening question. Every other flow has a
+    better first move: a placement has the ballpark or the midpoint, and a re-placement
+    driven by drift has the evidence, which says far more than "start where it is".
+    """
+    if flow.context is not ComparisonContext.re_placement:
+        return None
+    ordering = await ordering_module.load(db, account_id)
+    index = ordering.index_of(flow.film_id)
+    if index is None:
+        return None
+    reduced = ordering.without(flow.film_id)
+    if not len(reduced):
+        return None
+    return reduced.slots[min(index, len(reduced) - 1)].film_ids[0]
+
+
 def _comparison(
-    account_id: uuid.UUID, flow: Flow, subject: int, opponent: int, verdict: ComparisonVerdict
+    account_id: uuid.UUID,
+    flow: Flow,
+    film_a: int,
+    film_b: int,
+    verdict: ComparisonVerdict,
+    *,
+    context: ComparisonContext | None = None,
 ) -> ComparisonLogEntry:
+    """One judgment, recorded as the pair was shown rather than re-oriented to the subject.
+
+    ``subject_film_id`` is the moment - whose flow this was - and stays the film being
+    placed even for a drift check, which is about two other films entirely. Nothing
+    downstream needs the pair in a canonical order: every reader works out which side a
+    film was on, so storing it as asked keeps the log a record of the question.
+    """
     return ComparisonLogEntry(
         account_id=account_id,
         kind=ComparisonKind.overall,
-        subject_film_id=subject,
-        film_a_id=subject,
-        film_b_id=opponent,
+        subject_film_id=flow.film_id,
+        film_a_id=film_a,
+        film_b_id=film_b,
         verdict=verdict,
-        context=flow.context,
+        context=context or flow.context,
         status=ComparisonStatus.active,
     )
 
@@ -1078,7 +1313,14 @@ async def _entries(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> list[
     if flow.since is not None:
         query = query.where(ComparisonLogEntry.created_at > flow.since)
     rows = await db.scalars(query.order_by(ComparisonLogEntry.created_at, ComparisonLogEntry.id))
-    return list(rows)
+    answers = list(rows)
+    if flow.context is not ComparisonContext.re_placement:
+        return answers
+    seeds = await drift.seeding_evidence(db, account_id, flow.film_id)
+    if not seeds:
+        return answers
+    ordering = await ordering_module.load(db, account_id)
+    return consistent_core(flow.film_id, ordering.without(flow.film_id), seeds, answers)
 
 
 def _opponents(entries: list[ComparisonLogEntry], subject: int) -> list[int]:

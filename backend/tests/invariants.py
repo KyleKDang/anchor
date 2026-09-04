@@ -231,15 +231,94 @@ async def comparison_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any,
         return [tuple(row) for row in rows]
 
 
+STATUS_COLUMN = 7
+"""Where ``status`` sits in a :func:`comparison_log` tuple: the one mutable column."""
+
+
 def assert_appended_only(
     before: list[tuple[Any, ...]], after: list[tuple[Any, ...]], where: str = "the flow"
 ) -> None:
-    """The log only ever grows: ADR 0010's append-only rule, checked across a flow.
+    """The log only ever grows, and only ``status`` is ever rewritten (ADR 0010).
 
-    Nothing before is deleted and nothing before is rewritten, so ``before`` must still
-    be the front of ``after`` exactly as it was.
+    Nothing before is deleted, and every row that already existed comes back saying
+    exactly what it said. Status is the deliberate exception the data model names: it is
+    how a judgment records that it later fell into tension or was settled against,
+    without erasing that the owner made it. What was *judged* is what may never change.
     """
-    assert after[: len(before)] == before, f"{where} rewrote the comparison log"
+    assert len(after) >= len(before), f"{where} deleted from the comparison log"
+    kept = [_but_status(row) for row in after[: len(before)]]
+    assert kept == [_but_status(row) for row in before], f"{where} rewrote the comparison log"
+
+
+def _but_status(row: tuple[Any, ...]) -> tuple[Any, ...]:
+    return row[:STATUS_COLUMN] + row[STATUS_COLUMN + 1 :]
+
+
+# --- Drift ---
+
+
+async def drift_flags(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every flag the account has ever carried, oldest first: film, stage, and outcome."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT af.film_id, f.stage, f.closed_at IS NULL, f.outcome
+                FROM drift_flags f
+                JOIN account_films af ON af.id = f.account_film_id
+                WHERE f.account_id = :id
+                ORDER BY f.opened_at, af.film_id
+                """
+            ),
+            {"id": account_id},
+        )
+    return [tuple(row) for row in rows]
+
+
+async def open_flags(db: Database, account_id: uuid.UUID) -> dict[int, str]:
+    """The films carrying an open flag right now, and how loud each one is."""
+    return {
+        film_id: stage
+        for film_id, stage, is_open, _ in await drift_flags(db, account_id)
+        if is_open
+    }
+
+
+async def statuses(db: Database, account_id: uuid.UUID) -> dict[frozenset[int], list[str]]:
+    """Every comparison's status, grouped by the pair it judged, oldest first.
+
+    Keyed by the pair rather than by entry id so a test can say "the judgment about these
+    two films is in tension" without having held on to a row it never saw created.
+    """
+    grouped: dict[frozenset[int], list[str]] = {}
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_a_id, film_b_id, status FROM comparison_log_entries
+                WHERE account_id = :id AND kind = 'overall'
+                ORDER BY created_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+    for film_a, film_b, status in rows:
+        if film_b is not None:
+            grouped.setdefault(frozenset((film_a, film_b)), []).append(status)
+    return grouped
+
+
+async def in_tension(db: Database, account_id: uuid.UUID) -> set[frozenset[int]]:
+    """The pairs carrying a judgment that currently contradicts the ordering."""
+    return {pair for pair, seen in (await statuses(db, account_id)).items() if "in_tension" in seen}
+
+
+async def assert_no_drift(db: Database, account_id: uuid.UUID, where: str = "the flow") -> None:
+    """Nothing flagged and nothing in tension: what a divider move has to look like."""
+    flags = await drift_flags(db, account_id)
+    assert flags == [], f"{where} raised a drift flag: {flags}"
+    tense = await in_tension(db, account_id)
+    assert tense == set(), f"{where} put judgments in tension: {tense}"
 
 
 # --- Bands, dividers, and anchors ---
