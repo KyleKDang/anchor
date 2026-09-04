@@ -985,14 +985,14 @@ select {
 /* Only the group's own ends are rounded. A member at a row's edge is mid-run, so it stays
    square there and the strip reads as carrying on. */
 .ordering-slot[data-tie-start]::before {
-  border-start-start-radius: var(--r-md);
-  border-end-start-radius: var(--r-md);
+  border-top-left-radius: var(--r-md);
+  border-bottom-left-radius: var(--r-md);
 }
 
 .ordering-slot[data-tie-end]::before {
   right: 0;
-  border-start-end-radius: var(--r-md);
-  border-end-end-radius: var(--r-md);
+  border-top-right-radius: var(--r-md);
+  border-bottom-right-radius: var(--r-md);
 }
 
 .ordering-film {

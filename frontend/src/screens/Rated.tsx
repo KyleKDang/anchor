@@ -249,13 +249,13 @@ function BandSection({ group, onChange }: { group: BandGroup; onChange: () => vo
       </header>
       <ol className="ordering">
         {group.slots.flatMap((slot) =>
-          slot.map((film, member) => (
+          slot.map((film, memberIndex) => (
             <WallCell
               key={film.tmdb_id}
               film={film}
               tie={
                 slot.length > 1
-                  ? { start: member === 0, end: member === slot.length - 1 }
+                  ? { start: memberIndex === 0, end: memberIndex === slot.length - 1 }
                   : undefined
               }
             />
@@ -362,8 +362,12 @@ function WallCell({
       <span className="ordering-rank">
         {/* A leaderboard's joint place. The equals sign is the whole mark on screen, and
             the word behind it is what a screen reader has instead. */}
-        {tie && <span className="visually-hidden">Joint </span>}
-        {tie && <span aria-hidden="true">=</span>}
+        {tie && (
+          <>
+            <span className="visually-hidden">Joint </span>
+            <span aria-hidden="true">=</span>
+          </>
+        )}
         {film.position}
       </span>
       <OrderedFilm film={film} showBand={showBand} />
