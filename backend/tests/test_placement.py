@@ -286,7 +286,11 @@ async def test_a_stale_answer_is_refused_rather_than_appended(owner, db):
 
     response = await owner.post(
         f"/api/placements/{LIBRARY[4].tmdb_id}/answers",
-        json={"opponent_tmdb_id": LIBRARY[0].tmdb_id, "verdict": "a"},
+        json={
+            "a_tmdb_id": LIBRARY[4].tmdb_id,
+            "b_tmdb_id": LIBRARY[0].tmdb_id,
+            "verdict": "a",
+        },
     )
 
     assert response.status_code == 409, response.text

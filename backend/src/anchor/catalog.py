@@ -13,6 +13,7 @@ has actually rated, and no rating-shaped value ever appears for an unwatched one
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
+from typing import Self
 
 from pydantic import BaseModel
 from sqlalchemy import exists, select
@@ -53,7 +54,12 @@ class SearchResult(BaseModel):
 
 
 class FilmDetail(BaseModel):
-    """The film page: the stored bundle plus the film's standing in this account."""
+    """A film with its standing in this account: what every film-scoped response shares.
+
+    Built through ``cls``, so a surface needing more than this - the film page, which
+    hangs drift and rewatch off it - subclasses it and inherits the construction rather
+    than making this module import the subsystems it would have to name.
+    """
 
     tmdb_id: int
     title: str
@@ -82,7 +88,7 @@ class FilmDetail(BaseModel):
         band: float | None = None,
         *,
         anchor: bool = False,
-    ) -> "FilmDetail":
+    ) -> Self:
         return cls(
             tmdb_id=film.tmdb_id,
             title=film.title,

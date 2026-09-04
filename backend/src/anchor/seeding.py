@@ -64,6 +64,10 @@ WIPED = (
     "taste_metrics",
     "dividers",
     "anchor_designations",
+    # Drift is a reading of the ordering, so it cannot outlive the ordering it read:
+    # evidence first, since it points at both the flags and the log below it.
+    "drift_evidence",
+    "drift_flags",
     "placements",
     "tie_group_slots",
     "comparison_log_entries",
