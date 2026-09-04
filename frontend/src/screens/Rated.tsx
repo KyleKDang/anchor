@@ -58,6 +58,7 @@ export function Rated() {
       {rated !== null && (
         <>
           {rated.anchor_nudge && <AnchorNudge film={firstFilm(rated)} />}
+          <NeedsAttention films={rated.needs_attention} />
           <Controls rated={rated} filters={filters} onChange={setFilters} />
 
           <section className="section" aria-labelledby="ordering-heading">
@@ -104,6 +105,43 @@ export function Rated() {
         </>
       )}
     </>
+  );
+}
+
+/**
+ * The needs-attention strip: the films whose position the owner's own later answers
+ * have started to disagree with.
+ *
+ * This is the loudest drift ever gets (ADR 0011). It sits at the top of one screen,
+ * says how many and which, and waits - no count in the nav, no dot, no notification
+ * anywhere else in the app. It renders nothing at all when nothing is wrong, which is
+ * most of the time, and that is the point: it is presence, not a permanent slot.
+ */
+function NeedsAttention({ films }: { films: FilmCard[] }) {
+  if (films.length === 0) return null;
+
+  return (
+    <section className="needs-attention" aria-labelledby="needs-attention-heading">
+      <h2 id="needs-attention-heading" className="needs-attention-heading">
+        {films.length === 1
+          ? "One film may have drifted"
+          : `${films.length} films may have drifted`}
+      </h2>
+      <p className="muted">
+        {films.length === 1
+          ? "Later answers disagree with where it sits. Open it to re-place it or keep it where it is."
+          : "Later answers disagree with where these sit. Open one to re-place it or keep it where it is."}
+      </p>
+      <ul className="needs-attention-films">
+        {films.map((film) => (
+          <li key={film.tmdb_id}>
+            <Link className="chip" to={filmPath(film.tmdb_id)}>
+              {film.title}
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -186,6 +224,16 @@ function Controls({
               </option>
             ))}
           </select>
+        </label>
+        {/* A checkbox rather than a select: it has one useful setting, and the other
+            one is simply the screen as it always was. */}
+        <label className="field field-check">
+          <input
+            type="checkbox"
+            checked={filters.flagged ?? false}
+            onChange={(event) => set({ flagged: event.target.checked })}
+          />
+          <span>Needs attention</span>
         </label>
       </div>
       {rated.groups !== null && rated.bands.length > 0 && (
@@ -399,6 +447,7 @@ function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: b
         {showBand && <Band band={film.band} />}
         {film.anchor && <AnchorBadge band={film.band} />}
         {film.provisional && <ProvisionalMark />}
+        {film.flagged && <span className="chip chip-flagged">Needs attention</span>}
       </div>
     </div>
   );
@@ -453,7 +502,9 @@ function isEmpty(rated: RatedScreen): boolean {
 }
 
 function hasFilters(filters: RatedFilters): boolean {
-  return Boolean(filters.bandMin || filters.bandMax || filters.genre || filters.decade);
+  return Boolean(
+    filters.bandMin || filters.bandMax || filters.genre || filters.decade || filters.flagged,
+  );
 }
 
 /** The nudge points at the owner's best film, which is the easiest one to have an opinion about. */

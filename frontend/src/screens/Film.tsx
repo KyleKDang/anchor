@@ -1,7 +1,14 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import { BANDS, api, messageOf, type FilmDetail } from "../api";
+import {
+  BANDS,
+  api,
+  messageOf,
+  type DriftFlag,
+  type FilmDetail,
+  type KeepOpponent,
+} from "../api";
 import { AnchorBadge, Band } from "../films/Band";
 import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
@@ -15,8 +22,9 @@ import { useAsyncAction } from "../films/useAsyncAction";
  *
  * The page shifts with the film's state: untracked and in-backlog offer the backlog and
  * the watch, watched-unrated carries the seen marker and place-it-now, and rated shows
- * its band, whether it anchors that band, and the designation control. Pin and veto
- * arrive with the ranked tier; judgment history and drift resolution with theirs.
+ * its band, whether it anchors that band, the designation control, the rewatch, and the
+ * drift flag with its resolution options where one is open. Pin and veto arrive with the
+ * ranked tier; the judgment history with the criteria system.
  */
 export function Film() {
   const { tmdbId } = useParams();
@@ -160,6 +168,9 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 <Band band={film.rating} />
                 {film.anchor && <AnchorBadge band={film.rating} />}
               </p>
+              {film.drift !== null && <Drift film={film} flag={film.drift} onChanged={onChange} />}
+              {film.rewatch !== null && <Rewatch film={film} onChanged={onChange} />}
+              <Watched film={film} onChanged={onChange} />
               <Designate film={film} onChanged={onChange} />
               <p className="muted">
                 <Link to="/rated">See where it sits in your ordering</Link>
@@ -174,6 +185,249 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
         </div>
       </article>
     </>
+  );
+}
+
+/**
+ * An open drift flag, and the three ways out of it.
+ *
+ * The judgments are shown as the owner made them, because the whole question is "did
+ * you mean these?" - and re-place, keep, and not-now are the only answers offered.
+ * Dragging the film to a slot is deliberately absent: every move goes through
+ * comparisons, so changing your mind means answering questions, not choosing a rank.
+ *
+ * Nothing here is urgent. The film is already benched as an opponent, so leaving this
+ * open costs the ordering nothing, and "not now" is a real answer rather than a delay.
+ */
+function Drift({
+  film,
+  flag,
+  onChanged,
+}: {
+  film: FilmDetail;
+  flag: DriftFlag;
+  onChanged: (film: FilmDetail) => void;
+}) {
+  const navigate = useNavigate();
+  const { busy, error, run } = useAsyncAction();
+  const [keeping, setKeeping] = useState(false);
+  const [blamed, setBlamed] = useState<number[]>([]);
+
+  // One follow-up per implicated opponent, not per judgment: the owner is deciding about
+  // a film, and two answers about the same one is still only one film to blame.
+  const implicated = [...new Map(flag.judgments.map((j) => [j.opponent.tmdb_id, j.opponent]))];
+  const opponents: KeepOpponent[] = implicated.map(([tmdbId]) => ({
+    opponent_tmdb_id: tmdbId,
+    resolution: blamed.includes(tmdbId) ? "re_point" : "noise",
+  }));
+
+  return (
+    <section className="drift-panel" aria-labelledby="drift-heading">
+      <h3 id="drift-heading">This may have drifted</h3>
+      <p className="muted">
+        {flag.judgments.length === 1
+          ? "A later answer disagrees with where this sits:"
+          : "Later answers disagree with where this sits:"}
+      </p>
+      <ul className="drift-judgments">
+        {said(flag).map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+
+      {keeping ? (
+        <div className="drift-keep">
+          <p className="muted">
+            Keeping it here, and treating those as slips. Unless one of the other films is
+            the misplaced one - then say so, and the question moves to it.
+          </p>
+          <ul className="drift-judgments">
+            {implicated.map(([tmdbId, opponent]) => (
+              <li key={`blame-${tmdbId}`}>
+                <label className="field field-check">
+                  <input
+                    type="checkbox"
+                    checked={blamed.includes(tmdbId)}
+                    onChange={(event) =>
+                      setBlamed((was) =>
+                        event.target.checked ? [...was, tmdbId] : was.filter((id) => id !== tmdbId),
+                      )
+                    }
+                  />
+                  <span>{opponent.title} is the misplaced one</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+          <div className="actions">
+            <button
+              type="button"
+              className="button"
+              disabled={busy}
+              onClick={() =>
+                void run(async () => {
+                  await api.keepPosition(film.tmdb_id, opponents);
+                  onChanged(await api.film(film.tmdb_id));
+                })
+              }
+            >
+              Keep it here
+            </button>
+            <button
+              type="button"
+              className="link-button"
+              disabled={busy}
+              onClick={() => setKeeping(false)}
+            >
+              Back
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="actions">
+          <button
+            type="button"
+            className="button"
+            disabled={busy}
+            onClick={() =>
+              void run(async () => {
+                await api.rePlaceDrift(film.tmdb_id);
+                navigate(placePath(film.tmdb_id));
+              })
+            }
+          >
+            {flag.re_placing ? "Carry on re-placing it" : "My opinion changed"}
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            disabled={busy}
+            onClick={() => setKeeping(true)}
+          >
+            Those were noise
+          </button>
+        </div>
+      )}
+
+      {flag.anchor_warning && (
+        <p className="muted">
+          This is a canonical {film.rating?.toFixed(1)}. Re-placing it somewhere else
+          retires that, and the comparisons decide where it lands.
+        </p>
+      )}
+      {/* No "not now" button: leaving the page *is* not now, and the flag will still be
+          here. Nothing is blocked while it waits. */}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/**
+ * What the owner actually said, one line per thing they said, however often they said it.
+ *
+ * Two answers about the same pair are two separate judgments to the engine and the same
+ * sentence to a reader, so repeating the line verbatim reads as a rendering fault rather
+ * than as evidence. Counting them says the true and more useful thing: you have told me
+ * this twice, which is exactly why you are being asked.
+ */
+function said(flag: DriftFlag): string[] {
+  const counts = new Map<string, number>();
+  for (const judgment of flag.judgments) {
+    const line = judgment.tied
+      ? `You called it equal to ${judgment.opponent.title}`
+      : judgment.opponent_won
+        ? `You put ${judgment.opponent.title} above it`
+        : `You put it above ${judgment.opponent.title}`;
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  return [...counts].map(([line, times]) =>
+    times === 1 ? `${line}.` : `${line} - ${times === 2 ? "twice" : `${times} times`}.`,
+  );
+}
+
+/**
+ * The still-feel-the-same question, offered once at the rewatch and never chased.
+ *
+ * Confirming is a signal about the position and moves nothing. Changing your mind opens
+ * the same re-placement flow everything else does, seeded from where the film sits now,
+ * and the comparisons decide from there.
+ */
+function Rewatch({
+  film,
+  onChanged,
+}: {
+  film: FilmDetail;
+  onChanged: (film: FilmDetail) => void;
+}) {
+  const navigate = useNavigate();
+  const { busy, error, run } = useAsyncAction();
+
+  async function answer(choice: "confirmed" | "changed" | "skip") {
+    await run(async () => {
+      await api.answerRewatch(film.tmdb_id, choice);
+      if (choice === "changed") navigate(placePath(film.tmdb_id));
+      else onChanged(await api.film(film.tmdb_id));
+    });
+  }
+
+  return (
+    <section className="rewatch-panel" aria-labelledby="rewatch-heading">
+      <h3 id="rewatch-heading">Still feel the same?</h3>
+      <div className="actions">
+        <button type="button" className="button" disabled={busy} onClick={() => void answer("confirmed")}>
+          Yes, it holds up
+        </button>
+        <button
+          type="button"
+          className="button secondary"
+          disabled={busy}
+          onClick={() => void answer("changed")}
+        >
+          I feel differently now
+        </button>
+        <button
+          type="button"
+          className="link-button"
+          disabled={busy}
+          onClick={() => void answer("skip")}
+        >
+          Not sure
+        </button>
+      </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </section>
+  );
+}
+
+/** Logging another watch of a film already rated, which is the rewatch flow. */
+function Watched({ film, onChanged }: { film: FilmDetail; onChanged: (film: FilmDetail) => void }) {
+  const { busy, error, run } = useAsyncAction();
+
+  if (film.rewatch !== null) return null;
+  return (
+    <div className="actions">
+      <button
+        type="button"
+        className="button secondary"
+        disabled={busy}
+        onClick={() => void run(async () => onChanged(await api.logRewatch(film.tmdb_id)))}
+      >
+        I watched this again
+      </button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </div>
   );
 }
 
