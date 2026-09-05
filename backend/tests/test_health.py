@@ -139,8 +139,11 @@ async def test_a_database_failure_skips_the_worker_check(client, app, monkeypatc
 
 
 async def test_a_health_check_enqueues_nothing_and_writes_no_probe(client, db, jobs_app):
-    """The check is a read: it leaves no job row for the nightly sweep to clear, and the
-    probe table it used to write to is gone by migration."""
+    """The check is a read, and the table it used to write to is gone.
+
+    Nothing it does leaves a job row for the nightly sweep to clear, and the probe table
+    itself is dropped by migration rather than left behind to fill.
+    """
     await _register_worker(jobs_app)
 
     assert (await client.get("/api/health")).status_code == 200
