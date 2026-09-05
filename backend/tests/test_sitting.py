@@ -187,6 +187,7 @@ async def test_leaving_mid_film_keeps_its_answers_and_the_next_sitting_resumes_i
     """
     offered = (await flows.next_settling(imported))["film"]["tmdb_id"]
     film = next(one for one in SEEDS if one.tmdb_id == offered)
+    await flows.ask_to_re_place(imported, film)
     step = await flows.begin(imported, film)
     assert step["done"] is False and step["kind"] == "comparison"
     before = step["answered"]
@@ -201,26 +202,56 @@ async def test_leaving_mid_film_keeps_its_answers_and_the_next_sitting_resumes_i
     assert resumed["answered"] == before + 1
 
 
-async def test_not_this_one_moves_on_and_stores_no_judgment_about_the_film(imported, db):
+async def test_not_this_one_leaves_the_film_exactly_as_the_sitting_found_it(imported, db):
     """Passing is a fact about this sitting and nothing else.
 
     It records no judgment, no dislike, and no memory of having been passed - the
     next-film rule already puts barely-remembered films last, so a stored "not this one"
-    would be a second, weaker copy of a decision the engine already makes.
+    would be a second, weaker copy of a decision the engine already makes. It also takes
+    back the ask that opening the film recorded, which is the part that would otherwise
+    outlive the sitting: that mark never expires on a film nobody answered a question
+    about, and the film's own page would go on reopening the questions just declined.
     """
     account = await account_id(imported)
     passed = (await flows.next_settling(imported))["film"]["tmdb_id"]
+    film = next(one for one in SEEDS if one.tmdb_id == passed)
     before = await comparison_log(db, account)
 
-    offer = await flows.next_settling(imported, [passed])
+    # Opening the film is what the stream does before it can show a question at all.
+    await flows.ask_to_re_place(imported, film)
+    await flows.pass_on_settling(imported, film)
 
+    reopened = await flows.begin(imported, film)
+    assert reopened["done"] is True, "a film the owner declined came back asking questions"
+    assert await comparison_log(db, account) == before, "passing wrote something down"
+    assert_appended_only(before, await comparison_log(db, account))
+
+    offer = await flows.next_settling(imported, [passed])
     assert offer["film"]["tmdb_id"] != passed, "the passed film was offered straight back"
     assert offer["remaining"] == len(SEEDS) - 1
-    assert_appended_only(before, await comparison_log(db, account))
-    assert await comparison_log(db, account) == before, "passing wrote a judgment"
 
     # And it is a fact about this sitting only: the next one offers it again.
     assert (await flows.next_settling(imported))["film"]["tmdb_id"] == passed
+
+
+async def test_a_film_the_owner_worked_on_and_then_passed_keeps_its_answers(imported, db):
+    """A pass takes back an unopened door, never a settle in progress.
+
+    Leaving mid-film and passing mid-film are the same act from the engine's side, and the
+    spec is clear that the answers survive it: they are the film's head start next time,
+    and the mark is what tells the next attempt to pick them up.
+    """
+    offered = (await flows.next_settling(imported))["film"]["tmdb_id"]
+    film = next(one for one in SEEDS if one.tmdb_id == offered)
+    await flows.ask_to_re_place(imported, film)
+    step = await flows.begin(imported, film)
+    await flows.answer(imported, film, step["b"]["tmdb_id"], "a")
+
+    await flows.pass_on_settling(imported, film)
+
+    resumed = await flows.begin(imported, film)
+    assert resumed["done"] is False, "passing threw away answers the owner had given"
+    assert resumed["answered"] == step["answered"] + 1
 
 
 async def test_a_sitting_with_nothing_left_offers_nothing(owner, stocked):

@@ -252,6 +252,12 @@ async def next_settling(client, offered=(), expect=200):
     return response.json()
 
 
+async def pass_on_settling(client, film, expect=204):
+    """ "Not this one": decline the film the sitting just offered."""
+    response = await client.post(f"/api/settling/{film.tmdb_id}/pass")
+    assert response.status_code == expect, response.text
+
+
 async def settle(client, film, ordering_ids, index, seed=1, band=None):
     """Ask to settle a film, then answer every question until it lands at ``index``.
 

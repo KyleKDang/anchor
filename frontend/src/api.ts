@@ -655,6 +655,8 @@ export const api = {
    */
   nextSettling: (offered: number[]) =>
     request<NextFilm>("POST", "/api/settling/next", { offered }),
+  /** "Not this one": decline the offered film, taking back the ask that opened it. */
+  passOnSettling: (tmdbId: number) => request<void>("POST", `/api/settling/${tmdbId}/pass`),
   rated: (filters: RatedFilters = {}) => request<Rated>("GET", `/api/rated${ratedQuery(filters)}`),
   anchors: () => request<Anchors>("GET", "/api/anchors"),
   designate: (band: number, tmdbId: number) =>

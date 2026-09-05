@@ -32,13 +32,18 @@ from anchor import placement, remembered, settling
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import DbSession
+from anchor.errors import ApiError
 from anchor.models import AccountFilm, ComparisonLogEntry
 from anchor.ordering import Ordering
 
 router = APIRouter(prefix="/api/settling")
 
 OFFERED_LIMIT = 1000
-"""A sitting cannot have been through more films than a library holds, several times over."""
+"""A bound on the request body, not a bound on a sitting.
+
+One sitting handing over a thousand films is not a thing an owner does - it is a client
+sending nonsense - so refusing it outright is right, and there is no recovery to design
+for. The list dies with the tab either way."""
 
 
 class Sitting(BaseModel):
@@ -69,33 +74,49 @@ class NextFilm(BaseModel):
 
 @router.post("/next")
 async def next_film(body: Sitting, account: CurrentAccount, db: DbSession) -> NextFilm:
-    """Pick the next film for this sitting, and open the settling door on it.
+    """Pick the next film for this sitting. Reads; writes nothing at all.
 
-    Recording the ask here is what makes the stream one call per film: the flow itself is
-    `POST /api/placements/{id}`, exactly as from the mark on the wall, and it needs the
-    owner's ask on record before it will reopen a provisional film's questions. Asking
-    twice is asking once, so a client that re-picks a film mid-sitting resumes it rather
-    than throwing away the answers already given to it.
+    Deliberately side-effect-free, because the answer to it may be "not this one" - and
+    the spec is flat that a pass stores nothing (screens-and-flows.md). Recording the
+    owner's ask here instead would leave a live re-placement request on a film they
+    declined, and one that never expires: expiry rides on the placement's clock, and a
+    film nobody settled never lands to restamp it.
+
+    So the ask stays where it already was. The stream opens a film exactly as the mark on
+    the wall does - `POST /api/placements/{id}/re-place`, then `POST /api/placements/{id}`
+    - and the door into a film is only ever opened by the owner going through it.
     """
     candidates = await settling.still_settling(db, account.id, excluding=body.offered)
     if not candidates:
         return NextFilm(film=None, remaining=0)
-
     chosen = await _narrowest(db, account.id, candidates)
-    account_film: AccountFilm | None = await db.scalar(
-        select(AccountFilm).where(
-            AccountFilm.account_id == account.id, AccountFilm.film_id == chosen
-        )
-    )
-    # A provisional placement always has its film rated, so the miss is unreachable in
-    # practice; offering nothing is nonetheless better than a 500.
-    if account_film is None:
-        return NextFilm(film=None, remaining=len(candidates))
-    await settling.request(db, account.id, account_film)
-    await db.commit()
-
     cards = await ordering_module.cards(db, [chosen])
     return NextFilm(film=cards.get(chosen), remaining=len(candidates))
+
+
+@router.post("/{tmdb_id}/pass", status_code=204)
+async def pass_on(tmdb_id: int, account: CurrentAccount, db: DbSession) -> None:
+    """ "Not this one": the owner declining the film the sitting just handed them.
+
+    It stores nothing. What it does is take back the ask that opening the film recorded,
+    so declining a film leaves it exactly as the sitting found it - which is what lets the
+    spec say a pass is a fact about this sitting and nothing else. The film is offered
+    again next time the owner sits down, because the next-film rule already puts
+    barely-remembered films last and needs no help remembering this.
+
+    The ask is only taken back where nothing was answered under it. A film the owner
+    worked on and then passed keeps its mark, because those answers are its head start
+    and the mark is what tells the next attempt to pick them up.
+    """
+    account_film: AccountFilm | None = await db.scalar(
+        select(AccountFilm).where(
+            AccountFilm.account_id == account.id, AccountFilm.film_id == tmdb_id
+        )
+    )
+    if account_film is None:
+        raise ApiError(404, "not_found", "That film is not in your library.")
+    await settling.withdraw(db, account.id, account_film)
+    await db.commit()
 
 
 async def _narrowest(db: AsyncSession, account_id: uuid.UUID, candidates: set[int]) -> int:
