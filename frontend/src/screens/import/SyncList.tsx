@@ -47,18 +47,19 @@ export function SyncList() {
   return (
     <div className="sync">
       <h3>{count(list.count)} to carry over</h3>
+      {/* The section above already says Anchor never writes to Letterboxd, so this says
+          what to do about it instead of saying that again four lines later. */}
       <p className="muted">
-        Anchor never writes to Letterboxd. Change these there yourself, then mark them off here
-        so Anchor knows the two agree again.
+        Update them on Letterboxd, then mark them off here so Anchor knows the two agree again.
       </p>
       {list.changed.length > 0 && (
         <Section films={list.changed} onMarked={reload} heading="Ratings that have moved">
-          Change these on Letterboxd to match.
+          Letterboxd still holds the old value.
         </Section>
       )}
       {list.never_recorded.length > 0 && (
         <Section films={list.never_recorded} onMarked={reload} heading="Not on Letterboxd yet">
-          You rated these in Anchor, so Letterboxd has no entry to change - add them.
+          You rated these in Anchor, so there is no entry to change - add them.
         </Section>
       )}
       {/* One film is not a list to sweep, and the row's own button is right there. */}

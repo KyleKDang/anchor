@@ -1851,12 +1851,14 @@ select {
   color: var(--muted);
 }
 
+/* Tucked up under the last row rather than floating below it: a sweep of the list wants
+   to read as the list's own last line, not as a caption stranded between two sections. */
 .sync-all {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--s3);
-  margin: var(--s4) 0 0;
+  margin: var(--s3) 0 0;
   font-size: var(--text-sm);
 }
 
