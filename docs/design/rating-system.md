@@ -90,6 +90,10 @@ Re-placement is the standard placement flow, head-started: the film's in-tension
 If the evidence disagrees with itself, only the consistent core seeds the search, and fresh questions break the disagreement.
 After landing, each of the film's logged judgments is re-evaluated against the new position: consistent ones flip to active, contradicted ones to superseded, and the flag closes.
 
+Four doors open a re-placement: a drift flag, a rewatch, an anchor-designation mismatch, and the owner asking for it outright from the film's page.
+Asked outright, a trusted film's search is seeded from its current slot with its old answers set aside, exactly as at a rewatch; a provisional film's search instead keeps every judgment it has collected as an opponent, because those are the evidence its placeholder position was waiting for.
+Settling ([onboarding-and-import.md](onboarding-and-import.md)) is that provisional door run over many films in a row.
+
 ## Rewatches
 
 Offer, never force.

@@ -46,7 +46,7 @@ In suggested reading order:
 | Doc | Covers |
 | --- | --- |
 | [rating-system.md](rating-system.md) | The ordering, anchors, bands, and dividers; the placement flow; the comparison log; drift, re-rating, and rewatches |
-| [onboarding-and-import.md](onboarding-and-import.md) | The entry fork, the Letterboxd seed import, fresh-account bootstrap, the warmup, provisional placements, feature gates |
+| [onboarding-and-import.md](onboarding-and-import.md) | The entry fork, the Letterboxd seed import, fresh-account bootstrap, the warmup, provisional placements and settling, feature gates |
 | [taste-profile.md](taste-profile.md) | The three profile artifacts, training-pair extraction, readiness states, the quality system and criteria questions, LLM guardrails |
 | [watchlist.md](watchlist.md) | The backlog and the ranked tier: zones, refresh damping, staleness, pin, veto, not-now |
 | [discovery.md](discovery.md) | The discovery feed: sourcing cascade, verdicts, accept, dismissal, seen-it, degraded states |

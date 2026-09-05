@@ -64,7 +64,7 @@ One shared skeleton with per-path fills, skippable at every point, the app fully
 | Phase | Post-import | Fresh |
 | --- | --- | --- |
 | 1. Designate anchors | candidates per band, ranked by rewatch count then rating recency with TMDB popularity as tiebreak; profile favorites boosted to the top of their band's list | search-driven with the browse fallback; five whole-star prompts |
-| 2. Gather evidence | ~10 comparisons chosen by the advisory math for maximum information | "log ~5 films you've seen": normal placements against the anchors |
+| 2. Gather evidence | "settle a few films": settling, counted as ~10 comparisons answered since the import | "log ~5 films you've seen": normal placements against the anchors |
 | 3. Seed the backlog | watchlist.csv | "add films you've been meaning to watch": search, plus discovery once live |
 
 Designation remains the owner's act in both fills; the app never self-designates.
@@ -75,6 +75,11 @@ The ~5-film target is advisory, a tuning knob: at a handful of comparisons per p
 Provisional status ends when the advisory math's placement confidence crosses the same threshold a normal placement needs: one unified rule for seed-import and early-bail placements.
 Provisional films serve as comparison opponents (post-import there is no alternative); each such comparison doubles as the seed film's first real evidence, pulling it out of its tie-group, and the math prefers confident pivots as they accumulate.
 A Tied answer against a provisional film pulls that film out into a definitive two-film tie-group at the landing point; provisional membership is never inherited.
+
+Settling is the owner's own door, for the owner who has nothing left to log: it runs the placement flow over provisional films one after another, each search head-started by every judgment the film has collected as an opponent, so a film others have already been compared against is a question or two from graduating.
+The film offered next is the one with the narrowest remaining range, then the best-remembered by the warmup's candidate ranking, because a settled film the owner remembers cold becomes a confident pivot for every later placement and a barely-remembered one produces skips.
+Anchors are never offered.
+The on-screen shape is in [screens-and-flows.md](screens-and-flows.md); the door's loudness is fixed in [surfacing.md](surfacing.md).
 
 ## Feature light-up
 
