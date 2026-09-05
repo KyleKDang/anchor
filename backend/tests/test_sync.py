@@ -130,6 +130,22 @@ async def test_a_rating_that_wobbles_back_drops_off_the_list_on_its_own(imported
     await assert_ordering_well_formed(db, account)
 
 
+async def test_the_list_reads_in_the_same_order_as_the_ratings_screen(imported):
+    """Best first, which is the order the owner already reads their ratings in.
+
+    A worksheet is read top to bottom, so the one thing it must not do is invent a second
+    ordering to learn. Pinned because nothing else would notice it changing.
+    """
+    await flows.settle(imported, SEEDS[4], _ordering(await rated(imported)), 0)
+    order = _ordering(await rated(imported))
+    await flows.settle(imported, SEEDS[1], order, len(order) - 1)
+
+    listed = [row["tmdb_id"] for row in (await flows.sync_list(imported))["changed"]]
+
+    assert len(listed) == 2, "the two settles did not both move a film out of its band"
+    assert listed == [film_id for film_id in _ordering(await rated(imported)) if film_id in listed]
+
+
 # --- The two sections ---
 
 
