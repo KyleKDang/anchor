@@ -1791,6 +1791,54 @@ select {
   font-size: var(--text-xs);
 }
 
+/* --- The sync list ---------------------------------------------------------
+
+   A worksheet, read with the Letterboxd tab open beside it: the whole design is that the
+   value to type is the last thing on the line and the value it replaces is dimmed behind
+   an arrow. Nothing here is urgent and nothing counts down - the list is the ceiling ADR
+   0011 sets, an ambient count at the one place the list lives. */
+
+.sync {
+  margin: var(--s5) 0;
+}
+
+.sync > h3 {
+  margin: 0 0 var(--s1);
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
+}
+
+.sync > .muted {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--text-sm);
+}
+
+.sync-heading {
+  margin: var(--s5) 0 var(--s1);
+  font-size: var(--text-base);
+  line-height: var(--leading-tight);
+}
+
+/* The old value is context, not an answer: it is there so the owner can recognise the
+   entry they are editing, and it must never be the value they read off and type. */
+.sync-was {
+  opacity: 0.55;
+}
+
+.sync-arrow {
+  color: var(--muted);
+}
+
+.sync-all {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s3);
+  margin: var(--s4) 0 0;
+  font-size: var(--text-sm);
+}
+
 /* Drift ---------------------------------------------------------------------------------
 
    The loudest drift is ever allowed to be (ADR 0011). The strip borrows the nudge's
