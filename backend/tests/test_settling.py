@@ -242,6 +242,29 @@ async def test_the_done_screen_offers_settling_another_while_more_remain(importe
     await assert_ordering_well_formed(db, await account_id(imported))
 
 
+async def test_a_settle_the_owner_only_skipped_earns_no_bonus_card(imported, db):
+    """The bonus card names a pair the owner just compared, and a head start is not one.
+
+    A settle resumes from every judgment the film has collected, so what the flow holds
+    can be entirely work done for other films weeks ago. Skipping through means the owner
+    answered nothing here - and a card drawn from the head start would be a bonus for a
+    placement that earned nothing, asking about a comparison they never saw this time.
+    """
+    await flows.ask_criteria(imported, "often")
+    await flows.place(imported, FRESH, "a")
+    film = await _still_settling(imported, db, judged=True)
+
+    await flows.ask_to_re_place(imported, film)
+    step = await flows.begin(imported, film)
+    while not step["done"]:
+        if step["kind"] == "band":
+            step = await flows.answer_the_band(imported, film, step)
+            continue
+        step = await flows.answer(imported, film, step["b"]["tmdb_id"], "skip")
+
+    assert step["criteria"] is None, "a settle the owner skipped through minted a bonus card"
+
+
 # --- Helpers ---
 
 

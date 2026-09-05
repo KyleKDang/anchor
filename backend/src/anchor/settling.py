@@ -92,8 +92,9 @@ async def remaining(db: AsyncSession, account_id: uuid.UUID, *, besides: int) ->
 
     Anchors are never offered (onboarding-and-import.md): an anchor is re-placed from its
     own page, with the warning that comes with it, so counting one here would offer a
-    film the flow will not hand over. ``besides`` is the film that has just landed, whose
-    own mark comes off in the same request that reads this.
+    film the flow will not hand over. ``besides`` is the film the owner has just dealt
+    with, left out whether it graduated or was bailed on: the offer is to settle
+    *another* one, and the film on screen is not another one.
     """
     anchored = set((await anchors_module.current(db, account_id)).values())
     rows = await db.scalars(
