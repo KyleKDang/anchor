@@ -487,6 +487,33 @@ export interface ImportBound {
   film: FilmCard;
 }
 
+/**
+ * One film whose Letterboxd value is out of date, said as old → new.
+ *
+ * `synced` is what Letterboxd holds as far as Anchor knows, and is null for a film it
+ * never saw; `band` is what Anchor holds now, which is the value to type over there.
+ */
+export interface SyncFilm {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  synced: number | null;
+  band: number;
+}
+
+/**
+ * The sync list, derived rather than stored: the gap between the two rating sets.
+ *
+ * The two sections are different errands - an edit and a new entry - so they are listed
+ * apart. `count` is both, because the ambient count is a count of the work.
+ */
+export interface SyncList {
+  changed: SyncFilm[];
+  never_recorded: SyncFilm[];
+  count: number;
+}
+
 /** Concretely what re-importing destroys, counted rather than described. */
 export interface ImportWarning {
   rated_films: number;
@@ -717,6 +744,10 @@ export const api = {
   rescueImportRow: (rowId: string) =>
     request<ImportBound>("POST", `/api/import/rows/${rowId}/letterboxd`),
   dismissImportRow: (rowId: string) => request<void>("DELETE", `/api/import/rows/${rowId}`),
+
+  syncList: () => request<SyncList>("GET", "/api/sync"),
+  markSynced: (tmdbId: number) => request<void>("POST", `/api/sync/${tmdbId}`),
+  markAllSynced: () => request<void>("POST", "/api/sync/all"),
 
   warmup: () => request<Warmup>("GET", "/api/warmup"),
   enterWarmup: () => request<Warmup>("POST", "/api/warmup/enter"),

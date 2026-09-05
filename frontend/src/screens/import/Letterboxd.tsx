@@ -10,6 +10,7 @@ import {
 } from "../../api";
 import { releaseYear } from "../../films/tmdb";
 import { useAsyncAction } from "../../films/useAsyncAction";
+import { SyncList } from "./SyncList";
 
 /** How often the progress line re-reads while matching runs. Nothing else polls. */
 const POLL_MS = 2000;
@@ -67,6 +68,9 @@ export function Letterboxd() {
           {error}
         </p>
       )}
+      {/* Ahead of the import's own residue, and outside the has-imported gate: a film
+          rated in Anchor is one to carry over whether or not an export ever landed. */}
+      <SyncList />
       {state?.status === "none" && <Upload warning={warning} onDone={reload} />}
       {state !== null && state.status !== "none" && (
         <>
