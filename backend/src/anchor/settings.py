@@ -9,8 +9,16 @@ class Settings(BaseSettings):
     database_url: str = "postgresql://anchor:anchor@localhost:5432/anchor"
     """libpq connection URL; shared by SQLAlchemy and the job queue."""
 
-    health_worker_timeout: float = 5.0
-    """Seconds the health check waits for the worker to answer its probe."""
+    stalled_worker_seconds: float = 30.0
+    """Silence from every worker after which the health check calls the worker down.
+
+    The sibling of ``stalled_job_seconds`` and set to match it, for the same reason: a
+    worker beats every ten seconds, so this fires only once one has missed two beats.
+    It has to be generous. The beat shares the worker's event loop, and a CPU-bound
+    retrain blocks that loop for as long as it runs (``jobs._is_this_worker`` says so of
+    the reclaim sweep), so a threshold tight enough to catch a death quickly is also
+    tight enough to call a working worker dead - which is the bug this replaced (#82).
+    """
 
     stalled_job_seconds: float = 30.0
     """Silence from a worker after which the job it was running is reclaimed.

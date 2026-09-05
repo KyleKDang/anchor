@@ -7,9 +7,10 @@ import { signUpOwner } from "./owner";
  * Four imported films: the fewest a sitting can pass on one, work through two, and still
  * have one left to hand over.
  *
- * Deliberately no more. Every row is a matching job on the one shared worker, the suite's
- * journeys run in parallel, and the skeleton journey proves that worker by waiting five
- * seconds on a probe job of its own - so a fat import here is a timeout over there.
+ * Kept small because every row is a matching job on the one shared worker and the suite's
+ * journeys run in parallel, so a fat import here is a slow journey everywhere else. It no
+ * longer risks the skeleton journey's health assertion: that reads the worker's heartbeat
+ * rather than waiting on a probe queued behind this import (#82).
  */
 const LIBRARY = [
   { name: "Fight Club", year: 1999, rating: 5 },
