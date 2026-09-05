@@ -22,6 +22,7 @@ from anchor import (
     rewatch,
     sentry,
     sitting,
+    sync,
     tmdb,
     warmup,
     watchlist,
@@ -77,6 +78,7 @@ def create_app(
     app.include_router(watchlist.unlocks)
     app.include_router(warmup.router)
     app.include_router(sitting.router)
+    app.include_router(sync.router)
     return app
 
 

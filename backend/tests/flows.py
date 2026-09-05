@@ -528,6 +528,31 @@ async def reset_warning(client):
     return response.json()
 
 
+# --- The sync list ---
+
+
+async def sync_list(client):
+    response = await client.get("/api/sync")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def mark_synced(client, film, expect=204):
+    """The owner saying they have carried this one film over to Letterboxd by hand."""
+    response = await client.post(f"/api/sync/{film.tmdb_id}")
+    assert response.status_code == expect, response.text
+
+
+async def mark_all_synced(client, expect=204):
+    response = await client.post("/api/sync/all")
+    assert response.status_code == expect, response.text
+
+
+def synced_pairs(payload, section="changed"):
+    """One section as {film: (what Letterboxd holds, what Anchor holds)}."""
+    return {row["tmdb_id"]: (row["synced"], row["band"]) for row in payload[section]}
+
+
 # --- The warmup ---
 
 
