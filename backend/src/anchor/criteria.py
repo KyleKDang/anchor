@@ -126,11 +126,14 @@ async def offer(
 ) -> CriteriaCard | None:
     """The card this landing earns, or None - which is the ordinary outcome.
 
-    ``entries`` are the just-finished flow's own comparisons, oldest first: the matchups
-    the card is allowed to ask about. ``context`` and ``since`` scope the flow exactly as
-    those comparisons are scoped, so a re-placement's offer belongs to the re-placement
-    and not to the placement it is questioning. The row this writes is flushed, not
-    committed: the caller commits it with the landing, so the two stand or fall together.
+    ``entries`` are the flow's comparisons, oldest first, and ``context`` and ``since``
+    say which of them the flow actually collected. The two are not the same list: a
+    re-placement resumes from judgments other flows produced, and a settle resumes from
+    every judgment the film has ever collected (rating-system.md), so ``entries`` can
+    hold work the owner did weeks ago for some other film. The card says "you just
+    compared these two", so the matchup is drawn from the collected ones alone - a head
+    start is evidence, never a matchup. The row this writes is flushed, not committed:
+    the caller commits it with the landing, so the two stand or fall together.
     """
     if context not in PLACEMENTS:
         return None
@@ -143,7 +146,7 @@ async def offer(
 
     if account.criteria_frequency is CriteriaFrequency.off:
         return None
-    matchup = _matchup(entries, subject)
+    matchup = _matchup(_collected(entries, context, since), subject)
     if matchup is None:
         return None
     listed = await qualities.listing(db, account.id)
@@ -167,6 +170,23 @@ async def offer(
     db.add(entry)
     await db.flush()
     return await _card(db, entry)
+
+
+def _collected(
+    entries: list[ComparisonLogEntry], context: ComparisonContext, since: datetime | None
+) -> list[ComparisonLogEntry]:
+    """The judgments this flow put on screen, dropping the head start it resumed from.
+
+    Scoped the same way the flow's own answers are, because that is what the flow asked:
+    a card naming a pair the owner never saw in this flow would be a bonus for a
+    placement that earned nothing, and would ask about a comparison they made for some
+    other film entirely.
+    """
+    return [
+        entry
+        for entry in entries
+        if entry.context is context and (since is None or entry.created_at > since)
+    ]
 
 
 def _matchup(entries: list[ComparisonLogEntry], subject: int) -> Matchup | None:

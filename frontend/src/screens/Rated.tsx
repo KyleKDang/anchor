@@ -448,9 +448,18 @@ function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: b
  */
 function SettlingMark({ film }: { film: RatedFilm }) {
   const navigate = useNavigate();
-  const { busy, run } = useAsyncAction();
+  const { busy, error, run } = useAsyncAction();
 
   if (film.anchor) return <ProvisionalMark />;
+  // The wall is a grid of same-sized cells with no room for an error line under each, so a
+  // failed ask takes the mark's own place: the owner sees why nothing opened, and the film
+  // page offers the same door with room to explain itself.
+  if (error)
+    return (
+      <span className="error" role="alert">
+        {error}
+      </span>
+    );
   return (
     <button
       type="button"

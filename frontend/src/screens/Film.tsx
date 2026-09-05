@@ -174,11 +174,15 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
               {film.drift !== null && <Drift film={film} flag={film.drift} onChanged={onChange} />}
               {film.rewatch !== null && <Rewatch film={film} onChanged={onChange} />}
               {/* One row: logging another watch and asking to place it again are the two
-                  things the owner does to a film they already have an opinion about. */}
-              <div className="actions">
-                <Watched film={film} onChanged={onChange} />
-                {film.drift === null && <RePlace film={film} />}
-              </div>
+                  things the owner does to a film they already have an opinion about. Both
+                  stand down at once while a rewatch and a flag are open, and an empty row
+                  is not a row. */}
+              {(film.rewatch === null || film.drift === null) && (
+                <div className="actions">
+                  <Watched film={film} onChanged={onChange} />
+                  {film.drift === null && <RePlace film={film} />}
+                </div>
+              )}
               {film.drift === null && film.anchor && <AnchorWarning band={film.rating} />}
               <Designate film={film} onChanged={onChange} />
               <p className="muted">
