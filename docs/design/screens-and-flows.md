@@ -38,6 +38,8 @@ Default view: the ordering best to worst, grouped by band with the half-star val
   Any non-position sort drops the band grouping and shows a flat list.
 - Filters: band range, genre, decade, has-open-drift-flag.
 - A compact needs-attention strip at the top collects open drift flags and expands into the flagged-films list.
+- A settling strip beside it carries the count of provisional films (anchors excluded) and the one button into settling; it is absent when nothing is provisional.
+  Each provisional film's "settling" mark is the per-film door into the same flow.
 - The rate-later queue is a secondary section here: watched-unrated films awaiting an optional placement.
 - Band headers offer anchor management (pick this band's anchor from its films).
 
@@ -53,7 +55,7 @@ Shifts with the film's state:
 
 - **Not in your world**: metadata, spoiler-toggled plot, add-to-backlog, I-watched-this.
 - **In backlog**: the same, plus pin, veto, remove-from-backlog; nothing rating-shaped, ever (ADR 0005).
-- **Rated**: band and rating, position with immediate neighbors, anchor badge where it applies, watch history, judgment history (the film's comparison-log entries), log-a-rewatch, re-place, make-anchor-of-its-band, and the open drift flag with its resolution options when one exists.
+- **Rated**: band and rating, position with immediate neighbors, anchor badge where it applies, watch history, judgment history (the film's comparison-log entries), log-a-rewatch, re-place ("settle it now" on a provisional film), make-anchor-of-its-band, and the open drift flag with its resolution options when one exists.
 - **Watched-unrated**: seen marker plus place-it-now.
 
 ## Logging a watch
@@ -75,6 +77,20 @@ A full-screen guided flow, one comparison per step: the two films side by side w
   Answers may move the film across a divider or move the divider itself; the doubt alone never moves anything.
   If the extended answers keep the film in place, the placement stands and the feeling was scale drift.
 
+## Settling on screen
+
+Settling is the placement flow run over provisional films one after another, entered from the Rated strip or from one film's own mark ([onboarding-and-import.md](onboarding-and-import.md) fixes what it does to the ordering).
+
+- From the strip, the engine picks the next film: the one whose remaining range is narrowest, then the best-remembered by the warmup's candidate ranking.
+  The flow carries a header naming the film and its progress ("Settling Heat - 3 of about 7"), and its landed screen offers next-film as the primary, with keep-comparing and the criteria bonus exactly as on any placement-done screen.
+- A sitting is open-ended: no target, a leave control always visible, and a tally of the sitting (films settled, answers given) as the only thing it says about itself.
+  Leaving mid-film is free, because the film's answers are already in the log and the next attempt resumes from them.
+- "Not this one" moves on without a judgment and does not offer that film again in the sitting.
+  Nothing is stored for it, since the next-film rule already puts barely-remembered films last.
+- From one film's mark or page, the same flow runs for that film alone and lands on the ordinary done screen, with a quiet settle-another where more remain.
+- Anchors are never offered; an anchor is re-placed only from its own page, with the warning from [rating-system.md](rating-system.md).
+- Early bail stays available and lands provisionally as anywhere else; the tally counts graduations only.
+
 ## Anchor management
 
 Two entry points, one flow: a rated film's page anchors that film's band (the designation-mismatch rule from [rating-system.md](rating-system.md) applies); a Rated band header opens the band's films to pick from.
@@ -85,7 +101,7 @@ Swapping simply retires the old anchor.
 - The prose taste profile: readable, corrected via structural constraints, never text edits.
 - The quality picker, editable any time.
 - The criteria-question frequency control and off switch.
-- The readiness state shown honestly (cold / forming / ready and what each unlocks).
+- The readiness state shown honestly (cold / forming / ready and what each unlocks), linking into settling where comparisons are what is missing.
 - The import / hard-reset entry with its enumerating type-to-confirm warning, and the unmatched-rows list under the import area.
 - The Letterboxd area: the sync list and import residue counts ([surfacing.md](surfacing.md)).
 - A small stats block: films rated, comparisons answered, the emergent distribution as a histogram.

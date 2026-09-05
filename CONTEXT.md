@@ -75,7 +75,12 @@ Only the answers can move the film or a divider; the doubt itself never moves an
 
 **Provisional placement**:
 A film's position trusted less than a fully-compared one: produced by the seed import or by ending a placement early once the band is locked.
-Refined by later comparisons; graduates to fully trusted when the advisory math's confidence crosses the same threshold a normal placement needs.
+Refined by later comparisons; graduates to fully trusted when the advisory math's confidence crosses the same threshold a normal placement needs, or the moment the owner settles it.
+
+**Settling**:
+The owner-started flow that runs placements over provisional films one after another until the owner leaves, each film's search head-started by every judgment it has collected as an opponent, so it graduates the moment its own answers pin it.
+Entered from the strip atop Rated or from one film's "settling" mark; never offered for anchors, never a target, and leaving mid-film costs nothing.
+_Avoid_: ranking session, comparison mode
 
 **Comparison log**:
 The append-only record of every judgment: comparisons, skips, band judgments (sliver answers and plain band picks), and criteria answers, each with its context.
@@ -98,7 +103,7 @@ Closes when the owner resolves it (re-place, keep, or re-point at the opponent f
 A targeted comparison the app slips into a normal comparison moment to confirm or clear a suspected drift before surfacing the flag.
 
 **Re-placement**:
-The placement flow run again for an already-rated film, entered from drift resolution, a rewatch, or an anchor-designation mismatch.
+The placement flow run again for an already-rated film, entered from drift resolution, a rewatch, an anchor-designation mismatch, or the owner asking for it from the film's page.
 Head-started by the film's in-tension judgments where they exist; its outcome always wins over the owner's stated intent.
 
 **Rewatch**:
@@ -138,7 +143,7 @@ Leaving is equally free: waving a film off the queue never touches its watched s
 
 **Warmup**:
 The skippable guided sequence offered when an account starts: designate anchors, gather first comparison evidence, seed the backlog.
-One skeleton with two fills, post-import (import-ranked anchor candidates, advisory comparisons, watchlist rows) and fresh (search-driven designation, first placements, hand-added films); the app is fully usable the moment any part is skipped.
+One skeleton with two fills, post-import (import-ranked anchor candidates, a few films settled, watchlist rows) and fresh (search-driven designation, first placements, hand-added films); the app is fully usable the moment any part is skipped.
 
 ### Watchlist
 

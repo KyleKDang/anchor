@@ -24,14 +24,18 @@ Future features inherit the posture; an exception requires amending ADR 0011, ne
 
 - **Readiness unlocks**: the dot, plus one line on the placement-done screen (or warmup step) when that very act crossed the bar.
   Progress is ambient only: a line and subtle bar on the pre-gate Watchlist, the readiness display on Profile, and the pre-gate Discovery screen explaining itself.
+  Where that line names comparisons or settling as what is missing, it links into settling rather than dead-ending.
 - **Drift**: the needs-attention strip on Rated, the film page, and the rewatch piggyback are the ceiling - no push, ever (benched-opponent protection means nothing is urgent).
   Quiet drift checks: at most one per placement, oldest pending suspicion first, indistinguishable from a normal comparison; a probed suspicion is not re-probed until its answer is folded in.
 - **Rebands**: never announced as an event; visibility is the sync list's job.
 - **Tier refresh**: unmarked; the tier is simply its new self (a just-backlogged film entering immediately is its own confirmation).
   **Rotation**: never announced.
 - **Prose profile**: an ambient "last updated" line on the profile page, nothing more.
-- **Provisional settling**: ambient marker on Rated and the film page only; graduation rides the organic mechanisms (double-duty opponents, warmup advisory comparisons).
-  No settling counter, no dedicated entry point in v1.
+- **Provisional settling**: the "settling" marker on Rated and the film page, plus one strip atop Rated's ordering carrying the count of films still settling and the door into settling.
+  The count is the ceiling: no dot, no chaser, no mention anywhere else, and the strip renders nothing when nothing is provisional.
+  Graduation otherwise rides the organic mechanisms (double-duty opponents, the warmup's settle step).
+  The door exists because those mechanisms assume new placements keep arriving, and an owner who imported everything they have seen has none, so "quietly, as you use it" would mean never.
+  The spec first excluded it so that nothing would be pressed on an owner after import; a door that is only ever offered presses nothing.
 - **Rate-later queue**: the Rated-screen section with its count is the ceiling; no post-placement chasers - "later" never becomes a promise.
 - **Anchor-designation nudge**: lives exactly where the absence of stars is felt - a line atop Rated's ordering and on any position-only placement-done screen, both linking into designation.
   Presence-based, vanishing the moment the first anchor exists.
