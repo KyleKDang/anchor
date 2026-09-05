@@ -20,7 +20,7 @@ from flows import (
     anchors,
     answer,
     answer_band,
-    bail,
+    bail_inside_the_band,
     bands_of,
     begin,
     build_ordering,
@@ -34,6 +34,7 @@ from flows import (
     rated,
     replace_at,
     retire,
+    scale,
 )
 from invariants import anchors as anchor_rows
 from invariants import (
@@ -54,20 +55,6 @@ COMEDY = FilmFixture(2002, "A Comedy", release_date="1975-01-01", genres=("Comed
 @pytest.fixture(autouse=True)
 def stocked(tmdb):
     return tmdb.with_films(*LIBRARY, WESTERN, COMEDY)
-
-
-async def scale(client, size=5, top=1, bottom=3):
-    """An ordering of ``size`` films with a 4.0 and a 3.0 anchor inside it.
-
-    The bands fall out of the two designations: the anchors are their own bands, the
-    films between them derive into 3.5, and the films above and below have no rating at
-    all, because the dividers that would decide them are still unpinned.
-    """
-    films = LIBRARY[:size]
-    await build_ordering(client, films)
-    await designate(client, 4.0, films[top])
-    await designate(client, 3.0, films[bottom])
-    return [film.tmdb_id for film in films]
 
 
 # --- Designating an anchor ---
@@ -465,7 +452,7 @@ async def test_a_ballpark_guess_never_becomes_a_judgment(owner, db):
 async def test_bailing_after_the_band_locks_lands_provisionally_mid_band(owner, db):
     ids = await scale(owner, size=9, top=1, bottom=7)
 
-    landed = await _bail_inside_the_band(owner, LIBRARY[9], ids)
+    landed = await bail_inside_the_band(owner, LIBRARY[9], ids)
 
     assert landed["rating"] == 3.5, "the stars were settled before the exact slot was"
     assert landed["provisional"] is True
@@ -486,7 +473,7 @@ async def test_bailing_before_the_band_locks_is_refused(owner):
 
 async def test_a_provisional_placement_graduates_once_its_answers_pin_it(owner, db):
     ids = await scale(owner, size=9, top=1, bottom=7)
-    await _bail_inside_the_band(owner, LIBRARY[9], ids)
+    await bail_inside_the_band(owner, LIBRARY[9], ids)
     assert _row_for(await rated(owner), LIBRARY[9].tmdb_id)["provisional"] is True
 
     # More answers, and the film's own judgments pin it exactly where it already sits -
@@ -510,7 +497,7 @@ async def test_a_provisional_graduates_on_comparisons_run_for_other_films(owner,
     of provisionals without a single extra question.
     """
     ids = await scale(owner, size=9, top=1, bottom=7)
-    await _bail_inside_the_band(owner, LIBRARY[9], ids)
+    await bail_inside_the_band(owner, LIBRARY[9], ids)
     assert _row_for(await rated(owner), LIBRARY[9].tmdb_id)["provisional"] is True
 
     # Two placements the owner ran for other films, each landing right beside it.
@@ -925,17 +912,6 @@ async def _second_four(owner, ids):
     step = await place_at(owner, LIBRARY[5], ids, 2)
     assert step["kind"] == "band"
     await answer_band(owner, LIBRARY[5], 4.0, step["options"][0]["exemplar"]["tmdb_id"])
-
-
-async def _bail_inside_the_band(owner, film, ids):
-    """Answer until the stars are settled but the exact slot is not, then stop there."""
-    await mark_watched(owner, film, "now")
-    step = await begin(owner, film)
-    while not step["done"] and not step["band_locked"]:
-        opponent = step["b"]["tmdb_id"]
-        step = await answer(owner, film, opponent, "a" if ids.index(opponent) >= 4 else "b")
-    assert step["done"] is False and step["band_locked"], "the search settled before it locked"
-    return await bail(owner, film)
 
 
 def _row_for(payload, tmdb_id):

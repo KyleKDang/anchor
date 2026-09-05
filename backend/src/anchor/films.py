@@ -16,7 +16,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import catalog, drift, rewatch
+from anchor import catalog, drift, rewatch, settling
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
@@ -45,17 +45,25 @@ class SearchResults(BaseModel):
 
 
 class FilmPage(FilmDetail):
-    """The film page: a film's standing, plus the two things only a rated film carries.
+    """The film page: a film's standing, plus the three things only a rated film carries.
 
-    Both are absent on every other film, and null on a rated one with nothing pending,
-    which is why they live here rather than on the shared detail: an unwatched film has
-    no drift to have and no rewatch to answer, and ADR 0005 wants that said by absence.
+    All three are absent on every other film, and empty on a rated one with nothing
+    pending, which is why they live here rather than on the shared detail: an unwatched
+    film has no drift to have, no rewatch to answer and no position to settle, and ADR
+    0005 wants that said by absence.
     """
 
     drift: DriftFlagView | None = None
     """The open drift flag and its resolution options, where the owner has one to see."""
     rewatch: RewatchPrompt | None = None
     """The still-feel-the-same question the last rewatch left open."""
+    provisional: bool = False
+    """The position is a placeholder, so the page offers to settle it rather than re-place it.
+
+    The same fact the "settling" mark carries on Rated, and the same door: both open the
+    placement flow on this film. It only decides how the page words the offer - a
+    provisional film has a position to finish rather than one to question.
+    """
 
 
 class MarkWatched(BaseModel):
@@ -265,6 +273,7 @@ async def _detail(
     )
     page.drift = await drift.view(db, account.id, film.tmdb_id)
     page.rewatch = await rewatch.prompt(db, account.id, film.tmdb_id)
+    page.provisional = await settling.provisional(db, account_film)
     return page
 
 

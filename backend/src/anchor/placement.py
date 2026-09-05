@@ -46,7 +46,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands, drift, jobs, rewatch, tier
+from anchor import bands, drift, jobs, rewatch, settling, tier
 from anchor import criteria as criteria_module
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
@@ -319,6 +319,14 @@ class PlacementLanded(BaseModel):
     placement never re-shows it: the bar was already crossed before that request began.
     """
     neighbours: Neighbours
+    settle_another: int | None = None
+    """How many films are still settling, on the done screen of a settle and nowhere else.
+
+    The one quiet way back into settling from a film settled on its own (screens-and-flows.md).
+    None on every other landing and on a re-visit of this one, which is what keeps it a
+    moment rather than a chaser: surfacing.md gives provisional settling the Rated strip
+    and the marks, and this is the same count in the one place the owner just used it.
+    """
     criteria: CriteriaCard | None = None
     """The optional bonus question this landing earned, and usually None (taste-profile.md).
 
@@ -383,6 +391,14 @@ class Flow:
     account_film: AccountFilm
     context: ComparisonContext
     since: datetime | None
+    settling: bool = False
+    """This re-placement is the owner settling a film whose position was a placeholder.
+
+    The one re-placement that sets nothing aside. Every other kind questions a position
+    the owner's answers produced, so the answers that produced it stand back; a
+    provisional position was never a judgment, so the judgments the film has collected
+    are the head start rather than the thing being questioned (rating-system.md).
+    """
 
     @property
     def film_id(self) -> int:
@@ -395,21 +411,33 @@ async def _flow(db: AsyncSession, account: Account, account_film: AccountFilm) -
     held = await anchors_module.intent(db, account.id)
     if held is not None and held.account_film_id == account_film.id:
         return Flow(account_film, ComparisonContext.re_placement, held.designated_at)
-    started = await _re_placement_started(db, account.id, account_film)
+    asked = await settling.replacing_since(db, account.id, account_film)
+    started = await _re_placement_started(db, account.id, account_film, asked)
     if started is not None:
-        return Flow(account_film, ComparisonContext.re_placement, started)
+        # Settling only where the owner's own ask is the door that is open: a drift flag
+        # or a rewatch on the same film is a question about where it sits, and answering
+        # it by piling the film's whole history back in would answer it with the very
+        # evidence the owner is doubting.
+        provisional = started == asked and await settling.provisional(db, account_film)
+        return Flow(account_film, ComparisonContext.re_placement, started, settling=provisional)
     return Flow(account_film, ComparisonContext.keep_comparing, None)
 
 
 async def _re_placement_started(
-    db: AsyncSession, account_id: uuid.UUID, account_film: AccountFilm
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    account_film: AccountFilm,
+    asked: datetime | None,
 ) -> datetime | None:
-    """When a re-placement the owner asked for began, from either door into one.
+    """When a re-placement the owner asked for began, from whichever door into one.
 
-    Two doors: resolving a drift flag, and changing your mind at a rewatch. Both are the
-    owner saying "this is in the wrong place" outside any flow, which is the one thing
-    the search cannot re-derive from its own answers - so each door leaves a mark, and
-    this reads whichever one is current.
+    Three doors: resolving a drift flag, changing your mind at a rewatch, and asking
+    outright from the film's page. All three are the owner saying "look at this again"
+    outside any flow, which is the one thing the search cannot re-derive from its own
+    answers - so each door leaves a mark, and this reads whichever one is current.
+
+    The newest wins where two are open, because it is the one the owner most recently
+    acted on and the older mark's answers belong to the attempt it started.
     """
     return max(
         (
@@ -417,6 +445,7 @@ async def _re_placement_started(
             for moment in (
                 await drift.replacing_since(db, account_id, account_film.film_id),
                 await rewatch.replacing_since(db, account_id, account_film),
+                asked,
             )
             if moment is not None
         ),
@@ -450,6 +479,26 @@ async def begin(
     if flow.context is ComparisonContext.keep_comparing:
         return await _landed(db, account, account_film)
     return await _advance(db, queue, account, settings, flow, seed, (ballpark, ballpark_to))
+
+
+@router.post("/{tmdb_id}/re-place", status_code=204)
+async def re_place(tmdb_id: int, account: CurrentAccount, db: DbSession) -> None:
+    """The owner asking outright for this film to be placed again: the fourth door.
+
+    It records the ask and nothing else - the flow itself is ``begin``, exactly as for
+    the other three doors, so the placement screen has one way in whatever opened it.
+    Asking twice is asking once: a live request is reused, so a second click resumes the
+    flow rather than throwing away the answers already given to it.
+
+    An anchor is not refused here. Its page is the one place an anchor may be re-placed
+    from (onboarding-and-import.md), and the warning that goes with it belongs to that
+    page rather than to this endpoint, which cannot show one.
+    """
+    account_film = await _placeable(db, account, tmdb_id)
+    if account_film.state is not LifecycleState.rated:
+        raise ApiError(409, "not_placed", "Place this film before placing it again.")
+    await settling.request(db, account.id, account_film)
+    await db.commit()
 
 
 @router.post("/{tmdb_id}/answers")
@@ -681,9 +730,20 @@ async def _advance(
     # Offered inside the landing's transaction, so a placement never commits without the
     # card it earned and the log never carries an offer for a landing that rolled back.
     card = await criteria_module.offer(db, account, tmdb_id, flow.context, flow.since, entries)
+    # Read after the graduation above, so a film that has just come off the mark is not
+    # counted among what is left, and before the commit that ends the request.
+    settle_another = (
+        await settling.remaining(db, account.id, besides=tmdb_id) if flow.settling else None
+    )
     await db.commit()
     return await _landed(
-        db, account, flow.account_film, designated=designated, unlocked=unlocked, card=card
+        db,
+        account,
+        flow.account_film,
+        designated=designated,
+        unlocked=unlocked,
+        card=card,
+        settle_another=settle_another,
     )
 
 
@@ -1156,6 +1216,7 @@ async def _landed(
     designated: bool = False,
     unlocked: bool = False,
     card: CriteriaCard | None = None,
+    settle_another: int | None = None,
 ) -> PlacementLanded:
     """The done screen. Only a landing carries a bonus card; a re-visit of one does not,
     which is what keeps the card at zero or one per placement (taste-profile.md)."""
@@ -1187,6 +1248,7 @@ async def _landed(
             tied_with=[cards[film_id] for film_id in tied],
             below=[cards[film_id] for film_id in below],
         ),
+        settle_another=settle_another,
         criteria=card,
     )
 
@@ -1347,11 +1409,33 @@ async def _entries(db: AsyncSession, account_id: uuid.UUID, flow: Flow) -> list[
     answers = list(rows)
     if flow.context is not ComparisonContext.re_placement:
         return answers
-    seeds = await drift.seeding_evidence(db, account_id, flow.film_id)
+    seeds = await _head_start(db, account_id, flow, answers)
     if not seeds:
         return answers
     ordering = await ordering_module.load(db, account_id)
     return consistent_core(flow.film_id, ordering.without(flow.film_id), seeds, answers)
+
+
+async def _head_start(
+    db: AsyncSession, account_id: uuid.UUID, flow: Flow, answers: list[ComparisonLogEntry]
+) -> list[ComparisonLogEntry]:
+    """The already-answered questions a re-placement resumes from, oldest first.
+
+    Two shapes, and which one applies is the difference between the doors. Questioning a
+    position takes only the in-tension judgments that raised the doubt, because the rest
+    of the evidence is what put the film where it is and re-applying it would re-derive
+    the answer the owner is disputing. Settling a provisional one takes everything the
+    film has collected, because the position it holds is a placeholder the import left
+    and every judgment about the film is evidence it was waiting for - most of all the
+    ones another film's placement ran against it, which the owner has already answered
+    and should never be asked again.
+    """
+    if not flow.settling:
+        return await drift.seeding_evidence(db, account_id, flow.film_id)
+    given = {entry.id for entry in answers}
+    return [
+        entry for entry in await _evidence(db, account_id, flow.film_id) if entry.id not in given
+    ]
 
 
 def _opponents(entries: list[ComparisonLogEntry], subject: int) -> list[int]:

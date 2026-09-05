@@ -585,6 +585,27 @@ select {
   font-weight: 500;
 }
 
+/* The mark on the wall is also the door into settling that film, so it takes a hover and
+   a focus ring - but keeps the badge's weight. It is ambient by design (surfacing.md), and
+   a mark that looked like a button would be the chaser the spec refused. */
+.settling-door {
+  font-family: inherit;
+  background: none;
+  cursor: pointer;
+  transition:
+    color var(--fast),
+    border-color var(--fast);
+}
+
+.settling-door:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+.settling-door:disabled {
+  cursor: progress;
+}
+
 .state-flag {
   padding: 0.2rem 0.45rem;
   color: var(--muted);

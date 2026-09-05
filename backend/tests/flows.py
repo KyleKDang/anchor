@@ -100,13 +100,7 @@ async def place(client, film, verdict, seed=1, band=None, **params):
     asked = 0
     while not step["done"]:
         if step["kind"] == "band":
-            chosen = band if band is not None else step["options"][0]["band"]
-            exemplar = next(
-                (option["exemplar"] for option in step["options"] if option["band"] == chosen), None
-            )
-            step = await answer_band(
-                client, film, chosen, exemplar["tmdb_id"] if exemplar else None, seed
-            )
+            step = await answer_the_band(client, film, step, band, seed)
             continue
         assert_no_rating_keys(step, "a mid-flow question")
         asked += 1
@@ -114,6 +108,15 @@ async def place(client, film, verdict, seed=1, band=None, **params):
             client, film, step["a"]["tmdb_id"], step["b"]["tmdb_id"], verdict, seed
         )
     return step, asked
+
+
+async def answer_the_band(client, film, step, band=None, seed=1):
+    """Answer a sliver question with ``band`` where the caller named one, else the first."""
+    chosen = band if band is not None else step["options"][0]["band"]
+    exemplar = next(
+        (option["exemplar"] for option in step["options"] if option["band"] == chosen), None
+    )
+    return await answer_band(client, film, chosen, exemplar["tmdb_id"] if exemplar else None, seed)
 
 
 async def place_at(client, film, ordering_ids, index, seed=1):
@@ -147,6 +150,42 @@ async def build_ordering(client, films):
     """Place films worst-last: each new one loses every comparison, so order is preserved."""
     for film in films:
         await place(client, film, "b")
+
+
+async def scale(client, size=5, top=1, bottom=3):
+    """An ordering of ``size`` films with a 4.0 and a 3.0 anchor inside it.
+
+    The bands fall out of the two designations: the anchors are their own bands, the
+    films between them derive into 3.5, and the films above and below have no rating at
+    all, because the dividers that would decide them are still unpinned.
+    """
+    films = LIBRARY[:size]
+    await build_ordering(client, films)
+    await designate(client, 4.0, films[top])
+    await designate(client, 3.0, films[bottom])
+    return [film.tmdb_id for film in films]
+
+
+async def answer_until_the_band_locks(client, film, ordering_ids, index):
+    """Answer until the stars are settled but the exact slot is not, and stop there.
+
+    The one moment an early bail is offered: the band cannot change any more, so the film
+    has a rating whatever happens next, and only its exact neighbours are still open.
+    """
+    step = await begin(client, film)
+    while not step["done"] and step["kind"] == "comparison" and not step["band_locked"]:
+        opponent = step["b"]["tmdb_id"]
+        verdict = "a" if ordering_ids.index(opponent) >= index else "b"
+        step = await answer(client, film, opponent, verdict)
+    assert step["done"] is False and step.get("band_locked"), "the search settled before it locked"
+    return step
+
+
+async def bail_inside_the_band(client, film, ordering_ids, index=4):
+    """Place a film only as far as its stars, then stop: the provisional landing."""
+    await mark_watched(client, film, "now")
+    await answer_until_the_band_locks(client, film, ordering_ids, index)
+    return await bail(client, film)
 
 
 # --- Anchors ---
@@ -195,6 +234,37 @@ async def keep_position(client, film, opponents=None, expect=204):
 async def flag_of(client, film):
     """The open drift flag on a film's page, or None where the owner has none to see."""
     return (await film_page(client, film))["drift"]
+
+
+# --- Settling ---
+
+
+async def ask_to_re_place(client, film, expect=204):
+    """The owner asking outright, from the film's page or its "settling" mark."""
+    response = await client.post(f"/api/placements/{film.tmdb_id}/re-place")
+    assert response.status_code == expect, response.text
+
+
+async def settle(client, film, ordering_ids, index, seed=1, band=None):
+    """Ask to settle a film, then answer every question until it lands at ``index``.
+
+    Returns the done screen and the comparisons it took to get there - the count is what
+    the head start is measured in, so a band question along the way is answered and not
+    counted: it is about the stars, and the search was already over when it was asked.
+    """
+    await ask_to_re_place(client, film)
+    step = await begin(client, film, seed)
+    asked = []
+    while not step["done"]:
+        if step["kind"] == "band":
+            step = await answer_the_band(client, film, step, band, seed)
+            continue
+        assert_no_rating_keys(step, "a mid-flow question")
+        asked.append(step)
+        opponent = step["b"]["tmdb_id"]
+        verdict = "a" if ordering_ids.index(opponent) >= index else "b"
+        step = await answer(client, film, opponent, verdict, seed)
+    return step, asked
 
 
 # --- Rewatches ---

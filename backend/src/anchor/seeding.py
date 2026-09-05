@@ -68,6 +68,9 @@ WIPED = (
     # evidence first, since it points at both the flags and the log below it.
     "drift_evidence",
     "drift_flags",
+    # A re-placement the owner asked for is about a position the reset is deleting, so
+    # the ask goes with it rather than reopening on a film the new export re-seeded.
+    "replacement_requests",
     "placements",
     "tie_group_slots",
     "comparison_log_entries",

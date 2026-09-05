@@ -1,5 +1,6 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import { letterboxdExport } from "./export";
 import { signUpOwner } from "./owner";
 
 const HEAT = 949;
@@ -89,4 +90,82 @@ async function markWatched(page: Page, title: string, choice: "Rate now" | "Late
   // here, so wait for the row to flag the film watched before navigating away - or a
   // slower runner reads the rate-later queue before the watch has landed in it.
   if (choice === "Later") await expect(row.getByText("Watched, not rated")).toBeVisible();
+}
+
+/**
+ * Settling one film, from the mark on the wall that opened it.
+ *
+ * The one journey the settling door gets: an imported library where every position is a
+ * placeholder, the owner picking one film off the wall, answering it through, and the
+ * mark being gone when they come back. Wiring, not behaviour - the head start and the
+ * trust it earns are pinned at the API seam - but nothing below the browser can show
+ * that the mark is reachable, opens the placement flow, and stops being there after.
+ */
+test("an owner settles one imported film from its mark and finds the mark gone", async ({
+  page,
+  request,
+}) => {
+  await signUpOwner(page, request, "settle");
+
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
+    name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
+    mimeType: "application/zip",
+    buffer: letterboxdExport(
+      [
+        { name: "Fight Club", year: 1999, rating: 5 },
+        { name: "Arrival", year: 2016, rating: 4 },
+        { name: "Heat", year: 1995, rating: 3 },
+      ],
+      [],
+    ),
+  });
+  await page.getByRole("button", { name: "Import your export" }).click();
+  await expect(page.getByText("Every row found its film.")).toBeVisible({ timeout: 60_000 });
+
+  // Every seeded position is a placeholder, so every film wears the mark.
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
+  const mark = page
+    .getByRole("listitem")
+    .filter({ hasText: "Arrival" })
+    .getByRole("button", { name: "Settle Arrival now" });
+  await expect(mark).toBeVisible();
+
+  // The mark is the door: it opens the placement flow on that film alone.
+  await mark.click();
+  await answerUntilLanded(page, "Arrival");
+
+  // And the mark is gone, because the film's own answers now pin it.
+  await page.getByRole("button", { name: "Done" }).click();
+  await expect(page).toHaveURL(/\/rated$/);
+  const settled = page.getByRole("listitem").filter({ hasText: "Arrival" });
+  await expect(settled).toBeVisible();
+  await expect(settled.getByText("settling")).toHaveCount(0);
+});
+
+/**
+ * Answer whatever the flow asks, taking the first option offered, until the film lands.
+ *
+ * How many questions a settle takes is the API seam's business and depends on what the
+ * film has already collected, so this answers until the done screen rather than a fixed
+ * number of times. Each click waits for its own response, so the next turn of the loop
+ * reads the step that answer produced rather than the one it replaced.
+ */
+async function answerUntilLanded(page: Page, title: string): Promise<void> {
+  const landed = page.getByRole("heading", { level: 1, name: `${title} landed` });
+  const answers = page.getByRole("button", { name: /is better$|is a \d/ });
+  for (let step = 0; step < 8 && !(await landed.isVisible()); step += 1) {
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          response.url().includes("/api/placements/") && response.request().method() === "POST",
+      ),
+      answers.first().click(),
+    ]);
+    // The response lands a beat before the screen redraws, and every control is disabled
+    // while the answer is in flight - so wait for the next step to be answerable rather
+    // than clicking the button this answer is about to replace.
+    await expect(page.getByRole("button", { disabled: true })).toHaveCount(0);
+  }
+  await expect(landed).toBeVisible();
 }
