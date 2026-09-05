@@ -14,59 +14,71 @@ import pytest
 from procrastinate.jobs import Status
 from procrastinate.manager import JobManager
 from procrastinate.utils import utcnow
-from sqlalchemy import select
+from sqlalchemy import func, select
 
 import export
 import flows
 from anchor import jobs
-from anchor.models import WorkerProbe
+from anchor.models import AuthSession
 from export import Row
 from faketmdb import FilmFixture
 
+SWEPT = jobs.prune_expired_sessions
+"""The pairing these transaction tests ride on: an expired login session, and the nightly
+job that clears it. Small, real, and observable by the row's absence afterwards."""
 
-async def _probes(db):
+
+def _lapsed_session(account_id):
+    return AuthSession(
+        token_hash=uuid.uuid4().hex,
+        account_id=uuid.UUID(account_id),
+        expires_at=utcnow() - timedelta(days=1),
+    )
+
+
+async def _lapsed_sessions(db):
     async with db.sessions() as session:
-        return list(await session.scalars(select(WorkerProbe)))
+        return list(
+            await session.scalars(select(AuthSession).where(AuthSession.expires_at <= func.now()))
+        )
 
 
 async def _todo_jobs(jobs_app):
-    """Queued probe answers (the worker's own periodic jobs are not under test here)."""
+    """Queued sweeps (the worker's own periodic jobs are not under test here)."""
     return [
         job
         for job in await jobs_app.job_manager.list_jobs_async()
-        if job.status == "todo" and job.task_name == jobs.task_name(jobs.answer_probe)
+        if job.status == "todo" and job.task_name == jobs.task_name(SWEPT)
     ]
 
 
-async def test_rolled_back_data_change_takes_its_job_with_it(db, jobs_app):
+async def test_rolled_back_data_change_takes_its_job_with_it(owner, db, jobs_app):
+    account = await flows.account_id(owner)
     async with db.sessions() as session:
-        probe = WorkerProbe()
-        session.add(probe)
+        session.add(_lapsed_session(account))
         await session.flush()
-        await jobs.enqueue(session, jobs_app, jobs.answer_probe, probe_id=str(probe.id))
+        await jobs.enqueue(session, jobs_app, SWEPT, timestamp=0)
         await session.rollback()
 
-    assert await _probes(db) == []
+    assert await _lapsed_sessions(db) == []
     assert await _todo_jobs(jobs_app) == []
 
 
-async def test_committed_data_change_and_its_job_run_in_the_worker(db, jobs_app, run_jobs):
+async def test_committed_data_change_and_its_job_run_in_the_worker(owner, db, jobs_app, run_jobs):
+    account = await flows.account_id(owner)
     async with db.sessions() as session:
-        probe = WorkerProbe()
-        session.add(probe)
+        session.add(_lapsed_session(account))
         await session.flush()
-        await jobs.enqueue(session, jobs_app, jobs.answer_probe, probe_id=str(probe.id))
+        await jobs.enqueue(session, jobs_app, SWEPT, timestamp=0)
         await session.commit()
 
     [queued] = await _todo_jobs(jobs_app)
-    assert queued.task_kwargs == {"probe_id": str(probe.id)}
-    [unanswered] = await _probes(db)
-    assert unanswered.answered_at is None
+    assert queued.task_kwargs == {"timestamp": 0}
+    assert len(await _lapsed_sessions(db)) == 1
 
     await run_jobs()
 
-    [answered] = await _probes(db)
-    assert answered.answered_at is not None
+    assert await _lapsed_sessions(db) == []
     assert await _todo_jobs(jobs_app) == []
 
 
@@ -186,42 +198,42 @@ async def test_a_drain_that_cannot_finish_gives_up_and_names_what_is_left(jobs_a
     suite open until CI's own timeout kills it with nothing to read.
     """
     await jobs_app.configure_task(
-        name=jobs.task_name(jobs.answer_probe), schedule_in={"hours": 1}
-    ).defer_async(probe_id=str(uuid.uuid4()))
+        name=jobs.task_name(jobs.retrain_taste_profile), schedule_in={"hours": 1}
+    ).defer_async(account_id=str(uuid.uuid4()))
 
     started = time.monotonic()
-    with pytest.raises(AssertionError, match=re.escape(jobs.task_name(jobs.answer_probe))):
+    with pytest.raises(AssertionError, match=re.escape(jobs.task_name(jobs.retrain_taste_profile))):
         await run_jobs()
     assert time.monotonic() - started < 15
 
 
 @pytest.mark.settings(stalled_job_seconds=0)
 async def test_a_job_with_no_retry_left_is_failed_rather_than_left_running(
-    db, jobs_app, defer, run_jobs, caplog
+    owner, db, jobs_app, defer, run_jobs, caplog
 ):
     """Reclamation delivers the task's own retry policy; it does not invent a new one.
 
-    ``answer_probe`` declares no retry, so a probe whose worker died is failed rather
+    The nightly sweep declares no retry, so a sweep whose worker died is failed rather
     than re-run - the same end the task would have reached had its process lived long
-    enough to raise. Either way the row leaves ``doing``, which is the ticket's bar.
+    enough to raise, and tomorrow night's run clears what this one did not. Either way
+    the row leaves ``doing``, which is the ticket's bar.
     """
+    account = await flows.account_id(owner)
     async with db.sessions() as session:
-        probe = WorkerProbe()
-        session.add(probe)
+        session.add(_lapsed_session(account))
         await session.flush()
-        await jobs.enqueue(session, jobs_app, jobs.answer_probe, probe_id=str(probe.id))
+        await jobs.enqueue(session, jobs_app, SWEPT, timestamp=0)
         await session.commit()
 
     wedged = await _wedge(jobs_app)
-    assert wedged.task_name == jobs.task_name(jobs.answer_probe)
+    assert wedged.task_name == jobs.task_name(SWEPT)
 
     await defer(jobs.reclaim_stalled_jobs, timestamp=0)
     with caplog.at_level(logging.ERROR, logger="anchor.jobs"):
         await run_jobs()
 
     assert (await _job(jobs_app, wedged.id)).status == "failed"
-    [unanswered] = await _probes(db)
-    assert unanswered.answered_at is None
+    assert len(await _lapsed_sessions(db)) == 1
     [reported] = _reported(caplog)
     assert "failed" in reported
 

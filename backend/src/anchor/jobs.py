@@ -16,13 +16,13 @@ import procrastinate
 from procrastinate import JobContext, builtin_tasks
 from procrastinate.jobs import Job, Status
 from procrastinate.retry import RetryStrategy
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import catalog, matching, seeding
 from anchor.db import Database
 from anchor.errors import ApiError
-from anchor.models import AuthSession, Import, ImportRow, ImportRowState, ImportStatus, WorkerProbe
+from anchor.models import AuthSession, Import, ImportRow, ImportRowState, ImportStatus
 from anchor.settings import Settings
 from anchor.tmdb import FilmNotInTmdb, Tmdb, TmdbUnavailable
 
@@ -125,15 +125,6 @@ async def schedule_prose_check(
     accumulated costs a queue row and a query rather than a provider call.
     """
     await enqueue(session, jobs, regenerate_prose, lock=str(account_id), account_id=str(account_id))
-
-
-async def answer_probe(context: JobContext, probe_id: str) -> None:
-    """The health check's round trip: mark the probe answered."""
-    async with database_of(context).sessions() as session:
-        await session.execute(
-            update(WorkerProbe).where(WorkerProbe.id == probe_id).values(answered_at=func.now())
-        )
-        await session.commit()
 
 
 async def retrain_taste_profile(context: JobContext, account_id: str) -> None:
@@ -295,7 +286,7 @@ async def _match_row(
 
 
 async def remove_old_jobs(context: JobContext, timestamp: int) -> None:
-    """Nightly hygiene: drop finished job rows (health probes alone add one per check)."""
+    """Nightly hygiene: drop the rows of jobs that have finished, succeeded or failed."""
     await builtin_tasks.remove_old_jobs(context, max_hours=24)
 
 
@@ -410,7 +401,6 @@ def _has_attempts_left(app: procrastinate.App, job: Job) -> bool:
 
 def _declare_tasks() -> procrastinate.Blueprint:
     tasks = procrastinate.Blueprint()
-    tasks.task(name=answer_probe.__name__, pass_context=True)(answer_probe)
     tasks.task(name=retrain_taste_profile.__name__, pass_context=True)(retrain_taste_profile)
     # Retried, because the whole job is one long conversation with a provider and the far
     # end goes down. Re-running is safe: the first thing it does is re-ask whether the

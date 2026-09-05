@@ -45,6 +45,8 @@ services:
         condition: service_completed_successfully
     # As in dev: /api/health spans database and worker, so "web healthy" means the
     # whole stack answers and `docker compose up --wait` gates the deploy on it.
+    # The worker is proven by its heartbeat, so a worker busy with an owner's import is
+    # healthy and cannot fail a deploy that happens to land while it runs (#82).
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
       interval: 30s

@@ -1,53 +1,90 @@
-"""The health check: web, database, and worker, proven by a job round trip."""
+"""The health check: web, database, and the worker, proven by the worker's own heartbeat.
 
-import asyncio
+Two questions live here and only one of them can make the stack unhealthy. *Is the worker
+alive?* is the gate: the container healthcheck and `docker compose up --wait` read it, so
+a false negative fails a deploy. *Is the worker keeping up?* is reported beside it and
+never gates anything, because a queue with work in it is a working queue.
+
+Liveness is a read, never a round trip. The check used to enqueue a probe job and wait for
+it to come back, which proved rather more than liveness: the probe joined the same single
+queue as everything else, so an owner importing their library held it there past any
+timeout worth setting and the check called a busy worker a dead one (#82). Procrastinate
+already registers every worker and beats a heartbeat for it - ``reclaim_stalled_jobs``
+reads the same signal - and a beat cannot queue behind anything.
+"""
+
 import logging
-import uuid
-from datetime import timedelta
-from typing import Literal
+from typing import Literal, TypedDict
 
-import procrastinate
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
-from sqlalchemy import delete, func, select
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import jobs
 from anchor.db import Database
-from anchor.models import WorkerProbe
 from anchor.ratelimit import limited
 
 router = APIRouter()
 log = logging.getLogger(__name__)
 
-PROBE_RETENTION = timedelta(days=1)
-POLL_INTERVAL = 0.1
+CheckStatus = Literal["ok", "error", "down", "skipped"]
 
-CheckStatus = Literal["ok", "error", "timeout", "skipped"]
+_BEATING_WORKERS = text(
+    """
+    SELECT count(*)
+      FROM procrastinate_workers
+     WHERE last_heartbeat > now() - make_interval(secs => :seconds)
+    """
+)
+
+_BACKLOG = text(
+    """
+    SELECT count(*) AS waiting,
+           extract(epoch FROM now() - min(coalesce(job.scheduled_at, deferred.at))) AS oldest
+      FROM procrastinate_jobs job
+      LEFT JOIN procrastinate_events deferred
+             ON deferred.job_id = job.id AND deferred.type = 'deferred'
+     WHERE job.status = 'todo'
+       AND (job.scheduled_at IS NULL OR job.scheduled_at <= now())
+    """
+)
+
+
+class Backlog(TypedDict):
+    """What is waiting to run, and how long the oldest of it has been waiting."""
+
+    waiting: int
+    oldest_wait_seconds: float | None
 
 
 @router.get("/api/health")
 async def health(request: Request) -> JSONResponse:
     db: Database = request.app.state.db
-    jobs_app = request.app.state.jobs
-    timeout: float = request.app.state.settings.health_worker_timeout
+    stale_after: float = request.app.state.settings.stalled_worker_seconds
     checks: dict[str, CheckStatus] = {"web": "ok"}
+    backlog: Backlog | None = None
 
     try:
-        probe_id = await _ask_worker(db, jobs_app)
+        async with db.sessions() as session:
+            beating = await _worker_beating(session, stale_after)
+            backlog = await _backlog(session)
     except Exception:
+        # Both reads are the database check: they are all this endpoint asks of it, and a
+        # database it cannot query is one the worker cannot be asked about either.
         log.exception("health: database check failed")
         checks["database"] = "error"
         checks["worker"] = "skipped"
     else:
         checks["database"] = "ok"
-        checks["worker"] = "ok" if await _worker_answered(db, probe_id, timeout) else "timeout"
+        checks["worker"] = "ok" if beating else "down"
 
     healthy = all(check == "ok" for check in checks.values())
-    return JSONResponse(
-        {"status": "ok" if healthy else "degraded", "checks": checks},
-        status_code=200 if healthy else 503,
-    )
+    body: dict[str, object] = {"status": "ok" if healthy else "degraded", "checks": checks}
+    if backlog is not None:
+        # A sibling of ``checks`` rather than one of them, deliberately: every member of
+        # ``checks`` can turn the response 503, and a backlog must never do that.
+        body["backlog"] = backlog
+    return JSONResponse(body, status_code=200 if healthy else 503)
 
 
 @router.get(
@@ -59,37 +96,25 @@ async def debug_error() -> None:
     raise RuntimeError("deliberate backend error to check Sentry")
 
 
-async def _ask_worker(db: Database, jobs_app: procrastinate.App) -> uuid.UUID:
-    """Record a probe and enqueue its answer in one transaction; return the probe id.
+async def _worker_beating(session: AsyncSession, stale_after: float) -> bool:
+    """Has any worker beaten recently enough to be counted alive?
 
-    The same transaction prunes probes past ``PROBE_RETENTION``, so the table stays
-    bounded however often the check is polled.
+    Any, not all: the stack needs a worker, not a particular one, and a box mid-restart
+    briefly has two. Nothing here writes, so the check cannot itself queue or stall.
     """
-    async with db.sessions() as session:
-        probe = WorkerProbe()
-        session.add(probe)
-        await session.flush()
-        await jobs.enqueue(session, jobs_app, jobs.answer_probe, probe_id=str(probe.id))
-        await _prune_old_probes(session)
-        await session.commit()
-        return probe.id
+    beating = await session.scalar(_BEATING_WORKERS, {"seconds": stale_after})
+    return bool(beating)
 
 
-async def _prune_old_probes(session: AsyncSession) -> None:
-    await session.execute(
-        delete(WorkerProbe).where(WorkerProbe.requested_at < func.now() - PROBE_RETENTION)
+async def _backlog(session: AsyncSession) -> Backlog:
+    """How much work is queued and fetchable, and how long the oldest of it has waited.
+
+    Only work that could run now counts. The nightly sweeps sit in ``todo`` from the
+    moment they are deferred until their cron time comes round, and counting those would
+    report a permanent backlog nobody is waiting on.
+    """
+    row = (await session.execute(_BACKLOG)).one()
+    return Backlog(
+        waiting=row.waiting,
+        oldest_wait_seconds=round(float(row.oldest), 3) if row.oldest is not None else None,
     )
-
-
-async def _worker_answered(db: Database, probe_id: uuid.UUID, timeout: float) -> bool:
-    deadline = asyncio.get_running_loop().time() + timeout
-    while True:
-        async with db.sessions() as session:
-            answered_at = await session.scalar(
-                select(WorkerProbe.answered_at).where(WorkerProbe.id == probe_id)
-            )
-        if answered_at is not None:
-            return True
-        if asyncio.get_running_loop().time() >= deadline:
-            return False
-        await asyncio.sleep(POLL_INTERVAL)

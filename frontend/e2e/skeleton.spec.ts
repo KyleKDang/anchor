@@ -10,8 +10,14 @@ test("a visitor without a session is sent to the login screen on a stack whose h
 
   const health = await request.get("/api/health");
   expect(health.status()).toBe(200);
-  expect(await health.json()).toEqual({
-    status: "ok",
-    checks: { web: "ok", database: "ok", worker: "ok" },
+  const body = await health.json();
+  expect(body.status).toBe("ok");
+  expect(body.checks).toEqual({ web: "ok", database: "ok", worker: "ok" });
+  // The backlog rides alongside the checks and never gates anything, so this asserts its
+  // shape and not its depth: the other journeys run in parallel, and their imports are
+  // exactly the queued work it exists to report (#82).
+  expect(body.backlog).toEqual({
+    waiting: expect.any(Number),
+    oldest_wait_seconds: body.backlog.waiting === 0 ? null : expect.any(Number),
   });
 });
