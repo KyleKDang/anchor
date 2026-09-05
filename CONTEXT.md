@@ -1,6 +1,6 @@
 # Anchor
 
-A personal movie taste-engine: ratings anchored in pairwise comparisons instead of a drifting absolute scale, an automatically managed watchlist, and a recommendation engine that learns the owner's taste.
+A personal movie taste-engine: ratings anchored to the films the owner is sure of and ordered by hand on a visible wall, instead of a drifting absolute scale; an automatically managed watchlist; and a recommendation engine that learns the owner's taste.
 
 ## Language
 
@@ -24,95 +24,89 @@ Nothing in it moves: visitor writes are rejected and the engine's own maintenanc
 **Film**:
 A single movie, identified by its TMDB entry.
 
-**Comparison**:
-A single pairwise judgment by the owner: one film ranks above the other, or the two are tied.
-Only overall comparisons move the ordering.
-
 **Ordering**:
-The sequence of tie-groups over all rated films produced by comparisons.
-The durable, drift-proof layer of the rating system: nothing moves except through the owner's judgments or explicit actions.
-_Avoid_: shelf, ranking, total order
-
-**Tie-group**:
-A set of films occupying a single slot in the ordering: judged equal by the owner (definitive) or seeded equal by the import (provisional).
-A provisional tie-group is a placeholder, not a judgment; it dissolves as comparisons pull films out.
-
-**Anchor**:
-A film the owner designates as the canonical exemplar of a band (the definitive 4.0).
-At most one per band; comparisons cannot move anchors, only the owner can, and an anchor re-placed outside its band is automatically retired.
-
-**Divider**:
-The derived boundary between two adjacent bands, sitting between their anchors in the ordering.
-Pinned by the owner's band judgments (imported seed ratings count, at lower weight than live answers) and movable as those judgments accumulate; never set directly.
+The ten band rows of every rated film, best band first, each row a strict order of the films in it.
+The durable layer of the rating system: it changes only through the owner's own picks and moves, never through anything the engine computes.
+_Avoid_: shelf, ranking, total order, tie
 
 **Band**:
-A half-star rating bucket (e.g. 3.5), centered on its anchor and bounded by the dividers on either side.
-A band with no anchor still works fully; its dividers persist independently.
+One of the ten half-star values, and the row of the ordering holding every film the owner rated that value.
+A film's band is its rating.
+
+**Rank**:
+A film's position within its band, 1 being the band's best.
+Set by the owner's moves; until a film is moved it holds the rank the default order gave it.
 
 **Rating**:
-A film's half-star value, derived from which dividers its position sits between.
-Never entered directly.
-A film placed before any band structure exists shows its position only; its rating materializes as anchors and band judgments accumulate.
+A film's band, chosen by the owner on the band picker or by a move on the wall.
+Never typed as a number and never assigned by the engine.
 _Avoid_: score (ambiguous with recommender scoring)
 
+**Anchor**:
+A film the owner has marked as one they are certain of: a definitive 5.0, a definitive 3.5.
+Any number per band, and together a band's anchors are its anchor pool: the references the band picker shows for the band, and the opponents its comparisons draw on.
+An anchor sits wherever it sits in its band, so the pool of a top band is naturally that band's best and the pool of a middle band its typical members; an anchor bounds a comparison and never acts as a floor or a ceiling.
+Moving an anchor to another band retires it, because a reference that moved is no longer certain.
+
+**Stand-in**:
+The film that stands for a band in a comparison when the band has no anchor left to ask about: its film nearest the boundary in question.
+
+**Band picker**:
+The screen that rates a film: the ten bands, each showing its anchor pool, from which the owner picks one band outright or selects a range.
+
+**Range**:
+The two or three adjacent bands an owner unsure of a film selects on the band picker.
+Narrowed to one band by comparisons against those bands' anchors, and at the seam by the boundary question.
+
+**Comparison**:
+A single pairwise judgment by the owner.
+A band comparison sets the film being rated against an anchor or stand-in of a band in its range: better, worse, or about the same.
+It bounds which band the film can land in and decides nothing else about the ordering.
+A criteria question is the other kind, and bears on the ordering not at all.
+
+**Boundary question**:
+The last question a two-band range can need, when anchors have bounded the film to the seam between the bands: the bottom film of the upper band and the top film of the lower, and which the film is closer to.
+A band pick with two exemplars; it lands the film beside the film it was judged closer to.
+
 **Placement**:
-The comparison flow that finds a new film's slot in the ordering: seeded by an optional ballpark guess, narrowed against anchors until the band locks, then bisected within the band.
+Rating a film for the first time: the band picker, the comparisons a range needs, and the landing at the film's default rank in its band, from which the wall opens in edit mode so the owner can move it.
 
-**Ballpark guess**:
-An optional half-star estimate the owner gives when logging a film.
-Seeds the placement search at the nearest anchor but never sets the rating.
+**Default order**:
+The order films in a band take before the owner moves them: by TMDB average, shrunk toward the catalog mean where votes are few, so an obscure film with a handful of perfect votes does not top a row.
+Seeds every imported band and seats every newly rated film.
 
-**Sliver question**:
-The band-assignment question asked only when a film lands between the highest known film of one band and the lowest known film of the next: closer in quality to which of the two canonical films?
+**Edit mode**:
+The Rated wall's editing state: the owner drags films within and across bands, marks anchors, and every drop saves at once.
 
-**Plain band pick**:
-The last rung of the fallback ladder, where a band the sliver question would name has no exemplar to stand for it: the owner picks the band outright instead of comparing against a film.
-Its answer is a band judgment like any other, so it places the film and moves the divider the same way.
+**Move**:
+The owner dragging a film to a new rank or band in edit mode.
+The only writer of the ordering besides placement and re-rating.
 
-**Keep comparing**:
-The placement-done screen's option to extend a placement that looks wrong with further comparisons around the landed position, including band-edge anchor questions.
-Only the answers can move the film or a divider; the doubt itself never moves anything.
-
-**Provisional placement**:
-A film's position trusted less than a fully-compared one: produced by the seed import or by ending a placement early once the band is locked.
-Refined by later comparisons; graduates to fully trusted when the advisory math's confidence crosses the same threshold a normal placement needs, or the moment the owner settles it.
-
-**Settling**:
-The owner-started flow that runs placements over provisional films one after another until the owner leaves, each film's search head-started by every judgment it has collected as an opponent, so it graduates the moment its own answers pin it.
-Entered from the strip atop Rated or from one film's "settling" mark; never offered for anchors, never a target, and leaving mid-film costs nothing.
-_Avoid_: ranking session, comparison mode
-
-**Comparison log**:
-The append-only record of every judgment: comparisons, skips, band judgments (sliver answers and plain band picks), and criteria answers, each with its context.
-Entries are active, in tension (contradicting the ordering), or superseded (settled against by an owner resolution); never deleted (an account reset or deletion is the only exception).
-
-**Criteria question**:
-A comparison on a single quality of two films the owner just compared, offered as an optional bonus at the end of a placement - at most one per placement, never blocking, and ignoring or dismissing it is the same as skipping it.
-Appears at an adaptive frequency the owner can also set manually or turn off.
-Feeds only the taste profile; never moves the ordering.
-
-**Drift**:
-The condition where later judgments contradict a film's position in the ordering.
-Detected by the app, never auto-corrected; the owner resolves it through the film's drift flag.
-
-**Drift flag**:
-The per-film aggregation of the in-tension judgments implicating a film; at most one open flag per film.
-Closes when the owner resolves it (re-place, keep, or re-point at the opponent film) or when all its evidence resolves on its own.
-
-**Drift check**:
-A targeted comparison the app slips into a normal comparison moment to confirm or clear a suspected drift before surfacing the flag.
-
-**Re-placement**:
-The placement flow run again for an already-rated film, entered from drift resolution, a rewatch, an anchor-designation mismatch, or the owner asking for it from the film's page.
-Head-started by the film's in-tension judgments where they exist; its outcome always wins over the owner's stated intent.
+**Re-rate**:
+The band picker run again for a rated film, from a rewatch or from the film's own page.
+Landing in the same band keeps the rank; landing in a new band takes the default rank there and retires the film as an anchor if it was one.
 
 **Rewatch**:
 A repeat watch of a rated film, timestamped internally.
-Offers an optional re-placement but never forces one; keeping the current position is a confirming signal.
+Offers an optional re-rate but never forces one; keeping the current rating is a confirming signal.
 
 **Watch event**:
 A single timestamped record of the owner watching a film: an imported diary row, a logged watch, or a rewatch.
 History, not truth: whether a film counts as watched is carried by its state, so a film imported with a rating but no diary entry is watched despite having no events.
+
+**Comparison log**:
+The append-only record of every judgment: band comparisons, band picks, and criteria answers, each with its context.
+Entries are never edited and never deleted (an account reset or deletion is the only exception).
+A judgment the ordering has since been moved past is not marked; it is read against the ordering as it stands, and the ordering wins.
+
+**Criteria question**:
+A comparison on a single quality of two films: which had the better screenplay, the better ending.
+Offered as a run of cards on the placement-done screen and as an open-ended session from any rated film's page.
+Feeds only the taste profile; never moves the ordering.
+
+**Criteria session**:
+The open-ended stream of criteria questions about one rated film, entered from its page and left whenever the owner likes.
+The comparison idea kept as an optional way to teach Anchor about a film, never as a chore.
 
 **Seed import**:
 The one-time import of an owner's Letterboxd CSV export that bootstraps their ordering, backlog, and watch history.
@@ -129,7 +123,7 @@ Absent for films never recorded on Letterboxd.
 
 **Sync list**:
 The pull-only list of films whose current rating differs from their last synced rating, shown old to new so the owner can carry the update to Letterboxd by hand; fresh Anchor ratings never recorded there join as a not-yet-on-Letterboxd section.
-Only fully trusted placements appear (provisional films wait for graduation), and a rating that wobbles back to its synced value drops off on its own.
+A rating that wobbles back to its synced value drops off on its own.
 Lives in the Profile's Letterboxd area with an ambient count; never nudges, reminds, or writes anything to Letterboxd itself.
 
 **Watched-unrated film**:
@@ -142,8 +136,8 @@ Fed by the seed import, the "later" choice when logging a watch, seen-it convers
 Leaving is equally free: waving a film off the queue never touches its watched status.
 
 **Warmup**:
-The skippable guided sequence offered when an account starts: designate anchors, gather first comparison evidence, seed the backlog.
-One skeleton with two fills, post-import (import-ranked anchor candidates, a few films settled, watchlist rows) and fresh (search-driven designation, first placements, hand-added films); the app is fully usable the moment any part is skipped.
+The skippable guided sequence offered when an account starts: mark anchors, look over the wall, seed the backlog.
+One skeleton with two fills, post-import (import-ranked anchor candidates per band, a first look at the wall in edit mode, watchlist rows) and fresh (search-driven anchors rated through the picker, a few first films, hand-added films); the app is fully usable the moment any part is skipped.
 
 ### Watchlist
 
@@ -195,9 +189,10 @@ Owns the ranked tier of the watchlist and drives the discovery feed.
 The numeric artifact of the taste profile: a learned weight per film feature, retrained from scratch on every ordering change.
 Scores any film instantly; ranks the backlog and prefilters discovery candidates.
 The only scorer that runs at request time.
+Reads the ordering the way the owner means it: bands as judgments, within-band order as a range.
 
 **Exemplar set**:
-The canonical films standing for the owner's taste: anchors plus the ordering's extremes.
+The canonical films standing for the owner's taste: the anchors, a few per band where a pool is large, plus the ordering's extremes.
 Recomputed mechanically whenever those change; supplies concrete examples for discovery prompts and explanations.
 
 **Prose profile**:
@@ -226,8 +221,9 @@ A durable owner-stated fact about their taste: a quality-picker selection or a c
 Stored structurally, never as text edits, and respected by every regeneration.
 
 **Taste profile readiness**:
-The evidence-based gate on recommendation features: cold (too little signal to train anything), forming (enough for a stable weight vector; discovery lights up; a seed import lands here immediately), ready (enough explicit comparisons and band structure; the ranked tier unlocks).
-Measured in evidence, never in time.
+The evidence-based gate on recommendation features: cold (too few rated films to train anything), forming (enough films across enough bands for a stable weight vector; discovery lights up), ready (more films, same spread; the ranked tier unlocks).
+A seed import of any real size lands at ready the moment matching completes.
+Measured in films and bands, never in time.
 
 ### Discovery
 
@@ -263,7 +259,7 @@ The stamp recorded on a watch event at logging time: where the film stood (up-ne
 Captured in the moment because tier history is never kept; a pinned film counts as the owner's pick, never the engine's.
 
 **Landing**:
-Where an engine pick sits in the ordering once watched and placed, recorded as a percentile of the ordering.
+Where an engine pick sits in the ordering once watched and rated, recorded as a percentile of the ordering.
 The ground truth of recommender evaluation: judged only against the same-window landings of the owner's hand-picked watches, never against fixed targets.
 Evaluation reads the owner's behavior but never teaches the taste profile with it (ADR 0012).
 

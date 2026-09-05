@@ -1,5 +1,8 @@
 # Anchors are band centroids; band boundaries are derived dividers
 
+**Superseded by [ADR 0013](0013-the-ordering-is-edited-by-hand.md) on 2026-09-05.**
+Bands are now explicit rows the owner places films in, anchors are pools of certain films, and no divider exists; this record is kept for the reasoning it holds.
+
 The obvious anchor semantics is boundary-based: the anchor film is the floor (or ceiling) of its band.
 Rejected because a floor can never be undercut: a film that deserves to become the new worst 4.0 would be forced into 3.5 by definition.
 Instead, an anchor is the canonical exemplar (centroid) of its band, at most one per band, and the boundary between two adjacent bands is a divider: a derived marker sitting between the two anchors, pinned by the owner's band judgments and movable as their sense of the band evolves.

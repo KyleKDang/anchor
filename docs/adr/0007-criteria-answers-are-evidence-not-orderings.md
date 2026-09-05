@@ -1,5 +1,7 @@
 # Criteria answers are loose evidence, never per-quality rankings
 
+**Framing amended by [ADR 0013](0013-the-ordering-is-edited-by-hand.md) on 2026-09-05**: criteria questions are now asked as a run after a placement and as an open-ended session from a film's page rather than once per placement, so the evidence trickle argued from below is thicker; the decision stands, and no per-quality ordering exists.
+
 Anchor asks optional criteria questions - "which had the better screenplay?" - about pairs the owner just compared, so per-quality judgments accumulate in the comparison log.
 Decided during [Multi-criteria comparison system (#10)](https://github.com/KyleKDang/anchor/issues/10): those answers stay loose evidence about the owner's taste and never build a per-quality ordering, neither shown to the owner nor maintained internally.
 The ordering - the overall one - remains the only ranking structure in Anchor.

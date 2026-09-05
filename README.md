@@ -1,6 +1,6 @@
 # Anchor
 
-A personal movie taste-engine web app: ratings anchored in pairwise comparisons instead of a drifting absolute scale, an automatically managed watchlist, and a recommendation engine that learns each account owner's taste.
+A personal movie taste-engine web app: ratings anchored to the films the owner is sure of and ordered by hand on a visible wall, instead of a drifting absolute scale; an automatically managed watchlist; and a recommendation engine that learns each account owner's taste.
 
 The design spec lives in [docs/design/](docs/design/) and the ubiquitous language in [CONTEXT.md](CONTEXT.md).
 Implementation is tracked by [issue #21](https://github.com/KyleKDang/anchor/issues/21).

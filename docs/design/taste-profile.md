@@ -1,6 +1,6 @@
 # The taste profile and scoring
 
-Consolidates wayfinder tickets [Taste profile and scoring design (#7)](https://github.com/KyleKDang/anchor/issues/7) and [Multi-criteria comparison system (#10)](https://github.com/KyleKDang/anchor/issues/10), adopting the [Recommendation techniques survey (#3)](https://github.com/KyleKDang/anchor/issues/3) recommendation in full.
+Consolidates wayfinder tickets [Taste profile and scoring design (#7)](https://github.com/KyleKDang/anchor/issues/7) and [Multi-criteria comparison system (#10)](https://github.com/KyleKDang/anchor/issues/10), adopting the [Recommendation techniques survey (#3)](https://github.com/KyleKDang/anchor/issues/3) recommendation in full, as revised on 2026-09-05 by the direct-ordering redesign ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
 The architecture is recorded as [ADR 0004](../adr/0004-two-scorer-taste-architecture.md); the survey's full analysis is at [recommendation-techniques.md](../research/recommendation-techniques.md).
 
 ## Two scoring jobs, one profile
@@ -9,7 +9,7 @@ Anchor has two scoring jobs: rank the backlog into the ranked tier, and judge ne
 Both are served by one taste profile of three artifacts derived from the ordering, regenerated on change and never incrementally patched:
 
 1. **Weight vector** - the only runtime scorer; ranks the backlog, steers discover slices, prefilters discovery candidates.
-2. **Exemplar set** - anchors plus the ordering's extremes; concrete examples for prompts and explanations.
+2. **Exemplar set** - the anchors plus the ordering's extremes; concrete examples for prompts and explanations.
 3. **Prose profile** - versioned, LLM-maintained, owner-readable; drives discovery reranking.
 
 ## The weight vector
@@ -21,22 +21,29 @@ LightGBM lambdarank is a named fallback only if the linear scorer measurably pla
 
 ### Pair extraction
 
-- All adjacent pairs (they fully capture the order) plus sampled long-range pairs per film (they teach magnitude).
-- Inside a tie-group, and between two adjacent ones, pairs are drawn per film up to a budget, so a seeded band of a hundred films costs hundreds of pairs rather than thousands; a group that fits the budget still trains on every pair ([#59](https://github.com/KyleKDang/anchor/issues/59)).
-- Explicit comparisons are weighted above implied pairs; provisional placements are down-weighted until graduation; ties train as equality targets.
-- No recency decay in v1: the ordering as it stands is the signal, and drift resolution is the one mechanism that owns taste change.
-- Exact weights and sample counts are implementation-tunable, validated empirically.
+The ordering is ten band rows, and the pairs read out of it respect what each level of it means ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
+
+- **Across bands, order is a judgment.**
+  Every film is paired with sampled films from the bands above and below it, adjacent bands and long-range alike, up to a budget per film, so a band of a hundred films costs hundreds of pairs rather than thousands ([#59](https://github.com/KyleKDang/anchor/issues/59)).
+  These pairs carry full weight, and the band gap teaches magnitude.
+- **Within a band, order is a range.**
+  Pairs inside a band are sampled per film and weighted by the distance between the two films as a fraction of the band, so neighbours train as near-equals and the top of a band against its bottom trains as a judgment.
+  One rank apart is, to the engine, the same film.
+- **Explicit band comparisons** from the log are weighted above implied pairs where they agree with the ordering as it stands, and dropped where they contradict it: the ordering is primary and a later move wins.
+- No provisional discount and no tie targets exist: nothing in the ordering is provisional, and there are no ties.
+- No recency decay in v1: the ordering as it stands is the signal, and the owner's moves are the one mechanism that owns taste change.
+- Exact weights, budgets, and the distance curve are implementation-tunable, validated empirically.
 
 ## The exemplar set
 
-Anchors plus the ordering's extremes, recomputed mechanically whenever those change.
+The anchors - capped to a few per band where a pool is large, most recently marked first - plus the ordering's extremes, recomputed mechanically whenever those change.
 It calibrates prompts and grounds every exemplar-based explanation ("Because you loved X and Y").
 
 ## The prose profile
 
 The owner-readable description of the owner's taste, LLM-maintained on the mid tier.
 
-- Regenerates on accumulated change (N new placements, an anchor change, a drift-resolution wave, a picker or constraint edit) with a max-staleness backstop; never per comparison.
+- Regenerates on accumulated change (N new placements or moves, an anchor change, a picker or constraint edit) with a max-staleness backstop; never per comparison.
 - Each regeneration bumps the profile version; discovery verdicts are cached keyed by (film, profile version), so the bump is the cache invalidation and the batch-rerank trigger.
 - Visible and correctable: the owner can read what Anchor thinks they like and thumb-down claims.
   Corrections persist as profile constraints - structural, never text edits, so regeneration can never clobber them.
@@ -67,13 +74,16 @@ Tags draw from the built-in vocabulary only; a custom quality is never tagged, s
 
 ### Criteria questions
 
+Criteria questions are where the comparison idea lives on: optional, never a chore, and the owner's way of teaching Anchor what a film is good at.
+
 - **Wording is always a fixed template** ("Which had the better ___?"); the intelligence is in selection, and the LLM never invents qualities or free-form questions.
-- **Asked only at the end of a placement** (including re-placements) - never during the comparison loop, drift checks, or anywhere else in v1.
-- **Zero or one bonus card per placement**, carrying exactly one question; answering never triggers a second.
-- **Non-blocking**: the card sits on the placement-done screen with the two films, Tied, and a small dismiss.
-  Tapping an answer, dismissing, or simply doing anything else all cost the same, and ignoring is recorded identically to dismissing.
-- **Frequency is adaptive by default** (engagement raises it, non-engagement lowers it), with a manual frequency setting in which adaptive is one option, plus a complete off switch.
-- **Pair and quality selection**: reuse a matchup from the just-finished placement; prefer the pair whose films share a quality tag, tie-broken toward the most recent matchup; if no pair overlaps, rotate through the quality list on the last matchup.
+- **Two homes**: a run of cards on the placement-done screen (placements and re-rates alike), and an open-ended session from any rated film's page.
+  Never during the band picker's comparisons, and nowhere else.
+- **The run is zero or more cards**, one question each, each answer bringing the next; dismissing or leaving ends it.
+  It is non-blocking: it sits beside the done screen's primary action, and ignoring it is recorded identically to dismissing.
+- **The session is unbounded**: it asks about the one film against varied opponents until the owner leaves or nothing unasked remains, and it is always available whatever the frequency setting says.
+- **Frequency governs the run only**: adaptive by default (engagement raises it, non-engagement lowers it), with a manual setting in which adaptive is one option, plus an off switch.
+- **Pair and quality selection**: the opponent is a film the owner is likely to remember beside the subject - its band's anchors first, then its neighbours on the wall, then the films it was compared against in the picker, then the wider library; prefer an opponent sharing a quality tag with the subject and ask about that quality, otherwise rotate through the quality list; never the same pair and quality twice in a run or a session.
 - **Every record rides in the append-only comparison log**, unanswered offers included (they drive the adaptive back-off); a contradicting later answer outweighs the earlier one, and nothing is deleted.
 
 ### What answers feed
@@ -90,13 +100,15 @@ Answers never move the ordering and never enter the ranked tier's scoring in v1;
 
 Three evidence-based states gate the recommendation features; no time component exists.
 
-- **Cold**: too little signal to train anything; no discovery, no ranked tier.
-- **Forming**: enough rated films spanning enough bands for a stable weight-vector fit (indicatively ~20 films across 3+ bands; a seed import lands here immediately).
+- **Cold**: too few rated films to train anything; no discovery, no ranked tier.
+- **Forming**: enough rated films spanning enough bands for a stable weight-vector fit (indicatively ~20 films across 3+ bands).
   Discovery lights up.
-- **Ready**: enough explicit comparisons that the vector is not dominated by provisional and implied pairs, plus band structure present (indicatively ~50 films and a real explicit-comparison base).
+- **Ready**: more films, same spread (indicatively ~50 films across 3+ bands), enough that the ranked tier's "watch these next" claim rests on a real library.
   The ranked tier unlocks.
 
-The gating dimensions (rated-film count, explicit-comparison share, bands spanned) are spec; the numbers are implementation tuning.
+A seed import of any real size clears both at once.
+The gating dimensions (rated-film count, bands spanned) are spec; the numbers are implementation tuning.
+There is no comparison dimension: the ordering is complete the moment a film is rated, and within-band order is read as a range rather than trusted as a verdict, so no count of answers makes it more trustworthy than the band structure already is.
 [watchlist.md](watchlist.md) consumes *ready* and [discovery.md](discovery.md) consumes *forming* without redefining them.
 Readiness is derived from evidence counts, never stored authoritatively.
 

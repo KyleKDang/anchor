@@ -1,9 +1,9 @@
 # Anchor conceptual data model
 
-Resolved by wayfinder ticket [Data model (#13)](https://github.com/KyleKDang/anchor/issues/13), 2026-08-20.
+Resolved by wayfinder ticket [Data model (#13)](https://github.com/KyleKDang/anchor/issues/13), 2026-08-20, and revised on 2026-09-05 by the direct-ordering redesign ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
 
 This is the conceptual, storage-technology-agnostic model of Anchor's data: entities, relationships, and invariants.
-It consolidates mechanics decided by earlier design tickets and introduces no new behavior.
+It consolidates mechanics decided by the design docs and introduces no new behavior.
 Vocabulary follows [CONTEXT.md](../../CONTEXT.md); where a decision has an ADR, it is cited.
 "Entity" and "record" mean conceptual units, not tables; the physical schema is implementation work.
 
@@ -25,7 +25,7 @@ That wipe is the one exception to the comparison log's never-deleted rule.
 | Shared catalog | Film, Quality vocabulary, Quality tag |
 | Account shell | Account, Auth session, Spend ledger entry, Import, Import row |
 | Account-film | Account-film, Dismissal, Watch event |
-| Rating core | Tie-group slot, Placement, Divider, Anchor designation, Comparison log entry, Drift flag |
+| Rating core | Placement, Comparison log entry |
 | Watchlist | Tier bookkeeping (membership, pin, veto, cooldown marks) |
 | Taste profile | Quality list entry, Profile constraint, Weight vector, Exemplar set, Prose profile version |
 | Discovery | Suggestion, Verdict, Feed bookkeeping |
@@ -39,6 +39,7 @@ A single movie, identified by its TMDB id.
 - Carries the metadata bundle from one bundled TMDB call: title, year, genres, credits, keywords, vote statistics, poster and backdrop paths, plot summary.
 - Stamped with a fetch timestamp; a rolling re-sync refreshes still-referenced films older than roughly five months (inside the 6-month terms ceiling, ADR 0003).
 - Images are hotlinked from TMDB's CDN; only paths are stored, never image bytes.
+- Its vote statistics are what the default order reads, shrunk toward the catalog mean where the count is small.
 
 ### Quality vocabulary
 
@@ -100,7 +101,7 @@ One record per (account, film) pair once any interaction exists; untracked films
 - **Rate-later seat**: a flag valid only in the watched-unrated state.
   Set by the import, the "later" choice, seen-it, and abandoned placements; removable at will, and removing it never touches watched-ness.
 - **Last synced rating**: a nullable value on the rated state - the rating Letterboxd currently holds for the film, initialized by the seed import and overwritten only when the owner marks the film synced.
-  The sync list is derived, never stored: the fully trusted rated films whose current band differs from it, plus those that lack one entirely (never recorded on Letterboxd).
+  The sync list is derived, never stored: the rated films whose current band differs from it, plus those that lack one entirely (never recorded on Letterboxd).
 - State-specific attachments: backlog carries the tier bookkeeping, rated carries the placement and the last synced rating, watched-unrated carries the rate-later seat.
 
 ### Dismissal
@@ -115,7 +116,7 @@ The owner's "not interested" on a discovery suggestion; deliberately orthogonal 
 
 A single timestamped watch: an imported diary row, a logged watch, or a rewatch.
 
-- Append-only stream per account: film, timestamp, source, rewatch flag, and for rewatches the optional "still feel the same?" outcome (confirmed, re-placed, or skipped).
+- Append-only stream per account: film, timestamp, source, rewatch flag, and for rewatches the optional "still feel the same?" outcome (confirmed, re-rated, or skipped).
 - History, not truth: the lifecycle state is authoritative for watched-ness.
   Rated and watched-unrated both mean watched, and a film imported from ratings.csv with no diary rows is legitimately rated with zero watch events.
 - **The watch clock** is the count of an account's watch events.
@@ -124,66 +125,31 @@ A single timestamped watch: an imported diary row, a logged watch, or a rewatch.
 
 ## The rating core
 
-### Tie-group slot
-
-The ordering is an explicit persisted sequence of slots (ADR 0001); each slot holds one or more rated films judged or seeded equal.
-
-- Each rated film belongs to exactly one slot, via its placement; a slot never sits empty.
-- A slot has no status of its own.
-  "Provisional tie-group" is shorthand for a slot whose members are all still import-seeded; provisionality proper lives on each film's placement.
-- **Invariants**: films sharing a slot definitively are connected by explicit tie judgments; import-seeded slots only ever shrink.
-  A Tied answer against a member of a provisional slot pulls that member out into a new definitive two-film slot with the placed film - provisional membership is never inherited, and no film is silently asserted equal to films it was never compared with.
-
 ### Placement
 
-The per-film record of where a rated film sits and how much that position is trusted.
+The per-film record of where a rated film sits; the ordering is the set of an account's placements ([ADR 0001](../adr/0001-explicit-ordering-not-model-derived.md), [ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
 
-- Slot reference, trust (provisional or full), provenance (import-seeded, early-bail, or completed), timestamps.
-- A completed placement is fully trusted; import-seeded and early-bail placements start provisional and graduate when the advisory math's confidence crosses the same threshold a normal placement needs.
-  The advisory math never moves the slot (ADR 0001).
-- **Rating is derived, never stored**: a film's band is whichever pinned dividers its slot sits between.
-  While the relevant dividers are unpinned the derivation yields nothing and the film displays position-only.
-- An in-progress or abandoned placement needs no entity: its answers are active comparison log entries, and a resume re-derives its search bounds from them.
-
-### Band and divider
+- **Band**: one of the ten half-star values, the film's rating, chosen by the owner and stored.
+- **Rank**: the film's position within its band, 1 the best; dense within a band, shifting on every move.
+- **Anchor mark**: set when the owner marks the film, cleared when they retire it or when a move or re-rate carries it into another band.
+  A band's anchor pool is its marked placements; there is no separate designation entity and no designation history.
+- **Timestamps**: placed-at (the last placement or re-rate, the "recently rated" clock) and moved-at (the last move, absent while the film still holds its default rank).
+- **Invariants**: every rated film has exactly one placement; within a band, ranks run 1..n with no gaps; a band is one of the ten values; an anchor is always in the band it was marked in, because the write that takes it out clears the mark.
+- **Rating is stored, not derived**: it is the band, and the band is the owner's own choice, so storing it is honest ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md) supersedes [ADR 0002](../adr/0002-anchors-are-centroids-with-derived-dividers.md)).
+- A rating in progress needs no entity: the picker holds its range, and the band comparisons it produces are ordinary log entries.
 
 Bands are the fixed vocabulary of ten half-star values, not entities.
 
-A divider is the stored boundary marker between two adjacent bands.
-
-- Nine per account, identified by their band pair (for example 3.5/4.0); state is unpinned, or a position between two adjacent slots of the ordering.
-- **Positions are stored state, not recomputed on read**: a divider moves only as the direct consequence of a band judgment (sliver answer, seed rating), applied by an update rule that weights live answers above import seeds.
-  The triggering judgments live in the comparison log, so every move is auditable; the position itself is authoritative.
-- **Invariants**: dividers appear in band order; a band's anchor sits between that band's dividers (a re-placement landing outside auto-retires the anchor); a rating flip caused by a divider move is derivation staying honest, never drift.
-
-### Anchor designation
-
-The current owner-designated exemplar of a band.
-
-- A mapping band to film, at most one per band; the film must be rated.
-- Current-only: retirement (owner action or auto-retire on re-placement outside the band) simply clears the mapping and changes no ratings and no dividers, so no designation history is kept.
-- Comparisons never move an anchor; only the owner can.
-
 ### Comparison log entry
 
-The append-only record of every judgment (ADR 0010: evidence, not an event source).
+The append-only record of every judgment ([ADR 0010](../adr/0010-comparison-log-is-evidence-not-event-source.md): evidence, not an event source).
 
-- Typed: overall comparison (answer A, B, Tied, or Skip - drift checks are overall comparisons in a drift-check context), sliver answer, criteria answer (including unanswered or dismissed offers, which drive the adaptive back-off).
-- Each entry carries the films involved, the answer, the moment that produced it (placement of film X, keep-comparing, drift check, warmup, re-placement), and a timestamp.
-- Status: active, in-tension (contradicting the ordering), or superseded (settled against by an owner resolution).
-  Re-placement re-evaluates the film's entries against the new position: consistent ones flip to active, contradicted ones to superseded.
-- Never deleted; the account-realm wipe is the sole exception.
+- Typed: band comparison (the film being rated against an anchor or stand-in; verdict better, worse, about the same, or skip; the range being narrowed), band pick (the film and the band chosen: outright, at the boundary question with its two exemplars named, or as a range's last resort), criteria answer (the pair, the quality, the verdict, including offers ignored or dismissed, which drive the adaptive back-off).
+- Each entry carries the films involved, the answer, the moment that produced it (placement, re-rate, criteria run, criteria session), and a timestamp.
+- **No status**: an entry the ordering has since been moved past is not marked, superseded, or flagged; a reader compares it with the ordering as it stands, and the ordering wins.
+- Never edited, never deleted; the account-realm wipe is the sole exception.
 - Criteria entries reference a quality list entry and feed only the taste profile (ADR 0007).
-- **Not an event source**: the ordering, dividers, and designations are primary state; replaying the log is not guaranteed to reproduce them and nothing may assume it does (ADR 0010).
-
-### Drift flag
-
-The per-film aggregation of in-tension judgments.
-
-- **Invariant**: at most one open flag per film.
-- Evidence: references to the in-tension entries implicating the film; a flag whose evidence all resolves on its own closes itself.
-- Stage: quiet (targeted drift checks may be slipped into normal comparison moments) or surfaced (the owner sees it, and the film is benched as a comparison opponent).
-- Closes with an outcome: re-placed, kept, re-pointed at the opponent, or self-resolved.
+- **Not an event source**: the placements are primary state; replaying the log is not guaranteed to reproduce them and nothing may assume it does (ADR 0010).
 
 ## The watchlist
 
@@ -227,7 +193,7 @@ Current-only: it retrains from scratch on every ordering change in milliseconds,
 
 ### Exemplar set
 
-The canonical films standing for the owner's taste: anchors plus the ordering's extremes.
+The canonical films standing for the owner's taste: the anchors, capped to a few per band where a pool is large, plus the ordering's extremes.
 
 Current-only, recomputed mechanically whenever those change.
 
@@ -240,7 +206,7 @@ One row per prose-profile regeneration, append-only: version number (monotonic p
 
 ### Readiness
 
-Cold, forming, or ready is a derived classification over evidence counts and band structure (thresholds per tickets #7 and #17), never stored authoritatively; at most cached.
+Cold, forming, or ready is a derived classification over the rated-film count and the bands spanned (thresholds per [taste-profile.md](taste-profile.md)), never stored authoritatively; at most cached.
 
 ## Discovery
 
@@ -270,8 +236,8 @@ Restocks happen only if the owner has visited the feed since the last one; an ow
 ## Cross-cutting invariants
 
 - Every account-realm record is owned by exactly one account; account deletion and the hard-reset re-import wipe that realm in full, and the shared catalog is never touched by account operations.
-- The comparison log is append-only and never deleted, except by the account-realm wipe; it is evidence, not an event source (ADR 0010).
-- Nothing moves the ordering, dividers, or anchors except owner judgments and owner actions; the advisory math is read-only on all of them (ADR 0001).
-- Ratings are always derived from position against dividers, never stored or entered.
+- The comparison log is append-only, status-free, and never deleted, except by the account-realm wipe; it is evidence, not an event source (ADR 0010).
+- Nothing writes the ordering or an anchor mark except the owner's picks, moves, re-rates, and marks; the engine is read-only on all of them (ADR 0001, ADR 0013).
+- A rating is a band the owner chose, stored on the placement; the engine never assigns one and no surface derives one.
 - Every engine cooldown and staleness measure is denominated in the owner's activity - the watch clock for the tier, the refresh counter for discovery - never in calendar time, so a dormant account never changes behind the owner's back.
 - Rating-shaped values for unwatched films exist only inside the scorer and pipeline; none is ever persisted for display or crosses the display boundary (ADR 0005).
