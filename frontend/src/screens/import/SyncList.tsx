@@ -52,16 +52,17 @@ export function SyncList() {
         so Anchor knows the two agree again.
       </p>
       {list.changed.length > 0 && (
-        <Section films={list.changed} onMarked={reload}>
-          These have moved since Letterboxd last saw them.
+        <Section films={list.changed} onMarked={reload} heading="Ratings that have moved">
+          Change these on Letterboxd to match.
         </Section>
       )}
       {list.never_recorded.length > 0 && (
         <Section films={list.never_recorded} onMarked={reload} heading="Not on Letterboxd yet">
-          You rated these in Anchor, so Letterboxd has no entry to change.
+          You rated these in Anchor, so Letterboxd has no entry to change - add them.
         </Section>
       )}
-      <MarkAll onMarked={reload} />
+      {/* One film is not a list to sweep, and the row's own button is right there. */}
+      {list.count > 1 && <MarkAll onMarked={reload} />}
     </div>
   );
 }
@@ -73,13 +74,13 @@ function Section({
   onMarked,
 }: {
   films: SyncFilm[];
-  heading?: string;
+  heading: string;
   children: ReactNode;
   onMarked: () => Promise<void>;
 }) {
   return (
     <>
-      {heading !== undefined && <h4 className="sync-heading">{heading}</h4>}
+      <h4 className="sync-heading">{heading}</h4>
       <p className="muted">{children}</p>
       <ul className="film-list">
         {films.map((film) => (
@@ -111,11 +112,15 @@ function Row({ film, onMarked }: { film: SyncFilm; onMarked: () => Promise<void>
         <p className="film-row-title">
           <Link to={filmPath(film.tmdb_id)}>{film.title}</Link>
         </p>
+        {/* The arrow carries the whole meaning visually and says nothing at all aloud, so
+            each value states which side it is: two bare star counts in a row would be
+            read out as one indistinguishable from the other. */}
         <p className="film-row-meta">
           <span className="muted">{releaseYear(film.year)}</span>
           {film.synced !== null && (
             <>
               <span className="sync-was">
+                <span className="visually-hidden">Letterboxd has </span>
                 <Band band={film.synced} />
               </span>
               <span className="sync-arrow" aria-hidden="true">
@@ -123,7 +128,12 @@ function Row({ film, onMarked }: { film: SyncFilm; onMarked: () => Promise<void>
               </span>
             </>
           )}
-          <Band band={film.band} />
+          <span>
+            <span className="visually-hidden">
+              {film.synced === null ? "you rated it " : "change it to "}
+            </span>
+            <Band band={film.band} />
+          </span>
         </p>
         {error && (
           <p className="error" role="alert">
