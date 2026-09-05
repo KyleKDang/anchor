@@ -59,6 +59,7 @@ export function Rated() {
         <>
           {rated.anchor_nudge && <AnchorNudge film={firstFilm(rated)} />}
           <NeedsAttention films={rated.needs_attention} />
+          <SettlingStrip left={rated.settling} />
           <Controls rated={rated} filters={filters} onChange={setFilters} />
 
           <section className="section" aria-labelledby="ordering-heading">
@@ -141,6 +142,42 @@ function NeedsAttention({ films }: { films: FilmCard[] }) {
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+/**
+ * The settling strip: how many films are still on the mark, and the one door into working
+ * through them.
+ *
+ * It sits beside needs-attention because the two are the same shape - a strip atop the
+ * ordering, present only when it has something to say - and it is the loudest provisional
+ * settling ever gets. This count is its home and its ceiling: no dot, no chaser, and no
+ * mention of it on any other screen (ADR 0011). It renders nothing when nothing is
+ * provisional, which on a hand-built library is almost always.
+ *
+ * The id is a link target: the readiness lines on Watchlist and Profile that name
+ * comparisons or settling as what is missing point here rather than dead-ending.
+ */
+function SettlingStrip({ left }: { left: number }) {
+  if (left === 0) return null;
+
+  return (
+    <section id="settling" className="settling-strip" aria-labelledby="settling-heading">
+      <div className="settling-strip-body">
+        <h2 id="settling-heading" className="settling-strip-heading">
+          {left === 1 ? "One film is still settling" : `${left} films are still settling`}
+        </h2>
+        <p className="muted">
+          {left === 1
+            ? "Its position is a placeholder until your own comparisons pin it."
+            : "Their positions are placeholders until your own comparisons pin them."}{" "}
+          Nothing is waiting on you - this is here when you feel like it.
+        </p>
+      </div>
+      <Link className="button" to="/settling">
+        Settle them
+      </Link>
     </section>
   );
 }

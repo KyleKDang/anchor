@@ -6,6 +6,7 @@ import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
 import { Place } from "./screens/Place";
+import { Settling } from "./screens/Settling";
 import { Import } from "./screens/import/Import";
 import { Review } from "./screens/import/Review";
 import { Login } from "./screens/auth/Login";
@@ -29,6 +30,7 @@ export function App() {
             is outside for the same reason, one step earlier - the five destinations
             have nothing in them yet, so showing them would be showing five dead ends. */}
         <Route path="/place/:tmdbId" element={<Place />} />
+        <Route path="/settling" element={<Settling />} />
         <Route path="/welcome" element={<Welcome />} />
         <Route element={<Shell />}>
           <Route index element={<Home />} />

@@ -148,6 +148,12 @@ function ReadinessSection({
           <p className="muted">
             {profile.evidence.explicit_comparisons} comparison
             {profile.evidence.explicit_comparisons === 1 ? "" : "s"} answered so far.
+            {shortOnJudgment(profile.stages) && (
+              <>
+                {" "}
+                <Link to="/rated#settling">Settle some films</Link> to answer more.
+              </>
+            )}
           </p>
         </>
       )}
@@ -235,6 +241,25 @@ function CriteriaSection({ frequency }: { frequency: CriteriaFrequency | null })
         </fieldset>
       )}
     </section>
+  );
+}
+
+/**
+ * Whether what this account is short of is the owner's own judgment, rather than films.
+ *
+ * The two bars that measure it are the two halves of one shortfall - how much of the
+ * library rests on comparisons, and how many of them the owner has actually answered - and
+ * settling is the one thing in the app that moves either. Where that is what is missing,
+ * the readiness section links into the Rated strip rather than dead-ending (surfacing.md).
+ */
+function shortOnJudgment(stages: Stage[]): boolean {
+  return stages.some((stage) =>
+    stage.thresholds.some(
+      (threshold) =>
+        (threshold.dimension === "settled_share" ||
+          threshold.dimension === "comparisons_per_film") &&
+        threshold.have < threshold.need,
+    ),
   );
 }
 

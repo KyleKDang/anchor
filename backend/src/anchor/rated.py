@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from anchor import anchors as anchors_module
 from anchor import bands, drift
 from anchor import ordering as ordering_module
+from anchor import settling as settling_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import DbSession
@@ -95,6 +96,16 @@ class Rated(BaseModel):
     """
     rate_later: list[FilmCard]
     """Watched-unrated films seated in the queue, awaiting an optional placement."""
+    settling: int
+    """The settling strip's count: films whose position is still a placeholder.
+
+    Anchors are excluded, because the strip's button will not offer one (an anchor is
+    re-placed from its own page, with the warning that goes with it). Zero means the
+    strip renders nothing at all: presence, not a permanent slot.
+
+    This is the only count of it the app ever shows, bar the way onward on the done
+    screen of a settle the owner just finished (ADR 0011).
+    """
 
 
 @router.get("")
@@ -151,6 +162,7 @@ async def rated(
         anchor_nudge=not anchors,
         needs_attention=_queue(await ordering_module.cards(db, list(surfaced)), list(surfaced)),
         rate_later=_queue(await ordering_module.cards(db, seated), seated),
+        settling=await settling_module.remaining(db, account.id),
     )
 
 

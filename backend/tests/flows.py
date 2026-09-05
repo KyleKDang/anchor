@@ -245,6 +245,13 @@ async def ask_to_re_place(client, film, expect=204):
     assert response.status_code == expect, response.text
 
 
+async def next_settling(client, offered=(), expect=200):
+    """Ask the sitting for a film to settle, naming what it has already been through."""
+    response = await client.post("/api/settling/next", json={"offered": list(offered)})
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
 async def settle(client, film, ordering_ids, index, seed=1, band=None):
     """Ask to settle a film, then answer every question until it lands at ``index``.
 

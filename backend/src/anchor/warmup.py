@@ -27,7 +27,6 @@ anchor there is (ADR 0002).
 import enum
 import random
 import uuid
-from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
@@ -36,7 +35,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands, jobs
+from anchor import bands, jobs, remembered
 from anchor import ordering as ordering_module
 from anchor import placement as placement_module
 from anchor import readiness as readiness_module
@@ -51,7 +50,6 @@ from anchor.models import (
     ComparisonLogEntry,
     ComparisonStatus,
     ComparisonVerdict,
-    Film,
     Import,
     ImportRow,
     ImportRowKind,
@@ -60,7 +58,6 @@ from anchor.models import (
     Placement,
     WarmupMark,
     WarmupProgress,
-    WatchEvent,
 )
 from anchor.ordering import Ordering
 from anchor.readiness import Readiness
@@ -356,15 +353,9 @@ async def _candidates(
 ) -> dict[float, list[int]]:
     """The films worth offering per band, best-remembered first.
 
-    The ranking is the spec's, and every term of it is a proxy for one question: which
-    of these does the owner remember clearly enough to say "this is what a 4.0 is"? A
-    film they went back to is remembered; a film they rated recently is remembered; a
-    film half the world has seen is at least recognisable. Profile favourites jump their
-    band outright, because the owner has already named them as the ones that matter.
-
-    Popularity is read off the stored vote count rather than TMDB's own popularity
-    figure, which is a churning daily metric Anchor does not keep: a candidate list that
-    reshuffled overnight for reasons inside TMDB would be worse than a stable one.
+    The ranking is the spec's, and it is shared with settling's next-film tie-break
+    (remembered.py): both ask which of these the owner remembers clearly enough to
+    judge, and the answer must not differ between two screens of the same app.
     """
     derived = ordering_module.bands_of(ordering, boundaries)
     banded: dict[float, list[int]] = {}
@@ -374,71 +365,13 @@ async def _candidates(
     if not banded:
         return {}
 
-    favorites = await _profile_favorites(db, account_id)
-    rewatches = await _rewatch_counts(db, account_id)
-    rated_at = await _rating_recency(db, account_id)
-    popularity = await _vote_counts(db, [film for films in banded.values() for film in films])
-    epoch = min(rated_at.values(), default=None)
-
-    def key(film_id: int) -> tuple[object, ...]:
-        when = rated_at.get(film_id)
-        return (
-            film_id not in favorites,
-            -rewatches.get(film_id, 0),
-            -(when.timestamp() if when is not None else (epoch.timestamp() - 1 if epoch else 0.0)),
-            -popularity.get(film_id, 0),
-            film_id,
-        )
-
+    key = await remembered.ranking(
+        db, account_id, [film for films in banded.values() for film in films]
+    )
     return {
         band: sorted(films, key=key)[: settings.warmup_candidates_per_band]
         for band, films in banded.items()
     }
-
-
-async def _profile_favorites(db: AsyncSession, account_id: uuid.UUID) -> set[int]:
-    """The films profile.csv named as favourites, as far as they bound to anything."""
-    rows = await db.scalars(
-        select(ImportRow.film_id).where(
-            ImportRow.account_id == account_id,
-            ImportRow.kind == ImportRowKind.profile_favorite,
-            ImportRow.state.in_((ImportRowState.auto_matched, ImportRowState.bound)),
-            ImportRow.film_id.is_not(None),
-        )
-    )
-    return {film_id for film_id in rows if film_id is not None}
-
-
-async def _rewatch_counts(db: AsyncSession, account_id: uuid.UUID) -> dict[int, int]:
-    """How many times the owner went back to each film, imported diary rows included."""
-    rows = await db.execute(
-        select(WatchEvent.film_id, func.count())
-        .where(WatchEvent.account_id == account_id, WatchEvent.rewatch.is_(True))
-        .group_by(WatchEvent.film_id)
-    )
-    return {film_id: count for film_id, count in rows}
-
-
-async def _rating_recency(db: AsyncSession, account_id: uuid.UUID) -> dict[int, datetime]:
-    """When each imported rating was given, which is the freshness of the memory behind it."""
-    rows = await db.execute(
-        select(ImportRow.film_id, func.max(ImportRow.occurred_at))
-        .where(
-            ImportRow.account_id == account_id,
-            ImportRow.kind == ImportRowKind.rating,
-            ImportRow.film_id.is_not(None),
-            ImportRow.occurred_at.is_not(None),
-        )
-        .group_by(ImportRow.film_id)
-    )
-    return {film_id: when for film_id, when in rows}
-
-
-async def _vote_counts(db: AsyncSession, film_ids: list[int]) -> dict[int, int]:
-    if not film_ids:
-        return {}
-    rows = await db.execute(select(Film.tmdb_id, Film.vote_count).where(Film.tmdb_id.in_(film_ids)))
-    return {tmdb_id: votes for tmdb_id, votes in rows}
 
 
 # --- Phase 2: gather evidence ---

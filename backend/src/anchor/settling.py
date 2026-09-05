@@ -21,6 +21,7 @@ graduating.
 """
 
 import uuid
+from collections.abc import Collection
 from datetime import datetime
 
 from sqlalchemy import func, select
@@ -87,14 +88,16 @@ async def provisional(db: AsyncSession, account_film: AccountFilm) -> bool:
     return trust is PlacementTrust.provisional
 
 
-async def remaining(db: AsyncSession, account_id: uuid.UUID, *, besides: int) -> int:
-    """How many films are still settling, anchors excluded and ``besides`` left out.
+async def still_settling(
+    db: AsyncSession, account_id: uuid.UUID, *, excluding: Collection[int] = ()
+) -> set[int]:
+    """The films still settling: provisional, never an anchor, minus ``excluding``.
 
     Anchors are never offered (onboarding-and-import.md): an anchor is re-placed from its
-    own page, with the warning that comes with it, so counting one here would offer a
-    film the flow will not hand over. ``besides`` is the film the owner has just dealt
-    with, left out whether it graduated or was bailed on: the offer is to settle
-    *another* one, and the film on screen is not another one.
+    own page, with the warning that landing outside its band retires it, so counting one
+    here would offer a film the flow will not hand over. ``excluding`` is whatever the
+    caller has already dealt with - the film on the done screen, or every film a sitting
+    has been through - because the offer is always to settle *another* one.
     """
     anchored = set((await anchors_module.current(db, account_id)).values())
     rows = await db.scalars(
@@ -106,4 +109,16 @@ async def remaining(db: AsyncSession, account_id: uuid.UUID, *, besides: int) ->
             Placement.trust == PlacementTrust.provisional,
         )
     )
-    return len({film_id for film_id in rows} - anchored - {besides})
+    return set(rows) - anchored - set(excluding)
+
+
+async def remaining(
+    db: AsyncSession, account_id: uuid.UUID, *, excluding: Collection[int] = ()
+) -> int:
+    """How many films are still settling: the one count the design lets anywhere on screen.
+
+    The strip atop Rated is its home and its ceiling - no dot, no chaser, no mention on
+    any other screen (ADR 0011) - and the done screen of a settle the owner just finished
+    is the single other place it appears, as the way onward from the film they just left.
+    """
+    return len(await still_settling(db, account_id, excluding=excluding))
