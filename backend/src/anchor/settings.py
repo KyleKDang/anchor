@@ -43,6 +43,86 @@ class Settings(BaseSettings):
     tmdb_max_attempts: int = 3
     """Tries per TMDB call, counting the first; the retries are the 429 backoff."""
 
+    anthropic_api_key: str | None = None
+    """Anthropic API key. Unset (the dev default), every LLM operation is skipped.
+
+    Skipped rather than failed: the whole LLM layer degrades to cached results by design
+    (ADR 0004), so a box without a key runs the app with prose that never refreshes
+    rather than a worker whose jobs all fail.
+    """
+
+    anthropic_base_url: str = "https://api.anthropic.com"
+    anthropic_version: str = "2023-06-01"
+
+    llm_provider: str = "anthropic"
+    """Which adapter the seam dispatches to; refused unless it is on the no-training
+    allowlist (ADR 0003). v1 ships Anthropic only."""
+
+    llm_max_attempts: int = 3
+    """Tries per provider call, counting the first; the retries are the 429 backoff."""
+
+    llm_cheap_model: str = "claude-haiku-4-5"
+    llm_cheap_input_usd_per_mtok: float = 1.00
+    llm_cheap_output_usd_per_mtok: float = 5.00
+    """The cheap tier: listwise reranking and quality tags (taste-profile.md)."""
+
+    llm_mid_model: str = "claude-sonnet-5"
+    llm_mid_input_usd_per_mtok: float = 2.00
+    llm_mid_output_usd_per_mtok: float = 10.00
+    """The mid tier: prose regeneration, the one job whose output the owner reads."""
+
+    llm_mid_tier_operations: str = "regenerate_prose_profile"
+    """Comma-separated operations that run on the mid tier; the rest run on the cheap one.
+
+    The assignment is spec (taste-profile.md) and this is where it is written down, so
+    re-tuning which job deserves which tier is an environment variable rather than a
+    code change - and the prices above move with the models without a migration.
+    """
+
+    llm_batched_operations: str = "rerank_candidates,tag_film_qualities"
+    """Comma-separated operations dispatched through Message Batches rather than inline.
+
+    Batches are half price and asynchronous, which is exactly the shape of a refresh
+    that fans out over many films and that nothing is waiting on. Prose is deliberately
+    not here: it is one call for one account, so a batch of one would buy a discount at
+    the price of a poll loop.
+    """
+
+    llm_batch_poll_seconds: float = 5.0
+    llm_batch_timeout_seconds: float = 3600.0
+    """How the adapter waits out a batch. The API allows a batch 24 hours; a worker job
+    holding a connection that long is a wedge, so this gives up and the refresh is simply
+    missed - the next accumulated change asks again."""
+
+    llm_account_monthly_cap_usd: float = 2.00
+    llm_global_monthly_cap_usd: float = 10.00
+    """The two caps of architecture.md, checked month-to-date before every dispatch.
+
+    Hitting either skips the work and serves cached results: never a broken feed, never a
+    runaway bill. Both are config because the right number is an operator's call about
+    what this box is worth, not a design decision.
+    """
+
+    prose_placements_trigger: int = 10
+    """New placements since the live prose that make it worth rewriting.
+
+    Ten is roughly a session's work: enough that the ordering has visibly moved, far
+    enough above one that no comparison can ever be what triggers a regeneration.
+    """
+
+    prose_drift_trigger: int = 3
+    """Drift resolutions since the live prose that count as a wave rather than a one-off."""
+
+    prose_staleness_comparisons: int = 40
+    """The backstop: answered comparisons since the live prose, whatever else moved.
+
+    An owner who settles films they already placed - keep-comparing, drift checks, the
+    settling door - accumulates real evidence that lands no new placement, so without
+    this their prose would describe a library they have since re-judged. Denominated in
+    answers rather than days, because spend is earned by engagement (ADR 0004): a
+    dormant account never reaches it.
+    """
+
     film_refresh_days: int = 150
     """~5 months: still-referenced films re-sync at this age, inside ADR 0003's 6-month ceiling."""
 
@@ -154,3 +234,16 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_url(self) -> str:
         return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)
+
+    @property
+    def mid_tier_operations(self) -> frozenset[str]:
+        return _names(self.llm_mid_tier_operations)
+
+    @property
+    def batched_operations(self) -> frozenset[str]:
+        return _names(self.llm_batched_operations)
+
+
+def _names(setting: str) -> frozenset[str]:
+    """A comma-separated setting as a set. Blanks and stray spaces are the operator's."""
+    return frozenset(name.strip() for name in setting.split(",") if name.strip())

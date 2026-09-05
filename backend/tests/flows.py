@@ -310,6 +310,38 @@ async def film_page(client, film):
     return response.json()
 
 
+async def add_constraint(db, jobs_app, account_id, quality_name):
+    """Put a picker selection in the account's constraints, below the API seam.
+
+    The one helper here that does not speak HTTP, because the quality picker that writes
+    these arrives with #37 and there is no endpoint yet. What exists now is the rule every
+    regeneration has to honour, so this writes the row the picker will - and schedules the
+    prose check the same way, in the same transaction, because a constraint edit changes
+    what a regeneration must respect without moving anything that would trigger a retrain.
+    """
+    from sqlalchemy import select
+
+    from anchor import jobs as jobs_module
+    from anchor.models import ConstraintKind, ProfileConstraint, QualityListEntry
+
+    async with db.sessions() as session:
+        quality = await session.scalar(
+            select(QualityListEntry).where(
+                QualityListEntry.account_id == account_id, QualityListEntry.name == quality_name
+            )
+        )
+        assert quality is not None, quality_name
+        session.add(
+            ProfileConstraint(
+                account_id=account_id,
+                kind=ConstraintKind.quality_pick,
+                quality_id=quality.id,
+            )
+        )
+        await jobs_module.schedule_prose_check(session, jobs_app, account_id)
+        await session.commit()
+
+
 async def profile(client):
     response = await client.get("/api/profile")
     assert response.status_code == 200, response.text

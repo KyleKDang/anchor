@@ -100,6 +100,63 @@ class AuthSession(Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class LlmOperation(enum.StrEnum):
+    """Anchor's four LLM jobs, which are the whole surface of the seam (architecture.md).
+
+    The seam is operations-shaped rather than a generic prompt wrapper, so this enum is
+    the closed list of things Anchor is ever willing to spend a provider call on - and,
+    being the ledger's own column, it is also the list spend can ever be attributed to.
+    """
+
+    rerank_candidates = "rerank_candidates"
+    regenerate_prose_profile = "regenerate_prose_profile"
+    tag_film_qualities = "tag_film_qualities"
+    suggest_qualities = "suggest_qualities"
+
+
+class SpendLedgerEntry(Base):
+    """One LLM call's cost, appended and never rewritten.
+
+    The ledger is what makes the two monthly caps enforceable: the seam sums this table
+    month-to-date before every dispatch, per account and platform-wide, and declines
+    rather than spends past either (architecture.md). A row is written for every call
+    that reached a provider, including one whose answer turned out to be unusable -
+    the tokens were bought either way, and a ledger that only records useful calls
+    would under-report the bill by exactly the amount nobody meant to spend.
+
+    ``account_id`` is the scope: an account's own work, or NULL for shared work like
+    quality tags, which are account-independent and paid for once for everybody.
+
+    Cost is stored in millionths of a dollar rather than as a float, because it is
+    summed against a cap and money that is added up must not drift. A cheap-tier call
+    is a few thousand of these, so the unit is resolution rather than pedantry.
+
+    Deleting an account takes its rows with it, like every other account-realm table.
+    Its spend then leaves the global month-to-date sum too, which is the honest reading:
+    the realm wipe means the account's history is gone, not archived elsewhere.
+    """
+
+    __tablename__ = "spend_ledger_entries"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID | None] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True
+    )
+    """Whose budget this call is against. NULL is the shared scope: work for everyone."""
+    operation: Mapped[LlmOperation] = mapped_column(
+        Enum(LlmOperation, name="llm_operation"), nullable=False
+    )
+    model: Mapped[str] = mapped_column(String(64), nullable=False)
+    """The provider model id, verbatim: what the cost below was priced against."""
+    input_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    output_tokens: Mapped[int] = mapped_column(Integer, nullable=False)
+    cost_micros: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Millionths of a US dollar, computed from the tokens at the configured tier prices."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+
+
 class Film(Base):
     """A film in the shared catalog, as one bundled TMDB call gave it.
 
@@ -856,6 +913,83 @@ class QualityListEntry(Base):
     )
 
 
+class ConstraintKind(enum.StrEnum):
+    """The two shapes a durable owner-stated fact about their taste can take."""
+
+    quality_pick = "quality_pick"
+    """A quality the owner selected in the picker, naming one of their list entries."""
+    prose_correction = "prose_correction"
+    """A claim in the prose profile the owner thumbed down, held structurally."""
+
+
+class ProfileConstraint(Base):
+    """A durable owner-stated fact about their taste, stored structurally, never as text.
+
+    Structural is the whole point. The prose profile is regenerated from scratch every
+    time, so a correction kept as an edit to its text would be clobbered by the next
+    regeneration; kept as a row, it is an input the regeneration has to respect, and it
+    survives however many times the prose is rewritten.
+
+    Lifting a constraint stamps ``lifted_at`` rather than deleting the row, the way a
+    drift flag closes: the owner changing their mind is itself a fact about their taste,
+    and an active constraint is simply one that has not been lifted.
+
+    The picker that writes these arrives with #37; what lives here is the concept every
+    regeneration already has to honour, and the read that makes it honour it.
+    """
+
+    __tablename__ = "profile_constraints"
+    __table_args__ = (
+        # Each kind is defined by exactly the field that carries its content, so a row
+        # of one kind holding the other's payload is a constraint that says two things.
+        CheckConstraint(
+            "(quality_id IS NOT NULL) = (kind = 'quality_pick')",
+            name="ck_profile_constraints_quality_pick",
+        ),
+        CheckConstraint(
+            "(content IS NOT NULL) = (kind = 'prose_correction')",
+            name="ck_profile_constraints_prose_correction",
+        ),
+        # One live pick per quality: a second would say the same thing twice, and every
+        # regeneration would read the owner's one selection as two pieces of evidence.
+        Index(
+            "uq_profile_constraints_active_quality",
+            "account_id",
+            "quality_id",
+            unique=True,
+            postgresql_where=text("lifted_at IS NULL AND quality_id IS NOT NULL"),
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    kind: Mapped[ConstraintKind] = mapped_column(
+        Enum(ConstraintKind, name="constraint_kind"), nullable=False
+    )
+    quality_id: Mapped[uuid.UUID | None] = mapped_column(
+        # Deferred for the reason the comparison log's quality reference is: the guard
+        # wanted is "a quality is never dropped out from under a constraint naming it",
+        # but account deletion cascades into both tables in whatever order it likes.
+        ForeignKey(
+            "quality_list_entries.id",
+            ondelete="NO ACTION",
+            deferrable=True,
+            initially="DEFERRED",
+        ),
+        index=True,
+    )
+    """The quality a picker selection names. None on a prose correction."""
+    content: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    """A thumbed-down claim, structured. None on a picker selection."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    lifted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner took it back. None means the constraint is active."""
+
+
 class WeightVector(Base):
     """The numeric taste artifact: a learned weight per symbolic film feature (ADR 0004).
 
@@ -922,6 +1056,68 @@ class Exemplar(Base):
     """The band an anchor is the exemplar of. None for an extreme, which stands for no band."""
     rank: Mapped[int] = mapped_column(Integer, nullable=False)
     computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class ProseTrigger(enum.StrEnum):
+    """What accumulated far enough to be worth a regeneration.
+
+    The four middle ones are taste-profile.md's own list; ``first`` is the account
+    earning its very first prose, and ``staleness`` is the backstop that catches an
+    owner whose answering never lands enough new placements to trip anything else.
+    """
+
+    first = "first"
+    placements = "placements"
+    anchors = "anchors"
+    drift = "drift"
+    constraints = "constraints"
+    staleness = "staleness"
+
+
+class ProseProfileVersion(Base):
+    """One prose regeneration, appended and never rewritten (data-model.md).
+
+    The latest row is the live prose; the older ones are kept because the version number
+    is not bookkeeping. Discovery caches its verdicts keyed by (film, profile version),
+    so the bump *is* the cache invalidation and the batch-rerank trigger, which is why
+    this is a real row rather than a counter on the account.
+
+    The rest of the columns are the watermark: what the account looked like at the moment
+    this text was written. The next regeneration is decided by comparing the account's
+    current state against the newest watermark, which is what makes "accumulated change"
+    a measurement rather than a guess - and what keeps prose off the per-comparison path,
+    since a single answer moves no counter far enough to matter.
+
+    Nothing here is denominated in calendar time. Spend is earned by engagement (ADR
+    0004), so an account that has not been touched since March is exactly as due as it
+    was in March: not at all.
+    """
+
+    __tablename__ = "prose_profile_versions"
+    __table_args__ = (UniqueConstraint("account_id", "version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    version: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Monotonic per account, starting at 1. The key discovery caches verdicts against."""
+    text: Mapped[str] = mapped_column(String, nullable=False)
+    trigger: Mapped[ProseTrigger] = mapped_column(
+        Enum(ProseTrigger, name="prose_trigger"), nullable=False
+    )
+    placements: Mapped[int] = mapped_column(Integer, nullable=False)
+    explicit_comparisons: Mapped[int] = mapped_column(Integer, nullable=False)
+    drift_resolutions: Mapped[int] = mapped_column(Integer, nullable=False)
+    """The three counted dimensions of the watermark; all three only ever go up."""
+    anchors: Mapped[str] = mapped_column(String(64), nullable=False)
+    constraints: Mapped[str] = mapped_column(String(64), nullable=False)
+    """The two set-shaped dimensions, as digests. Anchors and constraints are current-only
+    - designating over one clears the old row - so there is no count that changing them
+    reliably moves, and comparing digests catches a swap that leaves the count alone."""
+    generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 

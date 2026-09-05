@@ -10,7 +10,7 @@ shared between apps.
 import logging
 import uuid
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import procrastinate
 from procrastinate import JobContext, builtin_tasks
@@ -25,6 +25,13 @@ from anchor.errors import ApiError
 from anchor.models import AuthSession, Import, ImportRow, ImportRowState, ImportStatus, WorkerProbe
 from anchor.settings import Settings
 from anchor.tmdb import FilmNotInTmdb, Tmdb, TmdbUnavailable
+
+if TYPE_CHECKING:
+    # For the annotation only. The web process imports this module to *enqueue*, and
+    # importing the LLM seam at runtime for a type would undo the structural rule that
+    # only the worker loads it (architecture.md) - so the name is available to mypy and
+    # to nobody else.
+    from anchor.llm import Llm
 
 log = logging.getLogger(__name__)
 
@@ -45,9 +52,9 @@ def task_name(task: TaskFunction) -> str:
     return f"{NAMESPACE}:{task.__name__}"
 
 
-def worker_context(db: Database, tmdb: Tmdb, settings: Settings) -> dict[str, Any]:
+def worker_context(db: Database, tmdb: Tmdb, llm: "Llm", settings: Settings) -> dict[str, Any]:
     """What every job receives as its ``additional_context``; read back with the getters below."""
-    return {"db": db, "tmdb": tmdb, "settings": settings}
+    return {"db": db, "tmdb": tmdb, "llm": llm, "settings": settings}
 
 
 def database_of(context: JobContext) -> Database:
@@ -56,6 +63,10 @@ def database_of(context: JobContext) -> Database:
 
 def tmdb_of(context: JobContext) -> Tmdb:
     return context.additional_context["tmdb"]  # type: ignore[no-any-return]
+
+
+def llm_of(context: JobContext) -> "Llm":
+    return context.additional_context["llm"]  # type: ignore[no-any-return]
 
 
 def settings_of(context: JobContext) -> Settings:
@@ -100,6 +111,22 @@ async def schedule_retrain(
     )
 
 
+async def schedule_prose_check(
+    session: AsyncSession, jobs: procrastinate.App, account_id: uuid.UUID
+) -> None:
+    """Ask whether the prose profile is now due, alongside a change that is not an ordering one.
+
+    Every change to the *ordering* already schedules a retrain, and the retrain asks this
+    question on its way out - so nothing that moves a film needs to call this. What does
+    is the other kind of trigger taste-profile.md names: a picker or constraint edit,
+    which changes what a regeneration must respect without moving anything it describes.
+
+    The job re-asks :func:`anchor.prose.due` itself, so calling this when nothing has
+    accumulated costs a queue row and a query rather than a provider call.
+    """
+    await enqueue(session, jobs, regenerate_prose, lock=str(account_id), account_id=str(account_id))
+
+
 async def answer_probe(context: JobContext, probe_id: str) -> None:
     """The health check's round trip: mark the probe answered."""
     async with database_of(context).sessions() as session:
@@ -119,11 +146,60 @@ async def retrain_taste_profile(context: JobContext, account_id: str) -> None:
     worker ever loads it. The web process imports this module to *enqueue*, and pulling
     numpy and the whole feature pipeline into it for that would be a structural claim
     nobody meant to make - the same rule architecture.md puts on the LLM module.
+
+    The prose profile is the third artifact and is deliberately not regenerated here.
+    The other two cost milliseconds and are rebuilt every time; this one costs money, so
+    all that happens here is the question of whether enough has accumulated to be worth
+    asking - and a job of its own, under the same account lock, if it has. Keeping the
+    call out of this job also keeps the retrain fast: nothing that follows a placement
+    should be waiting on a provider.
     """
-    from anchor import taste
+    from anchor import prose, taste
 
     async with database_of(context).sessions() as session:
-        await taste.retrain(session, uuid.UUID(account_id))
+        account = uuid.UUID(account_id)
+        await taste.retrain(session, account)
+        if await prose.due(session, account, settings_of(context)) is not None:
+            await schedule_prose_check(session, context.app, account)
+        await session.commit()
+
+
+async def regenerate_prose(context: JobContext, account_id: str) -> None:
+    """Rewrite the owner-readable prose profile, if it is still worth doing.
+
+    The seam is imported inside the function for architecture.md's structural rule: the
+    web process imports this module to enqueue, and must not load the LLM module by doing
+    so. That rule is what makes "no interactive screen waits on an LLM call" a fact about
+    the deployment rather than a promise about the code.
+
+    Everything the provider might refuse - a spent cap, no credential, a provider that is
+    down - arrives as ``Skipped``, and the answer to all of it is to leave the live
+    version alone. That is the whole degradation story: the owner sees the prose they
+    already had, with the last-updated line it already carried, and nothing tells them
+    anything went wrong, because from their side nothing did.
+    """
+    from anchor import llm as llm_module
+    from anchor import prose
+
+    db, seam = database_of(context), llm_of(context)
+    account = uuid.UUID(account_id)
+    async with db.sessions() as session:
+        # Re-asked rather than trusted: this job may have waited behind another
+        # regeneration on the same account lock, and that one may have just answered it.
+        trigger = await prose.due(session, account, settings_of(context))
+        if trigger is None:
+            return
+        mark = await prose.watermark(session, account)
+        evidence = await prose.evidence(session, account)
+
+    try:
+        text = await seam.regenerate_prose_profile(account, evidence)
+    except llm_module.Skipped as skipped:
+        log.info("prose profile for %s not regenerated: %s", account_id, skipped)
+        return
+
+    async with db.sessions() as session:
+        await prose.record(session, account, text=text, trigger=trigger, mark=mark)
         await session.commit()
 
 
@@ -336,6 +412,10 @@ def _declare_tasks() -> procrastinate.Blueprint:
     tasks = procrastinate.Blueprint()
     tasks.task(name=answer_probe.__name__, pass_context=True)(answer_probe)
     tasks.task(name=retrain_taste_profile.__name__, pass_context=True)(retrain_taste_profile)
+    # Retried, because the whole job is one long conversation with a provider and the far
+    # end goes down. Re-running is safe: the first thing it does is re-ask whether the
+    # regeneration is still due, and a version that landed answers that with no.
+    tasks.task(name=regenerate_prose.__name__, retry=2, pass_context=True)(regenerate_prose)
     # Retried, because the whole job is one long conversation with TMDB and the far end
     # goes down. Every row commits on its own, so a retry resumes rather than repeats.
     tasks.task(name=match_import_rows.__name__, retry=3, pass_context=True)(match_import_rows)

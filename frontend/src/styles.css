@@ -1485,6 +1485,27 @@ select {
 
 /* Profile: readiness, the account, and the attribution TMDB's terms require. -------------- */
 
+/* The prose profile ------------------------------------------------------------------- */
+
+/* Set to be read rather than scanned: a measure a little narrower than the screen's other
+   copy, and paragraph spacing loose enough that two or three of them do not read as one
+   block. Nothing here marks it as machine-written - it is a description of the owner's own
+   taste, and dressing it as engine output would be the engine narrating itself. */
+.prose {
+  max-width: 60ch;
+  margin: var(--s4) 0 var(--s3);
+}
+
+.prose p + p {
+  margin-top: var(--s3);
+}
+
+/* The one thing the owner is told about the regeneration, and it is a footnote: small,
+   muted, and below the text rather than heading it (surfacing.md). */
+.prose-updated {
+  font-size: var(--text-sm);
+}
+
 /* Deliberately plain. Readiness is a fact about how much the owner has told Anchor, not an
    achievement to celebrate, so the bars carry their own figures and nothing here
    congratulates anybody or nags them towards the next state (ADR 0011). */

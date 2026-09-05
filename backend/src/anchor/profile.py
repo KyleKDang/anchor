@@ -1,10 +1,16 @@
-"""The Profile screen's engine section: how ready the taste profile is, and why.
+"""The Profile screen's engine section: how ready the taste profile is, and what it says.
 
-Readiness is the only thing on this screen that exists yet - the prose profile, the
-quality picker, and the Letterboxd area arrive with their own tickets - and the whole
-point of showing it is honesty. An account that cannot yet be recommended to is told so,
-in the terms that would change it, rather than being shown an empty ranked tier and left
-to guess what went wrong (onboarding-and-import.md).
+Two of the profile's three artifacts surface here. Readiness is the arithmetic, and the
+whole point of showing it is honesty: an account that cannot yet be recommended to is
+told so, in the terms that would change it, rather than being shown an empty ranked tier
+and left to guess what went wrong (onboarding-and-import.md).
+
+The prose profile is the other, and it is read, never made, on this path. The text is
+whatever the last regeneration wrote, and its last-updated stamp rides along beside it -
+one ambient line and nothing more (surfacing.md). Nothing here can trigger a
+regeneration, ask whether one is running, or wait on one: the engine never narrates its
+background work, and the module that would make the call is not even loaded in this
+process (architecture.md).
 
 So the payload is the state *and its arithmetic*: each bar the next state needs, what the
 account has against it, and what it needs. The screen can then say "eleven more films"
@@ -16,9 +22,12 @@ Nothing rating-shaped is here and nothing ever can be: readiness is counts, and 
 keeps scores off every surface anyway.
 """
 
+from datetime import datetime
+
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from anchor import prose as prose_module
 from anchor import readiness as readiness_module
 from anchor.accounts import CurrentAccount
 from anchor.deps import AppSettings, DbSession
@@ -60,6 +69,20 @@ class Stage(BaseModel):
     thresholds: list[Threshold]
 
 
+class Prose(BaseModel):
+    """The owner-readable description of their taste, as the screen shows it.
+
+    ``generated_at`` is what the ambient last-updated line renders and the only thing
+    about the regeneration the owner is ever told. The trigger and the watermark stay in
+    the row: what made Anchor rewrite this is the engine's business, and narrating it
+    would be exactly the background chatter ADR 0011 rules out.
+    """
+
+    text: str
+    version: int
+    generated_at: datetime
+
+
 class Profile(BaseModel):
     """The screen. ``stages`` omits cold, which every account is already at."""
 
@@ -68,6 +91,9 @@ class Profile(BaseModel):
     stages: list[Stage]
     criteria_frequency: CriteriaFrequency
     """How often the owner wants the bonus question after a placement, off included."""
+    prose: Prose | None
+    """None until the first regeneration lands; the section renders nothing rather than
+    promising one is coming, because a cold account has not earned the spend."""
 
 
 class CriteriaSetting(BaseModel):
@@ -81,6 +107,7 @@ async def profile(account: CurrentAccount, db: DbSession, settings: AppSettings)
     counted = await readiness_module.evidence(db, account.id)
     state = readiness_module.classify(counted, settings)
     reachable = readiness_module.bars(counted, settings)
+    live = await prose_module.latest(db, account.id)
     order = list(Readiness)
     return Profile(
         readiness=state,
@@ -102,6 +129,11 @@ async def profile(account: CurrentAccount, db: DbSession, settings: AppSettings)
             for reachable_state, state_bars in reachable.items()
         ],
         criteria_frequency=account.criteria_frequency,
+        prose=(
+            None
+            if live is None
+            else Prose(text=live.text, version=live.version, generated_at=live.generated_at)
+        ),
     )
 
 
