@@ -354,6 +354,35 @@ class Placement(Base):
     )
 
 
+class ReplacementRequest(Base):
+    """The owner asking outright to place a film again: the fourth door's mark.
+
+    The other three doors leave their mark on something that already exists - a drift
+    flag's ``re_placing_since``, a rewatch's outcome, a designation intent. Asking
+    outright has no such carrier, and the search keeps no state of its own, so the ask
+    itself is the row: without it a reload of the placement screen would either reopen
+    questions on a film the owner walked away from or never open any at all.
+
+    It expires by itself rather than being cleared, the way a rewatch's does: landing
+    restamps the placement's clock, so a request older than the position it questioned
+    has plainly been answered by it. Bailing out lands the film too, which is what makes
+    a bailed-out settle stay bailed out across a reload.
+    """
+
+    __tablename__ = "replacement_requests"
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    account_film_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("account_films.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    requested_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
 class Divider(Base):
     """The stored boundary between two adjacent bands: at most nine per account.
 

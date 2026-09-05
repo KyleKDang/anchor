@@ -403,6 +403,15 @@ function Landed({
           Doesn't look right - keep comparing
         </button>
       </div>
+      {/* The one quiet way onward, and only from a settle the owner asked for: a link
+          under the buttons, carrying the count and nothing that reads as a target. It is
+          absent the moment nothing is left, which is the whole of its ending. */}
+      {landed.settle_another !== null && landed.settle_another > 0 && (
+        <p className="muted place-leave">
+          <Link to="/rated">Settle another</Link> - {landed.settle_another}{" "}
+          {landed.settle_another === 1 ? "film is" : "films are"} still settling.
+        </p>
+      )}
     </>
   );
 }

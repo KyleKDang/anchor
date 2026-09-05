@@ -9,7 +9,7 @@ import {
   type FilmDetail,
   type KeepOpponent,
 } from "../api";
-import { AnchorBadge, Band } from "../films/Band";
+import { AnchorBadge, Band, ProvisionalMark } from "../films/Band";
 import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
@@ -167,10 +167,19 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
               <p className="film-page-band">
                 <Band band={film.rating} />
                 {film.anchor && <AnchorBadge band={film.rating} />}
+                {/* The same ambient marker the film wears on Rated, and the reason the
+                    offer below reads "settle it now" (surfacing.md). */}
+                {film.provisional && <ProvisionalMark />}
               </p>
               {film.drift !== null && <Drift film={film} flag={film.drift} onChanged={onChange} />}
               {film.rewatch !== null && <Rewatch film={film} onChanged={onChange} />}
-              <Watched film={film} onChanged={onChange} />
+              {/* One row: logging another watch and asking to place it again are the two
+                  things the owner does to a film they already have an opinion about. */}
+              <div className="actions">
+                <Watched film={film} onChanged={onChange} />
+                {film.drift === null && <RePlace film={film} />}
+              </div>
+              {film.drift === null && film.anchor && <AnchorWarning band={film.rating} />}
               <Designate film={film} onChanged={onChange} />
               <p className="muted">
                 <Link to="/rated">See where it sits in your ordering</Link>
@@ -185,6 +194,62 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
         </div>
       </article>
     </>
+  );
+}
+
+/**
+ * The owner asking outright to place this film again: the fourth door (rating-system.md).
+ *
+ * One control with two wordings, because the two cases are genuinely different acts. A
+ * provisional film holds a placeholder position and unfinished business, so the offer is
+ * to finish it; a settled one holds a position the owner's own answers produced, so the
+ * offer is to question it. Either way the comparisons decide and this only opens the flow.
+ *
+ * It stands down while a drift flag is open. That panel asks this exact question already,
+ * with the evidence attached, and two buttons into one flow - one of them without the
+ * evidence - would read as two different offers.
+ */
+function RePlace({ film }: { film: FilmDetail }) {
+  const navigate = useNavigate();
+  const { busy, error, run } = useAsyncAction();
+
+  return (
+    <>
+      <button
+        type="button"
+        className="button secondary"
+        disabled={busy}
+        onClick={() =>
+          void run(async () => {
+            await api.askToRePlace(film.tmdb_id);
+            await navigate(placePath(film.tmdb_id));
+          })
+        }
+      >
+        {film.provisional ? "Settle it now" : "Re-place it"}
+      </button>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+    </>
+  );
+}
+
+/**
+ * What re-placing an anchor costs, said before the flow starts rather than after.
+ *
+ * Shared by the drift panel and the plain offer, because settling never bypasses it: a
+ * canonical 4.0 that answers its way into the 3.5s is a contradiction in terms, and the
+ * owner is entitled to know that before they answer rather than when the badge vanishes.
+ */
+function AnchorWarning({ band }: { band: number | null }) {
+  return (
+    <p className="muted">
+      This is a canonical {band?.toFixed(1)}. Re-placing it somewhere else retires that,
+      and the comparisons decide where it lands.
+    </p>
   );
 }
 
@@ -309,12 +374,7 @@ function Drift({
         </div>
       )}
 
-      {flag.anchor_warning && (
-        <p className="muted">
-          This is a canonical {film.rating?.toFixed(1)}. Re-placing it somewhere else
-          retires that, and the comparisons decide where it lands.
-        </p>
-      )}
+      {flag.anchor_warning && <AnchorWarning band={film.rating} />}
       {/* No "not now" button: leaving the page *is* not now, and the flag will still be
           here. Nothing is blocked while it waits. */}
       {error && (
@@ -413,7 +473,7 @@ function Watched({ film, onChanged }: { film: FilmDetail; onChanged: (film: Film
 
   if (film.rewatch !== null) return null;
   return (
-    <div className="actions">
+    <>
       <button
         type="button"
         className="button secondary"
@@ -427,7 +487,7 @@ function Watched({ film, onChanged }: { film: FilmDetail; onChanged: (film: Film
           {error}
         </p>
       )}
-    </div>
+    </>
   );
 }
 

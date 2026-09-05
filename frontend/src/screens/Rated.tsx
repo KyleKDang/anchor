@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 
 import {
   BANDS,
@@ -432,10 +432,43 @@ function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: b
         <span className="film-year muted">{releaseYear(film.year)}</span>
         {showBand && <Band band={film.band} />}
         {film.anchor && <AnchorBadge band={film.band} />}
-        {film.provisional && <ProvisionalMark />}
+        {film.provisional && <SettlingMark film={film} />}
         {film.flagged && <span className="chip chip-flagged">Needs attention</span>}
       </div>
     </div>
+  );
+}
+
+/**
+ * The "settling" mark, which on the wall is also the door into settling that one film.
+ *
+ * On an anchor it stays a mark and nothing more. An anchor is re-placed only from its own
+ * page, where the warning that landing outside its band retires it can be read before the
+ * flow starts (rating-system.md) - and a badge is no place to put a warning.
+ */
+function SettlingMark({ film }: { film: RatedFilm }) {
+  const navigate = useNavigate();
+  const { busy, run } = useAsyncAction();
+
+  if (film.anchor) return <ProvisionalMark />;
+  return (
+    <button
+      type="button"
+      className="provisional-mark settling-door"
+      disabled={busy}
+      title="Still settling: fewer comparisons than usual"
+      // The word on screen is the film's state; the accessible name has to be the act,
+      // because "settling" alone tells a screen reader nothing about what clicking does.
+      aria-label={`Settle ${film.title} now`}
+      onClick={() =>
+        void run(async () => {
+          await api.askToRePlace(film.tmdb_id);
+          await navigate(placePath(film.tmdb_id));
+        })
+      }
+    >
+      settling
+    </button>
   );
 }
 

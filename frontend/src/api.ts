@@ -126,6 +126,8 @@ export interface PlacementLanded {
   /** This landing crossed the readiness bar: the one line announcing the ranked tier. */
   unlocked: boolean;
   neighbours: Neighbours;
+  /** How many films are still settling, on the done screen of a settle and nowhere else. */
+  settle_another: number | null;
   /** The bonus question this landing earned, and usually null. Never blocking. */
   criteria: CriteriaCard | null;
 }
@@ -250,6 +252,8 @@ export interface FilmDetail {
   drift: DriftFlag | null;
   /** The still-feel-the-same question the last rewatch left open. */
   rewatch: RewatchPrompt | null;
+  /** The position is a placeholder, so the page offers to settle it rather than re-place it. */
+  provisional: boolean;
 }
 
 /** One judgment that contradicts where the film sits, in the owner's own terms. */
@@ -635,6 +639,9 @@ export const api = {
     request<Designation>("POST", `/api/anchors/${band}`, { tmdb_id: tmdbId }),
   retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
   rePlaceDrift: (tmdbId: number) => request<void>("POST", `/api/drift/${tmdbId}/re-place`),
+  /** The owner asking outright: "settle it now" on a provisional film, "re-place" on a settled one. */
+  askToRePlace: (tmdbId: number) =>
+    request<void>("POST", `/api/placements/${tmdbId}/re-place`),
   keepPosition: (tmdbId: number, opponents: KeepOpponent[]) =>
     request<void>("POST", `/api/drift/${tmdbId}/keep`, { opponents }),
   logRewatch: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, {}),
