@@ -101,10 +101,25 @@ export interface CriteriaCard {
   film_b: FilmCard;
 }
 
+/**
+ * One slot of the ordering as the done screen shows it: a few faces and a count.
+ *
+ * `films` names at most a couple of the slot's members, in the slot's own order, and
+ * `total` is how many the row stands for. A slot with `total > 1` is a tie group, which
+ * the row says with the wall's joint-rank mark and "and N others" rather than a row per
+ * member - the server caps this, so the payload is already the size of the screen.
+ */
+export interface NeighbourSlot {
+  films: FilmCard[];
+  total: number;
+}
+
 export interface Neighbours {
-  above: FilmCard[];
-  tied_with: FilmCard[];
-  below: FilmCard[];
+  /** The adjacent slots, null at the top and bottom of the ordering. */
+  above: NeighbourSlot | null;
+  /** The landed film's own slot minus itself, null where it is alone there. */
+  tied_with: NeighbourSlot | null;
+  below: NeighbourSlot | null;
 }
 
 export interface PlacementLanded {

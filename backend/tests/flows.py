@@ -135,6 +135,26 @@ async def place_at(client, film, ordering_ids, index, seed=1):
     return step
 
 
+async def tie_into(client, film, slots, index, seed=1):
+    """Answer so ``film`` lands level with the films already at ``slots[index]``.
+
+    ``slots`` is the ordering as slot lists, best first - what :func:`ordering_of`
+    returns. Steers toward the slot like :func:`place_at` and answers Tied the moment the
+    picker offers one of its members, which is how a tie group of any size is grown a
+    film at a time without a seed import behind it.
+    """
+    where = {film_id: at for at, slot in enumerate(slots) for film_id in slot}
+    await mark_watched(client, film, "now")
+    step = await begin(client, film, seed)
+    while not step["done"] and step["kind"] == "comparison":
+        assert_no_rating_keys(step, "a mid-flow question")
+        opponent = step["b"]["tmdb_id"]
+        at = where[opponent]
+        verdict = "tied" if at == index else ("a" if at > index else "b")
+        step = await answer(client, film, opponent, verdict, seed)
+    return step
+
+
 async def replace_at(client, film, ordering_ids, index, seed=1):
     """The same, for a film already in the ordering: a re-placement the owner started."""
     step = await begin(client, film, seed)

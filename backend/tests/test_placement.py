@@ -12,6 +12,7 @@ import uuid
 import pytest
 from sqlalchemy import select
 
+from anchor import ordering as ordering_module
 from anchor.models import (
     AccountFilm,
     LifecycleState,
@@ -29,8 +30,10 @@ from flows import (
     mark_watched,
     ordering_of,
     place,
+    place_at,
     queue_of,
     rated,
+    tie_into,
 )
 from invariants import (
     assert_appended_only,
@@ -43,6 +46,22 @@ from invariants import (
 )
 
 FIRST, SECOND, THIRD, FOURTH = LIBRARY[:4]
+
+
+def slot_of(neighbour):
+    """A done-screen neighbouring slot as (the films it names, how many it stands for)."""
+    return [film["tmdb_id"] for film in neighbour["films"]], neighbour["total"]
+
+
+async def tie_group_ordering(client):
+    """Four slots, the second of them five films judged level. Returned as slot lists."""
+    await build_ordering(client, LIBRARY[:4])
+    slots = [[film.tmdb_id] for film in LIBRARY[:4]]
+    for film in LIBRARY[4:8]:
+        await tie_into(client, film, slots, 1)
+        slots = ordering_of(await rated(client))
+    assert len(slots[1]) == 5, "the fixture wants a tie group bigger than the cap"
+    return slots
 
 
 @pytest.fixture(autouse=True)
@@ -166,7 +185,7 @@ async def test_tied_joins_the_opponents_tie_group_and_ends_the_search(owner, db)
     landed = await answer(owner, LIBRARY[4], opponent, "tied")
 
     assert landed["done"] is True
-    assert [film["tmdb_id"] for film in landed["neighbours"]["tied_with"]] == [opponent]
+    assert slot_of(landed["neighbours"]["tied_with"]) == ([opponent], 1)
     slots = ordering_of(await rated(owner))
     assert sorted(slots[landed["position"] - 1]) == sorted([opponent, LIBRARY[4].tmdb_id])
     assert len(slots) == 4, "a tie joins a slot rather than opening one"
@@ -394,20 +413,74 @@ async def test_the_done_screen_shows_the_landed_position_with_its_neighbours(own
     await build_ordering(owner, LIBRARY[:4])
     ordering = [film.tmdb_id for film in LIBRARY[:4]]
 
-    await mark_watched(owner, LIBRARY[4], "now")
-    step = await begin(owner, LIBRARY[4])
-    while not step["done"]:
-        opponent = step["b"]["tmdb_id"]
-        step = await answer(
-            owner, LIBRARY[4], opponent, "a" if ordering.index(opponent) >= 2 else "b"
-        )
+    step = await place_at(owner, LIBRARY[4], ordering, 2)
 
     assert (step["position"], step["total"]) == (3, 5)
-    assert [film["tmdb_id"] for film in step["neighbours"]["above"]] == [ordering[1]]
-    assert [film["tmdb_id"] for film in step["neighbours"]["below"]] == [ordering[2]]
-    assert step["neighbours"]["tied_with"] == []
+    assert slot_of(step["neighbours"]["above"]) == ([ordering[1]], 1)
+    assert slot_of(step["neighbours"]["below"]) == ([ordering[2]], 1)
+    assert step["neighbours"]["tied_with"] is None
     # Bands arrive with #28, so the landed film honestly has no value to show yet.
     assert step["rating"] is None
+
+
+async def test_a_neighbouring_tie_group_is_one_slot_with_a_count_not_a_row_per_film(owner):
+    """The bug of #83: a slot of films level with each other is one immediate neighbour."""
+    slots = await tie_group_ordering(owner)
+
+    landed = await place_at(owner, LIBRARY[9], [film for slot in slots for film in slot], 2)
+
+    # Two faces and a count, not five rows all stamped with the same rank - and the faces
+    # are the slot's own first two, so landing here again names the same films.
+    assert slot_of(landed["neighbours"]["above"]) == (slots[1][:2], 5)
+    assert slot_of(landed["neighbours"]["below"]) == (slots[2], 1)
+    assert landed["neighbours"]["tied_with"] is None
+
+
+async def test_landing_into_a_tie_group_counts_the_films_it_is_level_with(owner):
+    slots = await tie_group_ordering(owner)
+
+    landed = await tie_into(owner, LIBRARY[9], slots, 1)
+
+    # The five it joined, named two at a time: the count is the point ("tied with five
+    # others" is what says the placement is a placeholder), the enumeration is the bug.
+    assert slot_of(landed["neighbours"]["tied_with"]) == (slots[1][:2], 5)
+    assert slot_of(landed["neighbours"]["above"]) == (slots[0], 1)
+    assert slot_of(landed["neighbours"]["below"]) == (slots[2], 1)
+
+
+async def test_landing_at_either_end_of_the_ordering_has_a_neighbour_missing(owner):
+    await build_ordering(owner, LIBRARY[:4])
+    ordering = [film.tmdb_id for film in LIBRARY[:4]]
+
+    top = await place_at(owner, LIBRARY[4], ordering, 0)
+    bottom = await place_at(owner, LIBRARY[5], [LIBRARY[4].tmdb_id] + ordering, 5)
+
+    assert top["neighbours"]["above"] is None
+    assert slot_of(top["neighbours"]["below"]) == ([ordering[0]], 1)
+    assert bottom["neighbours"]["below"] is None
+    assert slot_of(bottom["neighbours"]["above"]) == ([ordering[3]], 1)
+
+
+async def test_the_done_screen_fetches_no_more_cards_than_it_renders(owner, monkeypatch):
+    """The cap belongs on the server, so the query shrinks with the screen (#83)."""
+    slots = await tie_group_ordering(owner)
+    asked_for: list[list[int]] = []
+    real = ordering_module.cards
+
+    async def spy(db, film_ids):
+        asked_for.append(list(film_ids))
+        return await real(db, film_ids)
+
+    monkeypatch.setattr(ordering_module, "cards", spy)
+    landed = await tie_into(owner, LIBRARY[9], slots, 1)
+
+    rendered = {landed["film"]["tmdb_id"]}
+    for side in ("above", "tied_with", "below"):
+        slot = landed["neighbours"][side]
+        rendered.update(film["tmdb_id"] for film in (slot["films"] if slot else []))
+    assert asked_for, "the done screen looks its cards up through the ordering module"
+    assert set(asked_for[-1]) == rendered
+    assert len(asked_for[-1]) == len(rendered), "one id per card, whatever the slot sizes"
 
 
 async def test_no_rating_shaped_data_reaches_a_mid_flow_question(owner):
