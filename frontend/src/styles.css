@@ -1186,7 +1186,7 @@ select {
   align-items: stretch;
 }
 
-/* Neighbours: a rank, a poster, a title, and the film itself marked in the run. ----------- */
+/* Neighbours: a rank, the slot's posters, its title, and the film itself marked in the run. */
 
 .neighbours {
   list-style: none;
