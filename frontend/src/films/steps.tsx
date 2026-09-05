@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
 import { Link } from "react-router";
 
 import {
@@ -7,7 +7,7 @@ import {
   type BandQuestion,
   type CriteriaCard,
   type CriteriaVerdict,
-  type FilmCard,
+  type NeighbourSlot,
   type PlacementLanded,
   type PlacementQuestion,
   type PlacementStep,
@@ -271,6 +271,7 @@ export function Landed({
 }) {
   const { busy, error, run } = useAsyncAction();
   const { above, tied_with: tied, below } = landed.neighbours;
+  const grouped = [above, below].some((slot) => slot !== null && slot.films.length > 1);
 
   return (
     <>
@@ -291,21 +292,37 @@ export function Landed({
         )}
       </header>
 
-      <ol className="neighbours" aria-label="Immediate neighbours">
-        {above.map((film) => (
-          <Neighbour key={film.tmdb_id} film={film} rank={landed.position - 1} />
-        ))}
-        <li className="self" aria-current="true">
-          <span className="ordering-rank">{landed.position}</span>
-          <Poster title={landed.film.title} path={landed.film.poster_path} size="w92" />
-          <span className="film-title">
-            {landed.film.title}
-            {tied.length > 0 && <> - tied with {tied.map((film) => film.title).join(", ")}</>}
-          </span>
+      {/* Exactly two immediate neighbours, because a neighbour is a *slot*: however many
+          films are level with each other above this one, they share a position and get
+          the one row that position is (#83). */}
+      {/* A row that names two films carries two posters, which would push its title clear
+          of the others'. Where any row does, every row widens its poster cell to match and
+          the titles line up again; a list with no tie group in it is untouched. */}
+      <ol
+        className="neighbours"
+        aria-label="Immediate neighbours"
+        data-grouped={grouped ? "true" : undefined}
+      >
+        {above && <Neighbour slot={above} rank={landed.position - 1} />}
+        <li className="self" aria-current="true" data-tie={tied ? "true" : undefined}>
+          <Rank rank={landed.position} tie={tied !== null} />
+          <div className="neighbour-posters">
+            <Poster title={landed.film.title} path={landed.film.poster_path} size="w92" />
+          </div>
+          <div className="neighbour-body">
+            <span className="film-title">{landed.film.title}</span>
+            {/* Level with is not above or below, so it gets its own line rather than
+                being spliced into the title. The count is the information the owner came
+                for - it is the plainest statement that this position is a placeholder -
+                and it is the enumeration that made the old line a wall of titles. */}
+            {tied && (
+              <span className="neighbour-tie muted">
+                Tied with <SlotFilms slot={tied} />
+              </span>
+            )}
+          </div>
         </li>
-        {below.map((film) => (
-          <Neighbour key={film.tmdb_id} film={film} rank={landed.position + 1} />
-        ))}
+        {below && <Neighbour slot={below} rank={landed.position + 1} />}
       </ol>
 
       {landed.anchor_nudge && <AnchorNudge film={landed.film} />}
@@ -415,14 +432,77 @@ function CriteriaBonus({ card }: { card: CriteriaCard }) {
   );
 }
 
-function Neighbour({ film, rank }: { film: FilmCard; rank: number }) {
+/**
+ * One neighbouring slot: one row, whatever the slot holds.
+ *
+ * A slot of one reads exactly as a single film always did. A slot of many is a tie
+ * group, and it is one row because it is one position - the same fact the Rated wall
+ * carries with its joint-rank stamp, which this reuses. The wall keeps a cell per film
+ * because it is a grid that can afford eighty of them; this list is four rows on a
+ * screen the owner is leaving, so the members past the first couple are a count.
+ */
+function Neighbour({ slot, rank }: { slot: NeighbourSlot; rank: number }) {
   return (
-    <li>
-      <span className="ordering-rank">{rank}</span>
-      <Poster title={film.title} path={film.poster_path} size="w92" />
-      <Link className="film-title" to={filmPath(film.tmdb_id)}>
-        {film.title}
-      </Link>
+    <li data-tie={slot.total > 1 ? "true" : undefined}>
+      <Rank rank={rank} tie={slot.total > 1} />
+      <SlotPosters slot={slot} />
+      <div className="neighbour-body">
+        <span className="film-title">
+          <SlotFilms slot={slot} />
+        </span>
+      </div>
     </li>
+  );
+}
+
+/** A rank, marked joint where the position is shared. The wall's mark, its wording too. */
+function Rank({ rank, tie }: { rank: number; tie: boolean }) {
+  return (
+    <span className="ordering-rank">
+      {tie && (
+        <>
+          <span className="visually-hidden">Joint </span>
+          <span aria-hidden="true">=</span>
+        </>
+      )}
+      {rank}
+    </span>
+  );
+}
+
+/** A poster per film the row names, so a named film is never left without a face. */
+function SlotPosters({ slot }: { slot: NeighbourSlot }) {
+  return (
+    <div className="neighbour-posters">
+      {slot.films.map((film) => (
+        <Poster key={film.tmdb_id} title={film.title} path={film.poster_path} size="w92" />
+      ))}
+    </div>
+  );
+}
+
+/**
+ * The films a slot names, and the rest of it as a count: "Blue Velvet, Fargo and 11 others".
+ *
+ * The names and the count join like any English list, so the last connector is "and"
+ * whether the tail is a title or a number, and a slot of one is just its title.
+ */
+function SlotFilms({ slot }: { slot: NeighbourSlot }) {
+  const others = slot.total - slot.films.length;
+  const parts: ReactNode[] = slot.films.map((film) => (
+    <Link key={film.tmdb_id} to={filmPath(film.tmdb_id)}>
+      {film.title}
+    </Link>
+  ));
+  if (others > 0) parts.push(`${others} ${others === 1 ? "other" : "others"}`);
+  return (
+    <>
+      {parts.map((part, index) => (
+        <Fragment key={index}>
+          {index > 0 && (index === parts.length - 1 ? " and " : ", ")}
+          {part}
+        </Fragment>
+      ))}
+    </>
   );
 }

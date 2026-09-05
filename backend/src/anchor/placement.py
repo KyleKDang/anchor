@@ -75,6 +75,14 @@ from anchor.settings import Settings
 
 router = APIRouter(prefix="/api/placements")
 
+REPRESENTATIVES = 2
+"""How many films of a neighbouring slot the done screen names before it starts counting.
+
+Two, because one reads as the whole slot and three is already a list. The done screen is
+a short vertical list the owner is on their way out of, and the whole of a tie group
+lives on the Rated wall, which is a grid and can afford it (#83).
+"""
+
 
 # --- The search, derived from the log ---
 
@@ -285,12 +293,33 @@ class BandQuestion(BaseModel):
     answered: int
 
 
-class Neighbours(BaseModel):
-    """A landed film's immediate surroundings in the ordering."""
+class NeighbourSlot(BaseModel):
+    """One slot of the ordering as the done screen shows it: a few faces and a count.
 
-    above: list[FilmCard]
-    tied_with: list[FilmCard]
-    below: list[FilmCard]
+    A slot is one position and every film judged equal at it, so a tie group of eighty is
+    one neighbour, not eighty of them. ``films`` names at most :data:`REPRESENTATIVES` of
+    them in the slot's own member order - stable, so landing here twice names the same
+    films - and ``total`` is how many the row stands for, named or not. The rest is a
+    count on the row rather than more rows: the fact worth keeping is that the position
+    is shared, and the enumeration is what made the screen unreadable (#83).
+    """
+
+    films: list[FilmCard]
+    total: int
+
+
+class Neighbours(BaseModel):
+    """A landed film's immediate surroundings in the ordering.
+
+    ``above`` and ``below`` are the two adjacent slots, absent at the top and bottom of
+    the ordering. ``tied_with`` is the landed film's own slot minus itself, absent where
+    it is alone there - being level with other films is a different fact from being above
+    or below them, and the screen states it separately.
+    """
+
+    above: NeighbourSlot | None
+    tied_with: NeighbourSlot | None
+    below: NeighbourSlot | None
 
 
 class PlacementLanded(BaseModel):
@@ -1225,11 +1254,13 @@ async def _landed(
     boundaries = await bands.load(db, account.id)
     index = ordering.index_of(tmdb_id)
     assert index is not None  # the film was just placed, inside this request
-    slot = ordering.slots[index]
-    above = ordering.slots[index - 1].film_ids if index > 0 else ()
-    below = ordering.slots[index + 1].film_ids if index + 1 < len(ordering) else ()
-    tied = tuple(film_id for film_id in slot.film_ids if film_id != tmdb_id)
-    cards = await ordering_module.cards(db, [tmdb_id, *above, *below, *tied])
+    above = _slot_shown(ordering.slots[index - 1].film_ids) if index > 0 else None
+    below = _slot_shown(ordering.slots[index + 1].film_ids) if index + 1 < len(ordering) else None
+    tied = _slot_shown(
+        tuple(film_id for film_id in ordering.slots[index].film_ids if film_id != tmdb_id)
+    )
+    shown = [film_id for side in (above, below, tied) if side for film_id in side[0]]
+    cards = await ordering_module.cards(db, [tmdb_id, *shown])
     rating = bands.band_of_slot(boundaries, index)
     anchors = await anchors_module.current(db, account.id)
     placement = await _placement(db, account_film)
@@ -1244,9 +1275,9 @@ async def _landed(
         designated=designated,
         unlocked=unlocked,
         neighbours=Neighbours(
-            above=[cards[film_id] for film_id in above],
-            tied_with=[cards[film_id] for film_id in tied],
-            below=[cards[film_id] for film_id in below],
+            above=_neighbour_slot(above, cards),
+            tied_with=_neighbour_slot(tied, cards),
+            below=_neighbour_slot(below, cards),
         ),
         settle_another=settle_another,
         criteria=card,
@@ -1254,6 +1285,27 @@ async def _landed(
 
 
 # --- Helpers ---
+
+
+def _slot_shown(film_ids: tuple[int, ...]) -> tuple[tuple[int, ...], int] | None:
+    """The films of a slot the done screen will name, and how many it stands for.
+
+    None for an empty slot, which is what the top and bottom of the ordering have beyond
+    them and what a film alone in its slot is tied with. Capping here rather than in the
+    client is what keeps the card query and the payload the size of the screen (#83).
+    """
+    if not film_ids:
+        return None
+    return film_ids[:REPRESENTATIVES], len(film_ids)
+
+
+def _neighbour_slot(
+    shown: tuple[tuple[int, ...], int] | None, cards: dict[int, FilmCard]
+) -> NeighbourSlot | None:
+    if shown is None:
+        return None
+    film_ids, total = shown
+    return NeighbourSlot(films=[cards[film_id] for film_id in film_ids], total=total)
 
 
 def _seed(account_id: uuid.UUID, tmdb_id: int, given: int | None) -> int:

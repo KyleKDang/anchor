@@ -1227,6 +1227,36 @@ select {
   text-align: right;
 }
 
+/* The wall's joint mark, without the wall's ring: there the stamp sits on a poster and
+   needs an edge to read against, here it is text on the page and weight is enough (#83). */
+.neighbours li[data-tie] .ordering-rank {
+  font-weight: 700;
+}
+
+/* One poster per film the row names, which is one for every slot but a tie group. Where
+   any row in the list names two, every row reserves the width of two, so the titles line
+   up down the list instead of one of them starting a poster further right. */
+.neighbour-posters {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.neighbours[data-grouped] li {
+  grid-template-columns: 2.25rem 3.75rem 1fr;
+}
+
+.neighbour-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.neighbour-tie {
+  font-size: var(--text-xs);
+  line-height: 1.25;
+}
+
 .neighbours .self {
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
