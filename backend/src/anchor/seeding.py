@@ -62,6 +62,12 @@ WIPED = (
     "exemplars",
     "weight_vectors",
     "taste_metrics",
+    # The prose describes the ordering the reset is deleting, so it cannot outlive it: an
+    # owner who has just replaced their library should not find Profile still telling them
+    # what they liked about the old one. Its version number goes too, and has to - the
+    # number keys discovery's cached verdicts, so restarting the taste means restarting
+    # the count that says which taste a cached verdict was about.
+    "prose_profile_versions",
     "dividers",
     "anchor_designations",
     # Drift is a reading of the ordering, so it cannot outlive the ordering it read:
@@ -81,18 +87,33 @@ WIPED = (
 )
 """Every account-owned table a re-import empties: the whole account realm."""
 
-KEPT = ("auth_sessions", "quality_list_entries", "warmup_progress")
+KEPT = (
+    "auth_sessions",
+    "quality_list_entries",
+    "profile_constraints",
+    "spend_ledger_entries",
+    "warmup_progress",
+)
 """Account-owned but not the account's film data.
 
 Wiping the sessions would log the owner out mid-import. Wiping the quality list would
 throw away the built-in dozen with nothing to re-seed it - seeding happens once, at
 account creation - and take the owner's custom qualities with it, which are statements
-about their taste rather than anything the export produced. The warmup's marks record
-which questions the owner has already been asked, and the import itself is one of the
-answers, so wiping them would send an owner who took the import branch straight back to
-the fork they had just answered - and nothing in them is account data either, because
-everything the warmup shows but a skip is derived from tables that *are* wiped, and
-comes back rebuilt from the new export.
+about their taste rather than anything the export produced. Profile constraints are the
+same kind of thing and kept for the same reason, only more so: they are what the owner
+said about themselves in their own words, and losing a correction because a CSV was
+re-uploaded is exactly what storing them structurally was meant to prevent.
+
+The spend ledger is kept for a different reason entirely. It is not a statement about
+taste at all - it is what this month has already cost - and wiping it would make
+re-importing a way to reset the monthly caps, which is the one hole the caps exist to
+close (architecture.md).
+
+The warmup's marks record which questions the owner has already been asked, and the
+import itself is one of the answers, so wiping them would send an owner who took the
+import branch straight back to the fork they had just answered - and nothing in them is
+account data either, because everything the warmup shows but a skip is derived from
+tables that *are* wiped, and comes back rebuilt from the new export.
 """
 
 

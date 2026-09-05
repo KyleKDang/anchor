@@ -272,3 +272,13 @@ Evaluation reads the owner's behavior but never teaches the taste profile with i
 **No-training provider rule**:
 The compliance gate for AI providers: TMDB content and the taste profile may be sent only to APIs whose terms bar training on customer inputs by default.
 See ADR 0003 for the full licensing posture, bright lines, and fallback.
+
+**LLM operations seam**:
+The one module exposing Anchor's four LLM jobs - candidate reranking, prose regeneration, quality tagging, and picker suggestions - each schema-validated, behind a provider adapter.
+Only the worker imports it, which is what makes the precompute-only rule structural: no interactive request path can wait on an LLM call.
+The no-training provider rule is enforced here, in code.
+
+**Spend ledger**:
+The append-only record of every LLM call: its scope (one account, or shared), operation, model, tokens, and computed cost.
+The seam sums it month-to-date before each dispatch against the per-account and platform-wide caps; hitting either skips the work and serves cached results.
+Kept through a re-import, unlike the account's film data, so re-importing can never reset a cap.

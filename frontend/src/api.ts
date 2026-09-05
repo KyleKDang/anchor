@@ -338,12 +338,27 @@ export interface Stage {
  */
 export type CriteriaFrequency = "adaptive" | "often" | "sometimes" | "rarely" | "off";
 
+/**
+ * The owner-readable description of their taste, as the Profile screen shows it.
+ *
+ * `generated_at` is the whole of what the owner is told about the regeneration: one
+ * ambient last-updated line, and nothing about what triggered it or whether another is
+ * coming. The engine never narrates its background work.
+ */
+export interface Prose {
+  text: string;
+  version: number;
+  generated_at: string;
+}
+
 /** The Profile screen's engine section. `stages` omits cold: every account is already there. */
 export interface Profile {
   readiness: Readiness;
   evidence: Evidence;
   stages: Stage[];
   criteria_frequency: CriteriaFrequency;
+  /** Null until the first regeneration lands, which an account has to earn. */
+  prose: Prose | null;
 }
 
 export interface BacklogFilm {

@@ -27,12 +27,13 @@ from httpx import ASGITransport, AsyncClient
 from procrastinate.worker import Worker
 from sqlalchemy import update
 
-from anchor import jobs
+from anchor import jobs, llm
 from anchor.db import Database
 from anchor.main import create_app
 from anchor.models import Film
 from anchor.settings import Settings
 from fakeletterboxd import FakeLetterboxd
+from fakellm import FakeLlm
 from faketmdb import FakeTmdb
 
 ADMIN_URL = os.environ.get(
@@ -159,6 +160,23 @@ def letterboxd() -> FakeLetterboxd:
 
 
 @pytest.fixture
+def provider() -> FakeLlm:
+    """The scripted provider under the LLM seam. Tests queue answers on it."""
+    return FakeLlm()
+
+
+@pytest.fixture
+def seam(provider: FakeLlm, db: Database, settings: Settings) -> llm.Llm:
+    """The real seam over the scripted provider: the caps and the ledger are not faked.
+
+    It is not on ``app.state``, and deliberately: the web process never builds one, which
+    is the whole of architecture.md's precompute-only rule. Only the worker context
+    below carries it.
+    """
+    return llm.Llm(provider, db, settings)
+
+
+@pytest.fixture
 async def app(
     settings: Settings, resend: FakeResend, tmdb: FakeTmdb, letterboxd: FakeLetterboxd
 ) -> AsyncIterator[FastAPI]:
@@ -250,9 +268,9 @@ def jobs_app(app: FastAPI) -> procrastinate.App:
 
 
 @pytest.fixture
-def job_context(app: FastAPI, db: Database) -> dict[str, Any]:
-    """What a job sees in the worker: the same database, TMDB fake, and settings the app has."""
-    return jobs.worker_context(db, app.state.tmdb, app.state.settings)
+def job_context(app: FastAPI, db: Database, seam: llm.Llm) -> dict[str, Any]:
+    """What a job sees in the worker: the app's database, TMDB fake, LLM seam and settings."""
+    return jobs.worker_context(db, app.state.tmdb, seam, app.state.settings)
 
 
 @pytest.fixture
