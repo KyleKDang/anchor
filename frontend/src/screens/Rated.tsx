@@ -47,6 +47,15 @@ export function Rated() {
     void load();
   }, [load]);
 
+  // The readiness lines on Watchlist and Profile link to "/rated#settling", and the strip
+  // they aim at does not exist until this screen's fetch resolves - so the browser has
+  // nothing to scroll to at navigation time and the link would quietly land at the top
+  // instead. Scroll once the strip is actually on the page.
+  useEffect(() => {
+    if (rated === null || window.location.hash !== "#settling") return;
+    document.getElementById("settling")?.scrollIntoView({ block: "start" });
+  }, [rated]);
+
   return (
     <>
       <h1>Rated</h1>

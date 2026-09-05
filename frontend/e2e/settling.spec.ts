@@ -53,7 +53,9 @@ test("an owner passes on one film, settles two, and leaves the sitting part-way 
   await expect(page.getByRole("link", { name: "Leave settling" })).toBeVisible();
   await expect(page.getByText("Nothing settled yet this sitting.")).toBeVisible();
 
-  // "Not this one" moves the sitting on without judging the film it passed.
+  // "Not this one" moves the sitting on and leaves the film as it found it. That the
+  // declined film keeps nothing - not a judgment, and not the ask that opening it
+  // recorded - is pinned at the API seam; what this proves is that the button moves on.
   const passed = (await named.textContent()) ?? "";
   await page.getByRole("button", { name: "Not this one" }).click();
   await expect(named).not.toHaveText(passed);

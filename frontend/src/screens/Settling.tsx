@@ -27,7 +27,7 @@ import { releaseYear } from "../films/tmdb";
  * them (rating-system.md).
  */
 export function Settling() {
-  const [offered, setOffered] = useState<number[]>([]);
+  const [behind, setBehind] = useState(0);
   const [film, setFilm] = useState<FilmCard | null | undefined>(undefined);
   const [remaining, setRemaining] = useState(0);
   const [step, setStep] = useState<PlacementStep | null>(null);
@@ -36,9 +36,11 @@ export function Settling() {
   const [settled, setSettled] = useState<number[]>([]);
   const [answers, setAnswers] = useState(0);
 
-  // The sitting's own count of what it has handed over, kept out of React state because
-  // it has to be readable inside the very call that appends to it: two clicks of "Next
-  // film" in quick succession must not both send the list as it was before the first.
+  // The sitting's own list of what it has handed over, kept in a ref rather than in state
+  // because it has to be readable inside the very call that appends to it: two clicks of
+  // "Next film" in quick succession must not both send the list as it was before the
+  // first. `behind` is that list's length as of the last pick, which is all the header
+  // needs and the only part of it worth re-rendering for.
   const handled = useRef<number[]>([]);
 
   const pick = useCallback(async () => {
@@ -47,10 +49,15 @@ export function Settling() {
     setFilm(undefined);
     try {
       const next = await api.nextSettling(handled.current);
-      setOffered([...handled.current]);
-      setFilm(next.film);
+      setBehind(handled.current.length);
       setRemaining(next.remaining);
-      if (next.film !== null) setStep(await api.beginPlacement(next.film.tmdb_id));
+      setFilm(next.film);
+      if (next.film === null) return;
+      // Opening the film is the owner's ask, recorded the way the mark on the wall
+      // records it. Merely being offered a film writes nothing, which is what lets "Not
+      // this one" take the ask back and leave the film untouched.
+      await api.askToRePlace(next.film.tmdb_id);
+      setStep(await api.beginPlacement(next.film.tmdb_id));
     } catch (caught) {
       setError(messageOf(caught));
     }
@@ -72,6 +79,22 @@ export function Settling() {
       await pick();
     },
     [pick],
+  );
+
+  /**
+   * "Not this one": leave the film exactly as the sitting found it, and move on.
+   *
+   * The pass is told to the server only so it can take back the ask that opening the film
+   * recorded - nothing about the pass itself is stored. A failure there is not worth
+   * stopping the owner over: the sitting moves on regardless, and the worst the stale ask
+   * does is leave the film's own page offering to settle it, which it offers anyway.
+   */
+  const passOn = useCallback(
+    async (current: number) => {
+      await api.passOnSettling(current).catch(() => undefined);
+      await moveOn(current);
+    },
+    [moveOn],
   );
 
   useEffect(() => {
@@ -98,7 +121,7 @@ export function Settling() {
       as one choice - "not right now" at two different sizes. */
   const exits = (current: number) => (
     <div className="sitting-exits">
-      <button type="button" className="link-button" onClick={() => void moveOn(current)}>
+      <button type="button" className="link-button" onClick={() => void passOn(current)}>
         Not this one
       </button>
       {tally}
@@ -107,20 +130,21 @@ export function Settling() {
 
   return (
     <div className="place">
-      {film && (
-        <SittingHeader film={film} at={offered.length + 1} of={offered.length + remaining} />
-      )}
+      {film && <SittingHeader film={film} at={behind + 1} of={behind + remaining} />}
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
       {film === undefined && !error && <p className="muted">Loading…</p>}
-      {film === null && !error && <NothingLeft />}
-      {/* The way out has to be on screen even when no step is: this flow sits outside the
-          app frame, so a failed pick with the leave link tucked inside a step's footer
-          would be a screen with no navigation on it at all. */}
-      {(film === null || film === undefined || step === null) && tally}
+      {film === null && <NothingLeft />}
+      {/* A film whose flow would not open. It has to stay passable, or the sitting jams:
+          the next pick finds the same narrowest film and fails on it again. */}
+      {film && step === null && exits(film.tmdb_id)}
+      {/* And the way out has to be on screen even when no film is. This flow sits outside
+          the app frame, so a failed pick with the leave link tucked inside a step's footer
+          would leave a screen with no navigation on it at all. */}
+      {!film && tally}
 
       {film && step?.done === false && step.kind === "comparison" && (
         <Comparison
@@ -153,7 +177,6 @@ export function Settling() {
           footer={tally}
         />
       )}
-      {film === null && !error && tally}
     </div>
   );
 }

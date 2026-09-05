@@ -24,12 +24,15 @@ import uuid
 from collections.abc import Collection
 from datetime import datetime
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
 from anchor.models import (
     AccountFilm,
+    ComparisonContext,
+    ComparisonLogEntry,
+    ComparisonStatus,
     Placement,
     PlacementTrust,
     ReplacementRequest,
@@ -73,6 +76,44 @@ async def replacing_since(
     if placed_at is not None and latest <= placed_at:
         return None
     return latest
+
+
+async def withdraw(db: AsyncSession, account_id: uuid.UUID, account_film: AccountFilm) -> None:
+    """Take back an ask the owner stepped away from without answering anything.
+
+    The one thing that clears this mark rather than letting it expire. Expiry rides on
+    the placement's clock, and a film nobody answered a question about never lands to
+    restamp it - so an ask opened and immediately declined would otherwise sit there for
+    good, and the film's page would reopen questions the owner had just said no to.
+
+    Only where nothing was answered under it. An ask with answers behind it is a settle
+    in progress, and walking away from one of those is the resume the screen promises
+    (screens-and-flows.md): those answers are the film's head start next time, and the
+    mark is what tells the flow to pick them up.
+    """
+    asked = await replacing_since(db, account_id, account_film)
+    if asked is None:
+        return
+    answered = await db.scalar(
+        select(func.count())
+        .select_from(ComparisonLogEntry)
+        .where(
+            ComparisonLogEntry.account_id == account_id,
+            ComparisonLogEntry.subject_film_id == account_film.film_id,
+            ComparisonLogEntry.context == ComparisonContext.re_placement,
+            ComparisonLogEntry.status == ComparisonStatus.active,
+            ComparisonLogEntry.created_at > asked,
+        )
+    )
+    if answered:
+        return
+    await db.execute(
+        delete(ReplacementRequest).where(
+            ReplacementRequest.account_id == account_id,
+            ReplacementRequest.account_film_id == account_film.id,
+            ReplacementRequest.requested_at >= asked,
+        )
+    )
 
 
 async def provisional(db: AsyncSession, account_film: AccountFilm) -> bool:
