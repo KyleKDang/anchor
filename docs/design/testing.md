@@ -1,7 +1,7 @@
 # Testing decisions
 
 Fixes the test seams and the test-quality bar for implementation.
-Decided at implementation ticket-slicing (2026-08-22), after the design map closed; every implementation ticket names the seam its tests run at.
+Decided at implementation ticket-slicing (2026-08-22), after the design map closed, and revised on 2026-09-05 by the direct-ordering redesign ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)); every implementation ticket names the seam its tests run at.
 Vocabulary follows [CONTEXT.md](../../CONTEXT.md).
 
 ## The seams
@@ -31,14 +31,14 @@ Resend is faked the same way; dev and test environments never send mail.
 
 ### The browser smoke suite
 
-A thin Playwright suite over the full running stack covers wiring, not behavior: a handful of journeys (sign up, import, place a film, see the watchlist; the demo account rejects writes).
+A thin Playwright suite over the full running stack covers wiring, not behavior: a handful of journeys (sign up, import, rate a film, move a film on the wall, see the watchlist; the demo account rejects writes).
 It stays capped at a handful of journeys; all behavior coverage lives at the API seam.
 
 ## What makes a good test here
 
 - Assert owner-visible outcomes and spec invariants, never the advisory math's internals.
-  The math is advisory-only ([ADR 0001](../adr/0001-explicit-ordering-not-model-derived.md)), so tests pin what it must not do - nothing in the ordering moves except through the owner's answers - and never which opponent it happened to pick.
+  What is left of the advisory math - the picker's choice of opponent, pair sampling - is advisory-only ([ADR 0001](../adr/0001-explicit-ordering-not-model-derived.md)), so tests pin what it must not do - nothing on the wall moves except through the owner's picks, moves, and re-rates - and never which opponent it happened to pick.
   Consequence for the code: anything sampled (opponent selection, pair extraction) accepts a seed, so a scripted answer sequence lands deterministically.
 - No calendar time to fake: every cooldown and staleness measure is denominated in the watch clock or the refresh counter, so tests advance state by logging watches and refreshes, never by freezing a clock.
-- The cross-cutting invariants of [data-model.md](data-model.md) are shared assertion helpers run after mutating flows: ratings derived and never stored, the comparison log append-only, nothing rating-shaped in any API response for an unwatched film, every account-realm row owner-scoped.
-- Tests read as flows in CONTEXT.md vocabulary (place, drift, re-place, graduate), not as per-endpoint unit tests.
+- The cross-cutting invariants of [data-model.md](data-model.md) are shared assertion helpers run after mutating flows: ranks dense within every band and every band one of the ten values, an anchor always in the band it was marked in, the comparison log append-only and status-free, nothing rating-shaped in any API response for an unwatched film, every account-realm row owner-scoped.
+- Tests read as flows in CONTEXT.md vocabulary (rate, narrow a range, move, re-rate, mark an anchor), not as per-endpoint unit tests.

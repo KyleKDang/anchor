@@ -16,7 +16,7 @@ The watchlist has two tiers: the unlimited backlog (every unwatched film the own
 ## The honesty rule
 
 Nothing rating-shaped is ever shown for an unwatched film - no predicted band or stars, not even on-demand ([ADR 0005](../adr/0005-no-rating-shaped-predictions.md)).
-A prediction seen before watching can tilt the comparison answers themselves, and that contamination is invisible to drift detection and permanent in the ordering.
+A prediction seen before watching can tilt the pick and the move themselves, and that contamination is invisible and permanent in the ordering.
 Position is the entire public statement; any "why is this here" surface speaks in non-rating vocabulary (exemplar-based explanations).
 The rule binds the ranked tier, the backlog, the discovery feed, and search.
 

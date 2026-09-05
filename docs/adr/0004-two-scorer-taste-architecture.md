@@ -1,5 +1,7 @@
 # The taste engine is two scorers over a three-artifact profile, with LLMs precompute-only
 
+**Amended by [ADR 0013](0013-the-ordering-is-edited-by-hand.md) on 2026-09-05**: the pair-extraction rule below now reads the ordering as band rows, with within-band pairs weighted by distance and no provisional discount or tie targets; everything else stands.
+
 Anchor has two scoring jobs: rank the backlog into the ranked tier, and judge never-rated films for the discovery feed.
 We decided both are served by one taste profile made of three artifacts derived from the ordering: a feature-weight vector (logistic regression on TMDB feature differences, the feature-parameterized Bradley-Terry form, trained on pairs sampled from the ordering), an exemplar set (anchors plus ordering extremes), and a versioned owner-readable prose profile maintained by an LLM.
 The weight vector is the only runtime scorer; all LLM work (discovery listwise reranking, prose regeneration, picker suggestions) is precompute-only, batch-scheduled, and never sits in an interactive request path.

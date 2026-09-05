@@ -1,5 +1,7 @@
 # No rating-shaped predictions on unwatched films
 
+**Framing amended by [ADR 0013](0013-the-ordering-is-edited-by-hand.md) on 2026-09-05**: ratings are now placed on a band picker and corrected by moves on the wall rather than emerging from comparisons, and the decision stands unchanged, because a prediction seen before watching would steer the pick and the move exactly as it would have steered a comparison.
+
 The taste profile's weight vector scores any film instantly, and anchors calibrate those scores into half-star bands, so Anchor can always compute "you would probably rate this ~4.0" for an unwatched film.
 Decided during [Ranked tier maintenance policy (#8)](https://github.com/KyleKDang/anchor/issues/8): that prediction is never shown anywhere, in any rating-shaped form - no predicted band, no predicted stars, not even behind an on-demand reveal.
 

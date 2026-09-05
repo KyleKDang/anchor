@@ -1,6 +1,6 @@
 # Anchor design spec
 
-Anchor is a personal movie taste-engine web app: ratings anchored in pairwise comparisons instead of a drifting absolute scale, an automatically managed watchlist, and a recommendation engine that learns each account owner's taste.
+Anchor is a personal movie taste-engine web app: ratings anchored to the films the owner is sure of and ordered by hand on a visible wall, instead of a drifting absolute scale; an automatically managed watchlist; and a recommendation engine that learns each account owner's taste.
 It complements Letterboxd but is not connected to it; a one-time seed import is the only crossover.
 
 This directory is the complete design spec, assembled by wayfinder ticket [Spec assembly (#14)](https://github.com/KyleKDang/anchor/issues/14) from the resolutions of the [Anchor design map (#1)](https://github.com/KyleKDang/anchor/issues/1) (charted 2026-07-26, completed 2026-08-22).
@@ -10,25 +10,28 @@ The tickets and their resolution comments remain the provenance trail; each doc 
 Visual and UI design was deliberately excluded from the original spec: it fixes screens, states, and behavior, and left implementation to prototype UI directions rather than pre-picking one.
 That deferral came due at [#50](https://github.com/KyleKDang/anchor/issues/50), and the direction it settled on is recorded in [visual-design.md](visual-design.md).
 
+On 2026-09-05 the rating system was redesigned after real use of the shipped placement and settling flows: the pairwise placement, provisional settling, and drift apparatus was replaced by a band picker over anchor pools and a wall the owner orders by hand ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
+Each doc that changed says so in its opening line; the earlier design survives in the ADRs it superseded and in the tickets' history.
+
 ## How to read this
 
 Read [CONTEXT.md](../../CONTEXT.md) first: it is the ubiquitous language, and every doc here uses its terms without redefining them.
 Rationale lives in the [ADRs](../adr/); the spec docs state what the design is and cite the ADR that argues why.
-The [research notes](../research/) are the sourced groundwork behind the recommender and data-source decisions.
+The [research notes](../research/) are the sourced groundwork behind the recommender and data-source decisions; they predate the redesign and describe the ordering as it was then.
 
 ## Principles
 
 These rules bind every feature, current and future.
 
 1. **Nothing moves behind the owner's back.**
-   The ordering is explicit persisted state; the probabilistic machinery is advisory-only and can never reorder it ([ADR 0001](../adr/0001-explicit-ordering-not-model-derived.md)).
+   The ordering is explicit persisted state, written only by the owner's picks, moves, re-rates, and marks; the engine never suggests, queues, or performs a move ([ADR 0001](../adr/0001-explicit-ordering-not-model-derived.md), [ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
    Every cooldown and staleness measure is denominated in the owner's activity, never calendar time, so a dormant account changes nothing at all.
-2. **Ratings are derived, never entered.**
-   A film's rating is which dividers its position sits between; placement finds the position through comparisons ([ADR 0002](../adr/0002-anchors-are-centroids-with-derived-dividers.md)).
+2. **Ratings are placed, never typed.**
+   A band is chosen against the owner's own anchors and a rank on a wall they order by hand; no number is entered and none is assigned by the engine ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
 3. **The rating distribution is emergent.**
    It is never forced or normalized to a curve.
-4. **Drift is flagged, never auto-corrected.**
-   When later judgments contradict a film's position, the owner resolves; the app only surfaces.
+4. **Within a band, order is a range, not a verdict.**
+   Neighbours train as near-equals and only real separation carries weight, which is what lets a strict order stand where the owner has no honest preference ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
 5. **No rating-shaped predictions on unwatched films**, anywhere, in any form ([ADR 0005](../adr/0005-no-rating-shaped-predictions.md)).
 6. **Queue actions carry no taste meaning.**
    Pin, veto, not-now, rotation, and discovery accepts feed nothing; the single exception is discovery dismissals as prose-pattern evidence ([ADR 0006](../adr/0006-discovery-dismissals-feed-the-profile.md)).
@@ -45,12 +48,12 @@ In suggested reading order:
 
 | Doc | Covers |
 | --- | --- |
-| [rating-system.md](rating-system.md) | The ordering, anchors, bands, and dividers; the placement flow; the comparison log; drift, re-rating, and rewatches |
-| [onboarding-and-import.md](onboarding-and-import.md) | The entry fork, the Letterboxd seed import, fresh-account bootstrap, the warmup, provisional placements and settling, feature gates |
-| [taste-profile.md](taste-profile.md) | The three profile artifacts, training-pair extraction, readiness states, the quality system and criteria questions, LLM guardrails |
+| [rating-system.md](rating-system.md) | The ordering as band rows, anchors and their pools, the band picker and how a range narrows, moves on the wall, re-rating and rewatches, the comparison log |
+| [onboarding-and-import.md](onboarding-and-import.md) | The entry fork, the Letterboxd seed import, fresh-account bootstrap, the warmup, feature gates |
+| [taste-profile.md](taste-profile.md) | The three profile artifacts, training-pair extraction over band rows, readiness states, the quality system and criteria questions, LLM guardrails |
 | [watchlist.md](watchlist.md) | The backlog and the ranked tier: zones, refresh damping, staleness, pin, veto, not-now |
 | [discovery.md](discovery.md) | The discovery feed: sourcing cascade, verdicts, accept, dismissal, seen-it, degraded states |
-| [screens-and-flows.md](screens-and-flows.md) | Every screen and flow in prose: the five destinations, the film page, placement on screen, logging watches |
+| [screens-and-flows.md](screens-and-flows.md) | Every screen and flow in prose: the five destinations, the wall and its edit mode, the film page, the band picker on screen, criteria questions on screen, logging watches |
 | [visual-design.md](visual-design.md) | The visual direction and the rules that hold it together: the one-amber rule, type, the wall-versus-rows rule, the theme, the accessibility floor |
 | [surfacing.md](surfacing.md) | The no-nagging posture applied: where every surfacing moment lives, and the Letterboxd sync list |
 | [data-model.md](data-model.md) | The conceptual data model: realms, entities, relationships, invariants |

@@ -5,7 +5,7 @@ Consolidates wayfinder ticket [Recommender quality evaluation (#19)](https://git
 ## Framing
 
 The feeding constraints from [watchlist.md](watchlist.md) and [discovery.md](discovery.md) bind what may teach the taste profile, not what may be counted.
-Evaluation reads every recorded event - vetoes, not-nows, rotations, accepts, dismissals, seen-its, watches, placements - but nothing it computes ever flows back into the profile, the ordering, or any engine decision.
+Evaluation reads every recorded event - vetoes, not-nows, rotations, accepts, dismissals, seen-its, watches, placements, moves - but nothing it computes ever flows back into the profile, the ordering, or any engine decision.
 Measurement and learning are separate consumers of the same records.
 
 Evaluation serves the operator and the build process only.
@@ -13,18 +13,19 @@ No owner-facing quality surface ships in v1: it would be dishonest at this data 
 
 ## Ground truth: the landing
 
-Anchor has a signal most recommenders never get: when the owner watches an engine pick, they place it, and the placement is a real taste judgment.
+Anchor has a signal most recommenders never get: when the owner watches an engine pick, they rate it, and the rating is a real taste judgment.
 
 - "The ranked tier is working" means: films the engine put in the tier, once watched, land higher in the ordering than the owner's same-window hand-picked watches.
   Each watched pick records its landing percentile; the headline claim is always that comparison, never a fixed target.
 - "The discovery feed is working" has the same shape: landings of accepted-then-watched films versus hand-added films, plus healthy accept and dismissal rates.
-- A rate-later placement completes the fact whenever it happens; the measure reads the ordering at computation time.
+- A rate-later placement completes the fact whenever it happens; the measure reads the ordering at computation time, so a later move counts.
 
 This signal judges the engine over months, which is acceptable for a personal tool and is why the fast metric exists.
 
 ## Fast metric: held-out pairwise accuracy
 
-At each weight-vector retrain, the worker holds out a slice of the owner's explicit comparisons, trains on the rest, and appends one per-account metrics row (accuracy plus the evidence counts that contextualize it).
+At each weight-vector retrain, the worker holds out a slice of the cross-band pairs read from the ordering together with the owner's band comparisons, trains on the rest, and appends one per-account metrics row (accuracy plus the evidence counts that contextualize it).
+Within-band pairs are excluded from the held-out slice, since the ordering itself calls them a range rather than a verdict.
 It catches a broken or degrading scorer immediately and doubles as a regression check when the feature set changes.
 The LLM discovery layer gets no offline metric in v1 - no ground truth exists for verdicts until watches happen - so it leans on landings plus dismissal and ignore rates.
 
@@ -42,7 +43,7 @@ Everything else stays queryable but unnamed; these are the indicators with names
 - **Tier adoption**: tier-sourced share of logged watches.
 - **Rotation rate**: staleness demotions per N watches.
 - **Accept rate** and **dismissal rate**: per restock.
-- **The discovery funnel**: accepted → watched → placed.
+- **The discovery funnel**: accepted → watched → rated.
 
 ## Where the numbers live
 

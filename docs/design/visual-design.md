@@ -40,7 +40,6 @@ Anything whose digits line up gets `font-variant-numeric: tabular-nums`: ranks, 
 A rank column that jitters as the digits change is the exact opposite of a precise instrument.
 
 Band values are the number first and the stars second (`4.5 ★★★★½`), because counting five stars at a glance is not something anyone should have to do; the stars are the shape of the value, not the value.
-A film the dividers cannot place says "Rating pending" rather than showing nothing, because an empty space reads as a bug and this is the design working as intended.
 
 ## Structure
 
@@ -56,10 +55,11 @@ Cards are for the few things that are genuinely a discrete object: the rating pa
 
 ## The wall-versus-rows rule
 
-The ordering is always a **wall**: posters in a grid, the rank stamped on each one, grouped under a sticky band header.
-Films judged equal keep their own cells and are marked entirely by the stamp - the shared rank marked shared on every member (`=12`, a leaderboard's joint place), set heavier and ringed so a run of tied films reads as a run before the numbers are read.
-Nothing is drawn around the group: any mark spanning the members would have to be painted per cell and joined across the gaps, since the column count follows the viewport, which leaves a cut edge wherever a group meets the end of a row; and an imported account is all seed groups until it has been compared, so on day one every band would be one unbroken mark.
+The ordering is always a **wall**: posters in a grid, the rank within the band stamped on each one, grouped under a sticky band header.
+Every film has its own cell and its own rank; nothing is ever drawn around a group of films, because the column count follows the viewport and any mark spanning cells would be cut wherever it meets the end of a row.
 The wall stays one grid.
+In edit mode the wall keeps its grid: the dragged poster lifts on `--shadow-2`, the gap it would fill opens in the row under the pointer, the anchor toggle sits on each poster where the badge sits, and the band headers stay sticky so a cross-band drag always has its target row's label in view.
+A film just landed by the picker is ringed in amber until the owner moves it or leaves, since it is the one film on the wall whose place is a rating and not yet a judgment.
 At three hundred films the wall is *shorter* than the same films as rows - about fifty rows of six posters against three hundred rows - so the wall scales better than the list it replaces, and there is deliberately no toggle between them: two layouts would be two layouts to keep correct in every state forever, and choosing between them is not a decision the owner should have to make.
 Sorted any way but by position the wall goes flat and each poster carries its own band underneath, because a band header over a sequence that is not in band order would be a heading over nothing.
 
@@ -92,15 +92,15 @@ The contrast floor is arithmetic, not judgment, so it is checked by computing ev
 
 ## Primitives
 
-The shared vocabulary, all defined in the token layer: `button` (primary, `secondary`, `danger`, and `link-button`), `field`, `chip`, `card`, `film-row`, the badges (`anchor-badge`, `provisional-mark`, `state-flag`), `band`, `empty`, `nudge`, `notice`, `dialog`, `spoiler`, `poster`, `neighbours`, and `actions`.
+The shared vocabulary, all defined in the token layer: `button` (primary, `secondary`, `danger`, and `link-button`), `field`, `chip`, `card`, `film-row`, the badges (`anchor-badge`, `state-flag`), `band`, `empty`, `nudge`, `notice`, `dialog`, `spoiler`, `poster`, `neighbours`, and `actions`.
 
 A screen composes these and adds only what is genuinely its own.
 When a screen wants something a primitive nearly does, the primitive grows; a screen that grows its own copy is how 936 lines of ad-hoc CSS happened the first time.
 
 `dialog` is the one primitive defined ahead of its first use: no surface today opens a modal, and inventing one would be the behavior change this foundation is not allowed to make.
-It is here so that the first surface that needs it - drift resolution, retiring an anchor - inherits the direction instead of improvising.
+It is here so that the first surface that needs it - a destructive confirmation - inherits the direction instead of improvising.
 
 ## What is not styled yet
 
-The prototypes rendered the densest version of every screen so the direction could be judged against it, including surfaces that do not exist: the needs-attention strip, the drift flag and its resolutions, watch and judgment history, log-a-rewatch, re-place, and a rated film's position among its neighbours.
-Those arrive with [#29](https://github.com/KyleKDang/anchor/issues/29) and its siblings, and they use these primitives when they do rather than adding rules beside them.
+The prototypes rendered the densest version of every screen so the direction could be judged against it, including surfaces that did not exist then: watch and judgment history, log-a-rewatch, and a rated film's position among its neighbours.
+Those arrived with [#29](https://github.com/KyleKDang/anchor/issues/29) and its siblings; the band picker, the wall's edit mode, and the criteria session arrive with the direct-ordering tickets ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)), and they use these primitives when they do rather than adding rules beside them.
