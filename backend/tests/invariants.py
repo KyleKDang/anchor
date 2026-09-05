@@ -478,6 +478,55 @@ async def taste_metrics(db: Database, account_id: uuid.UUID) -> list[tuple[Any, 
         return [tuple(row) for row in rows]
 
 
+async def spend_ledger(db: Database, account_id: uuid.UUID | None = None) -> list[tuple[Any, ...]]:
+    """Every LLM call this box has paid for, oldest first.
+
+    With no account it is the whole table, shared-scope rows included, which is what the
+    global cap sums; with one it is that account's rows only.
+    """
+    scope = "WHERE account_id = :id" if account_id is not None else ""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                f"""
+                SELECT account_id, operation, model, input_tokens, output_tokens, cost_micros
+                FROM spend_ledger_entries {scope}
+                ORDER BY created_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def spent_micros(db: Database, account_id: uuid.UUID | None = None) -> int:
+    """What the cap check would read: month-to-date spend, in millionths of a dollar."""
+    return sum(row[5] for row in await spend_ledger(db, account_id))
+
+
+async def prose_versions(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every prose regeneration, oldest first. The version numbers are the point."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT version, text, trigger, placements, explicit_comparisons,
+                       drift_resolutions, anchors, constraints
+                FROM prose_profile_versions WHERE account_id = :id
+                ORDER BY version
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+def assert_versions_monotonic(versions: list[tuple[Any, ...]]) -> None:
+    """Version numbers start at one and step by one: the key discovery caches against."""
+    numbers = [row[0] for row in versions]
+    assert numbers == list(range(1, len(numbers) + 1)), numbers
+
+
 async def assert_readiness_not_stored(db: Database) -> None:
     """Readiness is derived on every read, so there is no column for it to go stale in.
 

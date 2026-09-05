@@ -7,6 +7,7 @@ import {
   type CriteriaFrequency,
   type Dimension,
   type Profile as ProfileData,
+  type Prose as ProseData,
   type Readiness,
   type Stage,
   type Threshold,
@@ -37,6 +38,7 @@ export function Profile() {
       <h1>Profile</h1>
       <WarmupSection />
       <ReadinessSection profile={profile} error={error} />
+      <ProseSection prose={profile?.prose ?? null} />
       <CriteriaSection frequency={profile?.criteria_frequency ?? null} />
       <Letterboxd />
       <AccountSection />
@@ -159,6 +161,65 @@ function ReadinessSection({
       )}
     </section>
   );
+}
+
+/**
+ * What Anchor thinks the owner likes, in prose, with one ambient line saying how old it is.
+ *
+ * The section is absent until there is something to show, rather than present and empty:
+ * an account that has not earned a regeneration yet is not waiting for one, and a
+ * placeholder promising prose "soon" would be the engine narrating background work that
+ * ADR 0011 says it never does. The same rule is why the last-updated line is the only
+ * metadata here - no version number, no trigger, no refresh control, and nothing that
+ * changes while a regeneration is running.
+ *
+ * The paragraphs are split rather than rendered as one block, because a regeneration
+ * writes two or three of them and a wall of text is not what the owner was promised.
+ */
+function ProseSection({ prose }: { prose: ProseData | null }) {
+  if (prose === null) return null;
+  const paragraphs = prose.text
+    .split(/\n\s*\n/)
+    .map((paragraph) => paragraph.trim())
+    .filter((paragraph) => paragraph.length > 0);
+  return (
+    <section className="section" aria-labelledby="prose-heading">
+      <h2 id="prose-heading">What Anchor thinks you like</h2>
+      <div className="prose">
+        {paragraphs.map((paragraph, index) => (
+          <p key={index}>{paragraph}</p>
+        ))}
+      </div>
+      <p className="muted prose-updated">
+        Last updated <time dateTime={prose.generated_at}>{ago(prose.generated_at)}</time>.
+      </p>
+    </section>
+  );
+}
+
+const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ["year", 365 * 24 * 60 * 60],
+  ["month", 30 * 24 * 60 * 60],
+  ["week", 7 * 24 * 60 * 60],
+  ["day", 24 * 60 * 60],
+  ["hour", 60 * 60],
+  ["minute", 60],
+];
+
+/**
+ * How long ago, in the coarsest unit that still says something: "3 days ago".
+ *
+ * Deliberately vague. The owner is being told the description is current enough to trust,
+ * not audited on when a job ran, and a timestamp to the minute would invite reading the
+ * engine's schedule off a line that exists only to be glanced at.
+ */
+function ago(timestamp: string): string {
+  const seconds = (Date.parse(timestamp) - Date.now()) / 1000;
+  const relative = new Intl.RelativeTimeFormat(undefined, { numeric: "auto" });
+  for (const [unit, size] of UNITS) {
+    if (Math.abs(seconds) >= size) return relative.format(Math.round(seconds / size), unit);
+  }
+  return "just now";
 }
 
 /**
