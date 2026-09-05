@@ -35,6 +35,7 @@ alone never moves anything - only the answers do.
 import random
 import uuid
 import zlib
+from collections.abc import Collection
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Annotated, Literal
@@ -733,7 +734,7 @@ async def _advance(
     # Read after the graduation above, so a film that has just come off the mark is not
     # counted among what is left, and before the commit that ends the request.
     settle_another = (
-        await settling.remaining(db, account.id, besides=tmdb_id) if flow.settling else None
+        await settling.remaining(db, account.id, excluding=(tmdb_id,)) if flow.settling else None
     )
     await db.commit()
     return await _landed(
@@ -1122,6 +1123,7 @@ async def graduate(db: AsyncSession, account_id: uuid.UUID, film_ids: list[int])
     """
     await db.flush()
     ordering = await ordering_module.load(db, account_id)
+    collected = await evidence(db, account_id, film_ids)
     for film_id in film_ids:
         placement = await db.scalar(
             select(Placement)
@@ -1135,9 +1137,7 @@ async def graduate(db: AsyncSession, account_id: uuid.UUID, film_ids: list[int])
         index = ordering.index_of(film_id)
         if placement is None or index is None:
             continue
-        search = derive(
-            film_id, ordering.without(film_id), await _evidence(db, account_id, film_id)
-        )
+        search = derive(film_id, ordering.without(film_id), collected[film_id])
         if (
             search.tied_with in ordering.slots[index].film_ids
             or len(ordering.slots[index].film_ids) == 1
@@ -1433,9 +1433,8 @@ async def _head_start(
     if not flow.settling:
         return await drift.seeding_evidence(db, account_id, flow.film_id)
     given = {entry.id for entry in answers}
-    return [
-        entry for entry in await _evidence(db, account_id, flow.film_id) if entry.id not in given
-    ]
+    collected = (await evidence(db, account_id, [flow.film_id]))[flow.film_id]
+    return [entry for entry in collected if entry.id not in given]
 
 
 def _opponents(entries: list[ComparisonLogEntry], subject: int) -> list[int]:
@@ -1467,15 +1466,23 @@ async def _band_judgment(
     return judgment
 
 
-async def _evidence(
-    db: AsyncSession, account_id: uuid.UUID, film_id: int
-) -> list[ComparisonLogEntry]:
-    """Every live comparison touching this film, whoever's flow produced it.
+async def evidence(
+    db: AsyncSession, account_id: uuid.UUID, film_ids: Collection[int]
+) -> dict[int, list[ComparisonLogEntry]]:
+    """Every live comparison touching each of these films, whoever's flow produced it.
 
     A comparison run for another film's placement is evidence about this one too - the
     double-duty opponent that pulls a provisional film towards a settled position
     without ever asking the owner an extra question (onboarding-and-import.md).
+
+    Batched over a set of films rather than fetched one at a time, because settling has
+    to weigh every film still on the mark against every other before it can offer one,
+    and a library-sized query per film would be a library-sized number of queries. An
+    entry between two of them is evidence about both and appears under each.
     """
+    wanted = set(film_ids)
+    if not wanted:
+        return {}
     rows = await db.scalars(
         select(ComparisonLogEntry)
         .where(
@@ -1483,10 +1490,15 @@ async def _evidence(
             ComparisonLogEntry.kind == ComparisonKind.overall,
             ComparisonLogEntry.status == ComparisonStatus.active,
             or_(
-                ComparisonLogEntry.film_a_id == film_id,
-                ComparisonLogEntry.film_b_id == film_id,
+                ComparisonLogEntry.film_a_id.in_(wanted),
+                ComparisonLogEntry.film_b_id.in_(wanted),
             ),
         )
         .order_by(ComparisonLogEntry.created_at, ComparisonLogEntry.id)
     )
-    return list(rows)
+    found: dict[int, list[ComparisonLogEntry]] = {film_id: [] for film_id in wanted}
+    for entry in rows:
+        for film_id in (entry.film_a_id, entry.film_b_id):
+            if film_id in found:
+                found[film_id].append(entry)
+    return found

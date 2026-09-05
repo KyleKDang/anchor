@@ -1848,6 +1848,84 @@ select {
   border-color: var(--faint);
 }
 
+/* The settling strip: the same shape as needs-attention, and deliberately quieter.
+   Drift is a disagreement the owner may want to resolve; settling is only an offer, so it
+   gets the neutral rule rather than the amber one, and its button is the whole of its
+   urgency. It renders nothing at all when nothing is provisional. */
+.settling-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s4);
+  margin: 0 0 var(--s5);
+  padding: var(--s4) var(--s5);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  box-shadow: var(--shadow-1);
+}
+
+.settling-strip-body {
+  min-inline-size: 18rem;
+  flex: 1 1 18rem;
+}
+
+.settling-strip-heading {
+  margin: 0 0 var(--s1);
+  font-size: var(--text-md);
+  line-height: var(--leading-tight);
+}
+
+.settling-strip .muted {
+  margin: 0;
+  max-width: 62ch;
+  font-size: var(--text-sm);
+}
+
+.settling-strip .button {
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+/* The sitting's chrome above the flow: which film, and how far in. Small and set apart
+   from the question's own heading, because it is context and not the thing being asked. */
+.sitting-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: center;
+  gap: var(--s1) var(--s3);
+  margin: 0;
+  text-align: center;
+  font-size: var(--text-sm);
+}
+
+.sitting-film {
+  font-weight: 600;
+}
+
+.sitting-tally {
+  display: block;
+}
+
+/* The two ways out of a film, tight together: passing on it and leaving the sitting are
+   the same thought at two sizes, and the flow's own gap between them read as a gap
+   between unrelated things. */
+.sitting-exits {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* Underlined at rest, unlike the app's other quiet buttons: it sits directly above the
+   leave link, and two adjacent ways out drawn differently read as one control and one
+   caption. */
+.sitting-exits .link-button {
+  text-decoration-color: var(--faint);
+}
+
 /* On a row in the ordering the same fact has to be much quieter: it is one line of many,
    and the strip above has already said it. */
 .chip-flagged {

@@ -174,6 +174,12 @@ export interface Rated {
   /** The compact strip at the top: every film carrying a flag the owner can see. */
   needs_attention: FilmCard[];
   rate_later: FilmCard[];
+  /** The settling strip's count: films whose position is still a placeholder.
+   *
+   * Anchors are excluded, because the strip's button will not offer one. Zero means the
+   * strip renders nothing at all - presence, not a permanent slot - and this is the only
+   * count of it the app ever shows, bar the way onward from a settle just finished. */
+  settling: number;
 }
 
 export interface RatedFilters {
@@ -594,6 +600,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+/** The next film a settling sitting should hand over, and how much is left after it. */
+export interface NextFilm {
+  /** Null when nothing is left, which is how a sitting ends: it runs out. */
+  film: FilmCard | null;
+  /** Films still settling, this one included, minus whatever the sitting has passed. */
+  remaining: number;
+}
+
 export const api = {
   me: () => request<Account>("GET", "/api/auth/me"),
   signUp: (credentials: Credentials) => request<Account>("POST", "/api/auth/signup", credentials),
@@ -633,6 +647,14 @@ export const api = {
   bailOut: (tmdbId: number) => request<PlacementStep>("POST", `/api/placements/${tmdbId}/bail`),
   keepComparing: (tmdbId: number) =>
     request<PlacementStep>("POST", `/api/placements/${tmdbId}/keep-comparing`),
+  /**
+   * Pick the next film of a settling sitting, naming what the sitting has been through.
+   *
+   * The list is the whole of a sitting's state, held by the screen rather than the
+   * server: a sitting is a sitting and not a record, so nothing about it outlives the tab.
+   */
+  nextSettling: (offered: number[]) =>
+    request<NextFilm>("POST", "/api/settling/next", { offered }),
   rated: (filters: RatedFilters = {}) => request<Rated>("GET", `/api/rated${ratedQuery(filters)}`),
   anchors: () => request<Anchors>("GET", "/api/anchors"),
   designate: (band: number, tmdbId: number) =>
