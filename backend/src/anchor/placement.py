@@ -1254,13 +1254,13 @@ async def _landed(
     boundaries = await bands.load(db, account.id)
     index = ordering.index_of(tmdb_id)
     assert index is not None  # the film was just placed, inside this request
-    above = _slot_shown(ordering.slots[index - 1].film_ids) if index > 0 else None
-    below = _slot_shown(ordering.slots[index + 1].film_ids) if index + 1 < len(ordering) else None
-    tied = _slot_shown(
+    above = _shown(ordering.slots[index - 1].film_ids) if index > 0 else None
+    below = _shown(ordering.slots[index + 1].film_ids) if index + 1 < len(ordering) else None
+    tied = _shown(
         tuple(film_id for film_id in ordering.slots[index].film_ids if film_id != tmdb_id)
     )
-    shown = [film_id for side in (above, below, tied) if side for film_id in side[0]]
-    cards = await ordering_module.cards(db, [tmdb_id, *shown])
+    named = [film_id for side in (above, below, tied) if side for film_id in side.film_ids]
+    cards = await ordering_module.cards(db, [tmdb_id, *named])
     rating = bands.band_of_slot(boundaries, index)
     anchors = await anchors_module.current(db, account.id)
     placement = await _placement(db, account_film)
@@ -1287,8 +1287,16 @@ async def _landed(
 # --- Helpers ---
 
 
-def _slot_shown(film_ids: tuple[int, ...]) -> tuple[tuple[int, ...], int] | None:
-    """The films of a slot the done screen will name, and how many it stands for.
+@dataclass(frozen=True)
+class _Shown:
+    """A neighbouring slot decided but not yet fetched: who to name, and how many for."""
+
+    film_ids: tuple[int, ...]
+    total: int
+
+
+def _shown(film_ids: tuple[int, ...]) -> _Shown | None:
+    """Which of a slot's films the done screen will name, and how many it stands for.
 
     None for an empty slot, which is what the top and bottom of the ordering have beyond
     them and what a film alone in its slot is tied with. Capping here rather than in the
@@ -1296,16 +1304,13 @@ def _slot_shown(film_ids: tuple[int, ...]) -> tuple[tuple[int, ...], int] | None
     """
     if not film_ids:
         return None
-    return film_ids[:REPRESENTATIVES], len(film_ids)
+    return _Shown(film_ids[:REPRESENTATIVES], len(film_ids))
 
 
-def _neighbour_slot(
-    shown: tuple[tuple[int, ...], int] | None, cards: dict[int, FilmCard]
-) -> NeighbourSlot | None:
+def _neighbour_slot(shown: _Shown | None, cards: dict[int, FilmCard]) -> NeighbourSlot | None:
     if shown is None:
         return None
-    film_ids, total = shown
-    return NeighbourSlot(films=[cards[film_id] for film_id in film_ids], total=total)
+    return NeighbourSlot(films=[cards[film_id] for film_id in shown.film_ids], total=shown.total)
 
 
 def _seed(account_id: uuid.UUID, tmdb_id: int, given: int | None) -> int:
