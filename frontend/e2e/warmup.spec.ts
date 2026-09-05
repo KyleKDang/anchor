@@ -78,7 +78,9 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
   // with the import the fork offered on the other branch.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
   await expect(page.getByRole("link", { name: "Pick up the warmup" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Letterboxd" })).toBeVisible();
+  // Exact: this is the area's own heading, and the sync list inside it has one of its
+  // own that says "Letterboxd" too - a warmed-up account has ratings Letterboxd never saw.
+  await expect(page.getByRole("heading", { name: "Letterboxd", exact: true })).toBeVisible();
 });
 
 /** Search for a film inside the current band prompt and make it that band's anchor. */
