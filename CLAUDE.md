@@ -3,9 +3,24 @@
 A personal movie taste-engine web app: ratings anchored in pairwise comparisons instead of a drifting absolute scale, an automatically managed watchlist, and a recommendation engine that learns each account owner's taste.
 The design spec is complete at `docs/design/`; implementation is tracked by the map at issue #21, one ticket per vertical slice.
 
+## Where an issue goes
+
+The map at #21 holds feature slices and nothing else, because it answers one question - how much of the design spec exists - and anything else on it blurs that answer and leaves a map that can never close.
+
+**A feature is a sub-issue of #21.**
+That covers the spec's own slices and any feature the spec did not anticipate, which joins the map as a new slice sequenced by GitHub's blocked-by dependencies.
+
+**A bug is a plain repo issue, never a sub-issue of #21.**
+A defect in behaviour that already shipped is filed at the top level with the `bug` label, whatever ticket surfaced it and however soon after that ticket merged.
+Its body opens with an `## Origin` section naming the ticket it is a bug against ("Bug against #30 (Seed import).") rather than a `## Parent` section, so provenance survives without a parent link.
+The [`bug` label](https://github.com/KyleKDang/anchor/issues?q=is%3Aissue+label%3Abug) is how bugs are found; there is no second map.
+
+The dividing question is what the issue changes: a slice of the spec that does not exist yet is a feature, and shipped behaviour that does not match its own ticket is a bug.
+Everything reaches `main` the same way regardless, so this is about what the map measures, not about how the work is done.
+
 ## Implementing a ticket
 
-`/ship #N` is the whole prompt: it drives one ticket from claim to close, and the ticket (a sub-issue of the map at #21) carries everything needed.
+`/ship #N` is the whole prompt: it drives one ticket from claim to close, and the ticket carries everything needed, feature or bug.
 `/ship` owns the sequence; this file owns what is specific to Anchor.
 
 **The brief.**
