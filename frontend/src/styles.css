@@ -2535,14 +2535,15 @@ select {
    would suggest the checklist above was not enough. */
 .quality-add {
   display: flex;
-  align-items: end;
+  align-items: center;
   gap: var(--s2);
-  max-width: 44rem;
   margin-top: var(--s4);
 }
 
+/* Sized to a quality rather than stretched to the checklist above it: most owners will
+   never type here, and a full-width bar under the list would read as the main way in. */
 .quality-add .field {
-  flex: 1;
+  flex: 0 1 24rem;
 }
 
 .quality-save {
@@ -2591,6 +2592,12 @@ select {
   color: var(--faint);
   text-decoration: none;
   cursor: default;
+}
+
+/* A paragraph the owner has pushed back on still shows - the rewrite that answers it has
+   not happened yet - but it stops reading as something Anchor still stands behind. */
+.prose-claim.corrected > span {
+  color: var(--faint);
 }
 
 .corrections {
