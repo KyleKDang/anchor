@@ -23,9 +23,11 @@ normally, stale-version ones stay usable ordered by the linear scorer, and unver
 films simply wait. The shelf runs short, and says nothing about it, because the feed
 never shows anything it cannot stand behind.
 
-*Worker-only, like every module that can spend money.* The LLM seam is imported inside
-the function that dispatches, so importing this module never loads it - the web process
-reads the shelf through :func:`shelf` and cannot rerank anything.
+*The spend is worker-only.* The web process imports this module to read the shelf and to
+ask whether a restock is worth queueing, so what has to be worker-only is not the module
+but the dispatch: the LLM seam is imported inside the one function that calls it, and
+importing this module never loads it (architecture.md). A request path physically cannot
+rerank anything.
 """
 
 import logging
@@ -189,7 +191,7 @@ async def restock(
     judged_all = await _rerank(db, seam, account_id, profile, version, films, judged, settings)
 
     async with db.sessions() as session:
-        await _fill(session, account_id, version, films, settings)
+        await _fill(session, account_id, version, films, fit, settings)
         # Stamped only by a run that got all the way through. A restock that either
         # outside service cut short leaves the version unstamped, so it stays due and the
         # next arrival resumes it - which is what keeps every degraded state temporary.
@@ -483,14 +485,14 @@ async def _rerank(
     from anchor import llm as llm_module
 
     todo = [film for film in films if film.tmdb_id not in judged]
-    for window in _windows(todo, settings.discovery_rerank_window):
+    for start, window in _windows(todo, settings.discovery_rerank_window):
         try:
             ranked = await seam.rerank_candidates(account_id, profile, _candidates(window))
         except llm_module.Skipped as skipped:
             log.info("discovery rerank for %s stopped: %s", account_id, skipped)
             return False
         async with db.sessions() as session:
-            for rank, answer in enumerate(ranked):
+            for rank, answer in enumerate(ranked, start=start):
                 session.add(
                     Verdict(
                         account_id=account_id,
@@ -505,8 +507,9 @@ async def _rerank(
     return True
 
 
-def _windows(films: Sequence[Film], size: int) -> list[Sequence[Film]]:
-    return [films[start : start + size] for start in range(0, len(films), size)]
+def _windows(films: Sequence[Film], size: int) -> list[tuple[int, Sequence[Film]]]:
+    """The shortlist cut into windows, each with the offset its ranks are counted from."""
+    return [(start, films[start : start + size]) for start in range(0, len(films), size)]
 
 
 def _candidates(films: Sequence[Film]) -> list["Candidate"]:
@@ -518,7 +521,7 @@ def _candidates(films: Sequence[Film]) -> list["Candidate"]:
             title=film.title,
             year=film.release_year,
             genres=list(film.genres),
-            directors=[str(person["name"]) for person in film.credits.get("directors") or []],
+            directors=catalog.names(film, "directors"),
             overview=film.overview,
         )
         for film in films
@@ -529,7 +532,12 @@ def _candidates(films: Sequence[Film]) -> list["Candidate"]:
 
 
 async def _fill(
-    db: AsyncSession, account_id: uuid.UUID, version: int, films: Sequence[Film], settings: Settings
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    version: int,
+    films: Sequence[Film],
+    fit: "Fit",
+    settings: Settings,
 ) -> None:
     """Rewrite the shelf from the verdicts that now exist.
 
@@ -540,7 +548,6 @@ async def _fill(
     honest thing to say about a judgment made of an older description of the owner. If
     that comes to nine films, the shelf holds nine.
     """
-    fit = await _fit(db, account_id)
     verdicts = await _cached(db, account_id, [film.tmdb_id for film in films])
     shelved = []
     for film in films:
@@ -548,7 +555,7 @@ async def _fill(
         if verdict is None or verdict.fit is FitBucket.poor_fit:
             continue
         current = verdict.profile_version == version
-        score = fit.of_film(film) if fit is not None else 0.0
+        score = fit.of_film(film)
         # Live verdicts first and in the reranker's own order; stale ones behind them
         # ordered by the scorer, which is all a judgment of an older profile supports.
         key = (0, SHELF_ORDER[verdict.fit], verdict.rank, -score) if current else (1, 0, 0, -score)

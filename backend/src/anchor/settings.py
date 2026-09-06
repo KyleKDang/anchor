@@ -233,12 +233,16 @@ class Settings(BaseSettings):
     discovery_seeds: int = 4
     """Exemplars that seed the similar and recommendations calls, best-first."""
 
-    discovery_min_votes: int = 50
-    """A floor on a discover slice's vote count: sparseness, not popularity.
+    discovery_min_votes: int = 10
+    """A floor on a discover slice's vote count: a data-quality gate, not a taste one.
 
-    Deep cuts are what the feed is for, so this is deliberately low - it excludes the
-    rows TMDB itself has almost nothing on, and nothing else. The soft damper below is
-    what actually holds blockbusters back.
+    In tension with the spec's "no hard mainstream cap" and set deliberately low because
+    of it. What it excludes is the row TMDB has almost nothing on - no poster, no
+    overview, a handful of votes - which the feed could not put a card behind whatever it
+    thought of the film. It matters more than it looks, because the damper below *rewards*
+    a low vote count, so with no floor at all the least-known rows in the catalog would
+    win the prefilter on obscurity alone. An operator who wants the raw tail sets it to
+    zero.
     """
 
     discovery_popularity_damper: float = 0.5

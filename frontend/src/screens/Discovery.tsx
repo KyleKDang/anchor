@@ -5,6 +5,7 @@ import { api, messageOf, type Feed, type Suggestion, type Threshold } from "../a
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { filmPath, releaseYear } from "../films/tmdb";
+import { plural, shortfall, worstBar } from "../films/unlock";
 
 /**
  * The Discovery screen: films from the wider catalog, chosen for this owner.
@@ -62,13 +63,15 @@ export function Discovery() {
 /**
  * The pre-gate half: what this screen is for, and what it is still waiting on.
  *
- * Ambient and nothing more (surfacing.md). Discovery could fill this space with popular
- * films the day an account is created, and that is exactly what it must not do: a shelf
- * assembled from no signal teaches the owner on day one that the engine's opinion is
- * worth nothing.
+ * A sentence and a line, and deliberately no progress bar - surfacing.md gives the bar to
+ * the pre-gate Watchlist and asks only that this screen explain itself, so drawing one
+ * here would make the quieter of the two unlocks the louder of them.
+ *
+ * Discovery could fill this space with popular films the day an account is created, and
+ * that is exactly what it must not do: a shelf assembled from no signal teaches the owner
+ * on day one that the engine's opinion is worth nothing.
  */
 function Locked({ feed }: { feed: Feed }) {
-  const share = feed.progress?.share ?? 0;
   return (
     <section className="section" aria-labelledby="shelf-heading">
       <h2 id="shelf-heading">Suggestions</h2>
@@ -77,11 +80,6 @@ function Locked({ feed }: { feed: Feed }) {
         added - each with the reason it thinks you will want it. It will not guess before
         then, so there is nothing here yet.
       </p>
-      <p className="unlock-bar">
-        <span className="bar-track" role="img" aria-label={`${Math.round(share * 100)}% of the way`}>
-          <span className="bar-fill" style={{ inlineSize: `${share * 100}%` }} />
-        </span>
-      </p>
       <p className="muted">
         {remaining(feed.progress?.thresholds ?? [])} <Link to="/profile">See what is left</Link>.
       </p>
@@ -89,29 +87,15 @@ function Locked({ feed }: { feed: Feed }) {
   );
 }
 
-/**
- * One line: the next thing worth doing about the unlock.
- *
- * The film count comes first whenever it is short, ahead of whichever bar is furthest
- * behind - on a young account every other bar is a ratio over it and reads as zero, and
- * the honest, actionable thing to say is how many more films to rate.
- */
+/** One line: the next thing worth doing about the unlock, in this screen's own words. */
 function remaining(thresholds: Threshold[]): string {
-  const films = thresholds.find((one) => one.dimension === "rated_films");
-  const worst =
-    films !== undefined && share(films) < 1
-      ? films
-      : [...thresholds].sort((a, b) => share(a) - share(b))[0];
+  const worst = worstBar(thresholds);
   if (worst === undefined) return "Keep rating films.";
-  const short = Math.ceil(worst.need - worst.have);
+  const short = shortfall(worst);
   if (worst.dimension === "bands_spanned") {
-    return `Rate films across ${short} more half-star band${short === 1 ? "" : "s"} first.`;
+    return `Rate films across ${short} more half-star band${plural(short)} first.`;
   }
-  return `Rate ${short} more film${short === 1 ? "" : "s"} first.`;
-}
-
-function share(threshold: Threshold): number {
-  return threshold.need === 0 ? 1 : Math.min(1, threshold.have / threshold.need);
+  return `Rate ${short} more film${plural(short)} first.`;
 }
 
 /** The shelf itself, or the honest empty state when the engine has nothing to offer. */

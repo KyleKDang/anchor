@@ -147,17 +147,15 @@ async def exclusions(db: AsyncSession, account_id: uuid.UUID) -> Exclusions:
     to put the films it was excluding back in the running, or "lift" would mean nothing
     where it matters most.
     """
-    genres: set[str] = set()
-    languages: set[str] = set()
-    for constraint in await prose_module.active_constraints(db, account_id):
-        footprint = (constraint.content or {}).get("excludes") if constraint.content else None
-        if not isinstance(footprint, dict):
-            continue
-        if isinstance(genre := footprint.get("genre"), str):
-            genres.add(genre)
-        if isinstance(language := footprint.get("language"), str):
-            languages.add(language)
-    return Exclusions(genres=frozenset(genres), languages=frozenset(languages))
+    stated = [
+        footprint
+        for constraint in await prose_module.active_constraints(db, account_id)
+        if (footprint := _footprint(constraint.content or {})) is not None
+    ]
+    return Exclusions(
+        genres=frozenset(one.genre for one in stated if one.genre is not None),
+        languages=frozenset(one.language for one in stated if one.language is not None),
+    )
 
 
 @router.get("/qualities")
