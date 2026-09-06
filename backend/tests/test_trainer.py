@@ -179,6 +179,36 @@ def test_an_answer_whose_films_share_a_band_still_stands():
     assert [pair.explicit for pair in extracted] == [True]
 
 
+def test_an_answered_pair_the_sampling_would_have_missed_is_trained_on_anyway():
+    """The owner's own answers are the best evidence there is; none is left to luck.
+
+    A budget of four opponents per film drops most pairs of a real library, so an answer
+    that has to wait for the sampler to happen upon it is an answer usually thrown away -
+    and the held-out slice is made of exactly these (evaluation.md).
+    """
+    ranked = ordering(b5_0=list(range(40)), b1_0=list(range(40, 80)))
+
+    extracted = trainer.extract(ranked, seed=1, explicit=[Answered(better=0, worse=79)])
+
+    assert (0, 79) in directed(extracted)
+    assert [(pair.a, pair.b) for pair in extracted if pair.explicit] == [(0, 79)]
+
+
+def test_an_answered_within_band_pair_is_still_read_as_a_range():
+    """It carries the explicit weight, and it is still a pair inside one band.
+
+    Which matters for the held-out slice: an answered pair is eligible whichever band its
+    films sit in, and the flag is what says so.
+    """
+    ranked = ordering(b4_0=list(range(40)))
+
+    extracted = trainer.extract(ranked, seed=1, explicit=[Answered(better=0, worse=39)])
+
+    [answered] = [pair for pair in extracted if pair.explicit]
+    assert (answered.a, answered.b) == (0, 39)
+    assert answered.within_band is True
+
+
 def test_an_answered_pair_naming_a_film_no_longer_rated_is_left_out():
     extracted = trainer.extract(
         stack(1, 2), seed=1, explicit=[Answered(better=1, worse=404)], sampling=NO_LONG_RANGE

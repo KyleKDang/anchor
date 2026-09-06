@@ -53,7 +53,7 @@ class Answer(BaseModel):
 
 OUTCOMES: dict[str, RewatchOutcome] = {
     "confirmed": RewatchOutcome.confirmed,
-    "changed": RewatchOutcome.re_placed,
+    "changed": RewatchOutcome.re_rated,
     "skip": RewatchOutcome.skipped,
 }
 

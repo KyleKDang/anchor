@@ -39,6 +39,28 @@ from anchor.settings import Settings
 
 
 @dataclass(frozen=True)
+class Standing:
+    """Where a rated film stands in its band, as both surfaces that say it need it.
+
+    The film page and the picker's done screen make the same statement - "third of your
+    4.0s, between these two" - so they read it once, here, rather than each assembling it
+    from the ordering and drifting apart on what "neighbour" means.
+    """
+
+    band: float
+    rank: int
+    band_size: int
+    anchored: bool
+    above: int | None
+    below: int | None
+    """The films either side of it *in its own band*; None at either end of the row."""
+
+    def named(self) -> list[int]:
+        """The neighbour ids that exist, for the one card lookup both surfaces then do."""
+        return [film_id for film_id in (self.above, self.below) if film_id is not None]
+
+
+@dataclass(frozen=True)
 class Placed:
     """One rated film as the ordering holds it."""
 
@@ -80,6 +102,21 @@ class Ordering:
     def anchors(self, band: float) -> tuple[int, ...]:
         """The band's anchor pool, in rank order."""
         return tuple(placed.film_id for placed in self.row(band) if placed.anchored)
+
+    def standing(self, film_id: int) -> Standing | None:
+        """Everything a surface says about where one rated film sits, or None if it is not."""
+        placed = self.of(film_id)
+        if placed is None:
+            return None
+        above, below = self.neighbours(film_id)
+        return Standing(
+            band=placed.band,
+            rank=placed.rank,
+            band_size=len(self.row(placed.band)),
+            anchored=placed.anchored,
+            above=above,
+            below=below,
+        )
 
     def neighbours(self, film_id: int) -> tuple[int | None, int | None]:
         """The films immediately above and below this one *in its own band*.
@@ -137,8 +174,11 @@ class DefaultOrder:
     prior_votes: int
     """How many votes of the catalog mean a film's own average has to outweigh."""
 
-    def score(self, film: Film) -> float:
+    def shrunk(self, film: Film) -> float:
         """The film's average pulled toward the catalog mean in proportion to its thinness.
+
+        Deliberately not called a score: CONTEXT.md keeps that word for the recommender's
+        own scoring, and this is a sort key over TMDB's numbers, not an opinion of anybody's.
 
         The standard shrinkage: a film with many votes keeps its own average almost
         entirely, and one with a handful is mostly the catalog speaking. It is what
@@ -155,7 +195,7 @@ class DefaultOrder:
         The id rides last so two films sharing a score and a title still sort the same
         way on every read, which is what makes a seeded band reproducible.
         """
-        return (-self.score(film), film.title, film.tmdb_id)
+        return (-self.shrunk(film), film.title, film.tmdb_id)
 
     def sorted(self, films: Sequence[Film]) -> list[Film]:
         return sorted(films, key=self.key)

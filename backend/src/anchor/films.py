@@ -70,7 +70,15 @@ class Judgment(BaseModel):
 
 
 class Neighbours(BaseModel):
-    """The films immediately above and below this one in its own band."""
+    """The films immediately above and below a rated film, inside its own band.
+
+    Band-local because the rank is: "third of your 4.0s" is a statement about the 4.0s,
+    so the films it is against are the other 4.0s. An end of the row has no neighbour
+    that way, and None is the honest answer rather than the next band's edge.
+
+    Shared with the picker's done screen, which makes the same statement about the same
+    film a moment earlier.
+    """
 
     above: FilmCard | None
     below: FilmCard | None
@@ -295,18 +303,15 @@ async def _detail(
     if account_film is None or account_film.state is not LifecycleState.rated:
         return FilmPage.of(film, account_film)
     ordering = await ordering_module.load(db, account.id)
-    placed = ordering.of(film.tmdb_id)
-    assert placed is not None  # a rated film is a placed film
-    above, below = ordering.neighbours(film.tmdb_id)
-    cards = await ordering_module.cards(
-        db, [film_id for film_id in (above, below) if film_id is not None]
-    )
-    page = FilmPage.of(film, account_film, placed.band, anchor=placed.anchored)
-    page.rank = placed.rank
-    page.band_size = len(ordering.row(placed.band))
+    standing = ordering.standing(film.tmdb_id)
+    assert standing is not None  # a rated film is a placed film
+    cards = await ordering_module.cards(db, standing.named())
+    page = FilmPage.of(film, account_film, standing.band, anchor=standing.anchored)
+    page.rank = standing.rank
+    page.band_size = standing.band_size
     page.neighbours = Neighbours(
-        above=cards.get(above) if above else None,
-        below=cards.get(below) if below else None,
+        above=cards.get(standing.above) if standing.above else None,
+        below=cards.get(standing.below) if standing.below else None,
     )
     page.rewatch = await rewatch.prompt(db, account.id, film.tmdb_id)
     page.judgments = await _judgments(db, account.id, film.tmdb_id)

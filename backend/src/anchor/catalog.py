@@ -57,8 +57,9 @@ class FilmDetail(BaseModel):
     """A film with its standing in this account: what every film-scoped response shares.
 
     Built through ``cls``, so a surface needing more than this - the film page, which
-    hangs drift and rewatch off it - subclasses it and inherits the construction rather
-    than making this module import the subsystems it would have to name.
+    hangs the rank, the neighbours, the rewatch and the judgment history off it -
+    subclasses it and inherits the construction rather than making this module import the
+    subsystems it would have to name.
     """
 
     tmdb_id: int

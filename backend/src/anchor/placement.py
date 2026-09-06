@@ -39,6 +39,7 @@ from anchor.catalog import FilmCard
 from anchor.criteria import CriteriaCard
 from anchor.deps import AppJobs, AppSettings, DbSession
 from anchor.errors import ApiError
+from anchor.films import Neighbours
 from anchor.models import (
     BANDS,
     Account,
@@ -81,18 +82,6 @@ class Picker(BaseModel):
     """The film's band on a re-rate, marked on the row; None when it is not rated yet."""
     current_rank: int | None
     """Where it currently sits in that band, shown beside the mark on a re-rate."""
-
-
-class Neighbours(BaseModel):
-    """The films immediately above and below a landed film, inside its own band.
-
-    Band-local because the rank is: the done screen says "third of your 4.0s", so the
-    films that statement is against are the other 4.0s. An end of the row has no
-    neighbour that way, and None is the honest answer.
-    """
-
-    above: FilmCard | None
-    below: FilmCard | None
 
 
 class Landed(BaseModel):
@@ -185,7 +174,7 @@ async def pick(
     film = await _film(db, tmdb_id)
     order = ordering_module.default_order(settings)
     placement = await ordering_module.placement_of(db, account.id, tmdb_id)
-    context = ComparisonContext.re_placement if placement else ComparisonContext.placement
+    context = ComparisonContext.re_rate if placement else ComparisonContext.placement
 
     db.add(
         ComparisonLogEntry(
@@ -237,24 +226,21 @@ async def _landed(
 ) -> Landed:
     """The done screen, read back off the ordering the pick just wrote."""
     ordering = await ordering_module.load(db, account.id)
-    placed = ordering.of(tmdb_id)
-    assert placed is not None  # the film was rated inside this request
-    above, below = ordering.neighbours(tmdb_id)
-    cards = await ordering_module.cards(
-        db, [tmdb_id, *(film_id for film_id in (above, below) if film_id is not None)]
-    )
+    standing = ordering.standing(tmdb_id)
+    assert standing is not None  # the film was rated inside this request
+    cards = await ordering_module.cards(db, [tmdb_id, *standing.named()])
     return Landed(
         film=cards[tmdb_id],
-        band=placed.band,
-        rank=placed.rank,
-        band_size=len(ordering.row(placed.band)),
-        anchor=placed.anchored,
+        band=standing.band,
+        rank=standing.rank,
+        band_size=standing.band_size,
+        anchor=standing.anchored,
         neighbours=Neighbours(
-            above=cards.get(above) if above else None,
-            below=cards.get(below) if below else None,
+            above=cards.get(standing.above) if standing.above else None,
+            below=cards.get(standing.below) if standing.below else None,
         ),
         unlocked=[unlock for unlock in Unlock if unlock in unlocked],
-        anchor_nudge=not any(ordering.anchors(band) for band in ordering.bands()),
+        anchor_nudge=not await anchors_module.counts(db, account.id),
         criteria=card,
     )
 

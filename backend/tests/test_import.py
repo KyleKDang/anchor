@@ -260,6 +260,45 @@ async def test_a_low_vote_film_with_a_perfect_average_does_not_top_its_row(
     assert flows.ordering_of(await flows.rated(owner))[4.0] == [famous.tmdb_id, obscure.tmdb_id]
 
 
+@pytest.mark.settings(readiness_forming_films=3, readiness_forming_bands=3, readiness_ready_films=6)
+async def test_an_import_that_clears_both_bars_says_so_on_its_completion_screen(
+    owner, stocked, run_jobs
+):
+    """ "A seed import crosses both bars at once, and the completion screen names what just
+    unlocked" (onboarding-and-import.md). The same moment lights both nav dots."""
+    await flows.upload_export(owner, export.export(ratings=_rated_rows()))
+    await run_jobs()
+
+    state = await flows.import_state(owner)
+
+    assert state["status"] == "complete"
+    assert state["unlocked"] == ["discovery", "watchlist"]
+    assert await flows.unlocks(owner) == {"discovery": True, "watchlist": True}
+
+
+@pytest.mark.settings(readiness_forming_films=3, readiness_forming_bands=3, readiness_ready_films=6)
+async def test_the_completion_screen_stops_naming_an_unlock_the_owner_has_been_to_see(
+    owner, stocked, run_jobs
+):
+    """One fact read two ways: the line and the dot empty together, and never come back."""
+    await flows.upload_export(owner, export.export(ratings=_rated_rows()))
+    await run_jobs()
+
+    await flows.seen_discovery(owner)
+
+    assert (await flows.import_state(owner))["unlocked"] == ["watchlist"]
+
+
+async def test_an_import_too_small_to_unlock_anything_says_nothing(owner, stocked, run_jobs):
+    """The gate activates on evidence and never fabricates from zero signal."""
+    await flows.upload_export(
+        owner, export.export(ratings=(Row(SEEDS[0].title, SEEDS[0].year, rating=5.0),))
+    )
+    await run_jobs()
+
+    assert (await flows.import_state(owner))["unlocked"] == []
+
+
 async def test_nothing_provisional_exists_and_the_sync_list_is_empty(owner, stocked, db, run_jobs):
     """A rated row is rated and final the moment it is matched (ADR 0013)."""
     await flows.upload_export(owner, export.export(ratings=_rated_rows()))

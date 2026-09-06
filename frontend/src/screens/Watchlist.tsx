@@ -199,16 +199,14 @@ function Locked({ tier }: { tier: Tier }) {
 /**
  * One line: the next thing worth doing about the unlock.
  *
- * The film count comes first whenever it is short, ahead of whichever bar is furthest
- * behind. Every other bar is a ratio over it, so on a young account they all read as
- * zero and the honest, actionable thing to say is how many more films to rate - "answer
- * more comparisons per film" is true there and no help at all.
+ * The film count comes first whenever it is short, ahead of the band spread. Readiness has
+ * two dimensions and only two (ADR 0013), and on a young account both read as nearly zero
+ * - so the honest, actionable thing to say is how many more films to rate.
  *
- * Where the line names comparisons or settling as what is missing, it links into settling
- * rather than dead-ending (surfacing.md): those two bars are the two halves of the same
- * shortfall, and the Rated strip is the one place in the app that does anything about it.
+ * Both branches say "rate", because rating is now the only thing that moves either bar:
+ * there is nothing to settle and no comparison to answer.
  */
-function remaining(thresholds: Threshold[]): ReactNode {
+function remaining(thresholds: Threshold[]): string {
   const films = thresholds.find((one) => one.dimension === "rated_films");
   const worst =
     films !== undefined && share(films) < 1
@@ -216,29 +214,11 @@ function remaining(thresholds: Threshold[]): ReactNode {
       : [...thresholds].sort((a, b) => share(a) - share(b))[0];
   if (worst === undefined) return "Keep rating films.";
   const short = Math.ceil(worst.need - worst.have);
-  if (worst.dimension === "rated_films") {
-    return `Rate ${short} more film${short === 1 ? "" : "s"} to unlock it.`;
-  }
   if (worst.dimension === "bands_spanned") {
     return `Rate films across ${short} more half-star band${short === 1 ? "" : "s"} to unlock it.`;
   }
-  if (worst.dimension === "comparisons_per_film") {
-    return <>Answer more comparisons per film to unlock it. {SETTLE_LINK}</>;
-  }
-  return <>Settle more of your library with your own comparisons to unlock it. {SETTLE_LINK}</>;
+  return `Rate ${short} more film${short === 1 ? "" : "s"} to unlock it.`;
 }
-
-/**
- * Into the Rated strip, which is where settling actually happens.
- *
- * It carries its own full stop, because the line it joins already ends in one link and a
- * second one running straight into it would read as a single sentence with a seam in it.
- */
-const SETTLE_LINK = (
-  <>
-    <Link to="/rated#settling">Settle some films</Link>.
-  </>
-);
 
 function share(threshold: Threshold): number {
   return threshold.need === 0 ? 1 : Math.min(1, threshold.have / threshold.need);
