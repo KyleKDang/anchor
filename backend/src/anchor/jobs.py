@@ -19,7 +19,7 @@ from procrastinate.retry import RetryStrategy
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import catalog, matching, seeding, unlocks
+from anchor import catalog, matching, seeding
 from anchor.db import Database
 from anchor.errors import ApiError
 from anchor.models import (
@@ -347,7 +347,12 @@ async def match_import_rows(context: JobContext, import_id: str) -> None:
         # (onboarding-and-import.md), and this is the moment it does: arming here is what
         # earns the import both dots and lets its completion screen name what just
         # unlocked. Idempotent, so a retried job arms nothing twice.
-        await unlocks.arm(session, record.account_id, settings)
+        #
+        # Imported here rather than at the top of the module: the tier pulls in the
+        # feature pipeline, and the web process imports this module only to enqueue.
+        from anchor import tier
+
+        await tier.note_unlock(session, record.account_id, settings)
         await session.commit()
 
     # The trainer is called rather than deferred: this is already the worker, and one

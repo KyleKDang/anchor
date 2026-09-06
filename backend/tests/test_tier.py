@@ -248,6 +248,27 @@ async def test_the_discovery_dot_clears_on_its_own_screen(owner):
     assert (await flows.unlocks(owner)) == {"discovery": False, "watchlist": False}
 
 
+@tuned(readiness_forming_bands=3, **PATIENT)
+async def test_a_re_rate_that_crosses_the_bar_still_opens_on_a_real_tier(owner):
+    """The crossing is a change to what the tier is computed from, and the only one.
+
+    A re-rate moves no film into the account and logs no watch, so the fit stands where
+    the last pre-gate read stamped it - its retrain is still queued - and so does the
+    watch clock. Nothing but the unlock itself can make the next read do its work, which
+    is what makes this the case that catches an unlock armed behind the tier's back.
+    """
+    await fill(owner, BACKLOG[:5])
+    await build_ordering(owner, WESTERNS, band=4.0)
+    await build_ordering(owner, HORRORS, band=2.0)
+    assert (await flows.tier(owner))["unlocked"] is False, "six films, but only two bands"
+
+    await flows.re_rate(owner, HORRORS[2], 1.0)
+
+    payload = await flows.tier(owner)
+    assert payload["unlocked"] is True
+    assert set(tier_ids(payload)) == {film.tmdb_id for film in BACKLOG[:5]}
+
+
 @tuned(**PATIENT)
 async def test_the_tier_is_there_the_moment_it_unlocks(owner):
     """The one announced moment must not open onto an empty screen.

@@ -55,7 +55,7 @@ export function Picker({
           </div>
         </div>
         {rating && (
-          <p className="muted">
+          <p className="muted picker-current">
             Currently <Band band={picker.current_band} />, number {picker.current_rank} of that
             band.
           </p>
