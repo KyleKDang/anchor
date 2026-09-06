@@ -1,21 +1,15 @@
 """What a bound import row does to the account realm, and what a re-import undoes.
 
-*A rating becomes a band judgment, not a position.* Letterboxd's ten half-star values
-map 1:1 onto Anchor's bands, so every imported rating of the same value seeds one
-provisional tie-group and no within-band order is ever fabricated. The judgments pin the
-dividers, which is what makes the familiar half-stars show the moment the import lands.
+*A rating is a band, and a band is a row.* Letterboxd's ten half-star values map 1:1 onto
+Anchor's bands, so every rated row lands in its band the moment it is matched, rated and
+final. Nothing about an imported film is provisional and nothing waits to be settled: the
+wall is complete when matching completes, and the owner reorders it as much or as little
+as they like (onboarding-and-import.md).
 
-*Seeds pin once; live answers move freely.* "Lower weight than live answers" is not a
-number anywhere - it is that a seed pins a divider as tightly as its own claim allows
-and then stops mattering, so one fresh sliver answer moves a divider hundreds of stale
-seeds put there. Weight kept as a running total would be the drifting absolute scale
-coming back in through the dividers.
-
-*A seeded slot is found, not remembered.* Which slot holds a band's seeds is read off
-the ordering and the dividers each time rather than stored, so a seed bound from the
-review screen weeks later lands in the same group as the ones that arrived on day one -
-and lands beside the owner's own films rather than through them if the band has since
-grown some.
+*Within a band the rows take the default order.* TMDB's average shrunk toward the catalog
+mean, best first, title as the tiebreak - the same rule that seats every newly rated film,
+so there is one rule to know. Seeding row by row reproduces it, because each row is placed
+against the films already there by the same key that would have sorted them all at once.
 
 *The realm wipe is the one exception to the log's never-deleted rule.* :data:`WIPED` is
 the whole of it, declared rather than discovered, so a table added by a later ticket
@@ -28,13 +22,10 @@ from dataclasses import dataclass
 from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import bands, catalog
+from anchor import catalog
 from anchor import ordering as ordering_module
-from anchor.bands import Boundaries
 from anchor.models import (
     AccountFilm,
-    AnchorDesignation,
-    AnchorStatus,
     ComparisonContext,
     ComparisonKind,
     ComparisonLogEntry,
@@ -42,8 +33,7 @@ from anchor.models import (
     ImportRow,
     ImportRowKind,
     LifecycleState,
-    PlacementProvenance,
-    TieGroupSlot,
+    Placement,
     WatchEvent,
     WatchOrigin,
     WatchStanding,
@@ -52,13 +42,12 @@ from anchor.settings import Settings
 from anchor.tmdb import Tmdb
 
 WIPED = (
-    # Children before parents, though the two references that would care - a placement's
-    # slot and a divider's judgment - are deferred to commit precisely so this wipe can
-    # delete both halves in one transaction (data-model.md).
+    # Children before parents.
     "tier_states",
-    # The tier goes with everything else, unlock dot included: the reset re-locks the
-    # ranked tier until evidence re-accumulates (watchlist.md), and an account that has
-    # already seen the dot would otherwise cross the bar a second time in silence.
+    # The reset re-locks both readiness unlocks until evidence re-accumulates, so their
+    # dots go with everything else: an account that has already seen one would otherwise
+    # cross the bar a second time in silence.
+    "unlock_marks",
     "exemplars",
     "weight_vectors",
     "taste_metrics",
@@ -68,17 +57,8 @@ WIPED = (
     # number keys discovery's cached verdicts, so restarting the taste means restarting
     # the count that says which taste a cached verdict was about.
     "prose_profile_versions",
-    "dividers",
-    "anchor_designations",
-    # Drift is a reading of the ordering, so it cannot outlive the ordering it read:
-    # evidence first, since it points at both the flags and the log below it.
-    "drift_evidence",
-    "drift_flags",
-    # A re-placement the owner asked for is about a position the reset is deleting, so
-    # the ask goes with it rather than reopening on a film the new export re-seeded.
-    "replacement_requests",
+    # The anchor marks live on the placements, so they go when those do.
     "placements",
-    "tie_group_slots",
     "comparison_log_entries",
     "watch_events",
     "import_rows",
@@ -149,7 +129,7 @@ async def apply(
     row.film_id = film.tmdb_id
 
     if row.kind is ImportRowKind.rating and row.rating is not None:
-        await _seed_rating(db, account_id, film.tmdb_id, row.rating)
+        await _seed_rating(db, account_id, film, row.rating, settings)
     elif row.kind is ImportRowKind.watchlist:
         await _seed_backlog(db, account_id, film.tmdb_id, row)
     elif row.kind in (ImportRowKind.watched, ImportRowKind.diary):
@@ -160,52 +140,54 @@ async def apply(
 
 
 async def _seed_rating(
-    db: AsyncSession, account_id: uuid.UUID, film_id: int, rating: float
+    db: AsyncSession, account_id: uuid.UUID, film: Film, rating: float, settings: Settings
 ) -> None:
-    """Seat a rated film in its band's provisional tie-group, opening one if none exists.
+    """Land a rated row in its band at the rank the default order gives it there.
 
-    The rating is the owner's own band judgment, so it is logged as one and the dividers
-    it forces name it: every position a divider has ever held stays auditable back to an
-    answer, and a seed is an answer like any other - just an old one.
+    The rating is the owner's own band pick, so it is logged as one - just an old one -
+    and the placement is a placement like any other. Nothing here is provisional and
+    nothing waits: the film is rated the moment this returns.
+
+    The default order reads the catalog mean as the catalog currently stands, so a mean
+    that shifts while a long import is still filling the store can permute two adjacent
+    films of one band against what a single sort at the end would have produced. That is
+    accepted: the default order is where a film waits for the owner, never a judgment,
+    and the wall is where it stops waiting.
     """
-    account_film = await _account_film(db, account_id, film_id)
+    account_film = await _account_film(db, account_id, film.tmdb_id)
     if account_film is not None and account_film.state is LifecycleState.rated:
         # Already seeded by an earlier row of this same import - one film can be named
         # twice - and the first row's rating is the one that stands, last synced value
-        # included. The import wipes the realm first, so there is no owner-placed film
+        # included. The import wipes the realm first, so there is no owner-rated film
         # here to skip.
         return
     if account_film is None:
         account_film = AccountFilm(
-            account_id=account_id, film_id=film_id, state=LifecycleState.backlog
+            account_id=account_id, film_id=film.tmdb_id, state=LifecycleState.backlog
         )
         db.add(account_film)
         await db.flush()
 
-    judgment = bands.judgment(
-        account_id, film_id=film_id, band=rating, context=ComparisonContext.seed_import
+    db.add(
+        ComparisonLogEntry(
+            account_id=account_id,
+            kind=ComparisonKind.band_pick,
+            subject_film_id=film.tmdb_id,
+            film_a_id=film.tmdb_id,
+            film_b_id=None,
+            verdict=None,
+            band=rating,
+            context=ComparisonContext.seed_import,
+        )
     )
-    db.add(judgment)
-    await db.flush()
-
-    ordering = await ordering_module.load(db, account_id)
-    boundaries = await bands.load(db, account_id)
-    joined = await _seeded_slot(db, account_id, ordering, boundaries, rating)
-    if joined is not None:
-        ordering_module.land(
-            db, account_film, slot=joined, provenance=PlacementProvenance.import_seeded
-        )
-    else:
-        index = seat_for(boundaries, rating, len(ordering))
-        slot = await ordering_module.new_slot(db, account_id, index, band=rating, judgment=judgment)
-        ordering_module.land(
-            db, account_film, slot=slot, provenance=PlacementProvenance.import_seeded
-        )
-        moved = await bands.load(db, account_id)
-        await bands.move(db, account_id, moved, bands.pins_for(moved, index, rating), judgment)
+    order = await ordering_module.default_order(db, settings.default_order_prior_votes)
+    rank = await ordering_module.default_rank(db, account_id, rating, film, order)
+    await ordering_module.land(db, account_film, band=rating, rank=rank)
 
     # What Letterboxd holds for this film, as far as Anchor knows. It is the import that
-    # knows it and nothing else ever will, so it is written here or never.
+    # knows it and nothing else ever will, so it is written here or never. Writing it now
+    # is also what makes the sync list empty right after an import: every rated film is
+    # already in step with the export it came from.
     account_film.last_synced_rating = rating
     await db.flush()
 
@@ -280,51 +262,6 @@ async def _seed_watch_event(
     await db.flush()
 
 
-# --- Where a seeded slot goes ---
-
-
-def seat_for(boundaries: Boundaries, band: float, total: int) -> int:
-    """The index a slot known to be in ``band`` opens at, given the dividers so far.
-
-    The dividers already pinned fence the band in from both sides, and the fence is
-    usually tight enough to leave exactly one index. Where it is not - the band already
-    holds films the owner placed themselves - the new slot goes at the bottom of the
-    band, which claims the least: it asserts nothing about being better than films it
-    was never compared with.
-    """
-    over = _fence(boundaries, bands.BANDS[: bands.rank(band)], max)
-    under = _fence(boundaries, bands.BANDS[bands.rank(band) : -1], min)
-    if under is not None:
-        return under
-    return over if over is not None else total
-
-
-def _fence(boundaries: Boundaries, keys: tuple[float, ...], edge) -> int | None:  # type: ignore[no-untyped-def]
-    pinned = [boundaries[key] for key in keys if key in boundaries]
-    return edge(pinned) if pinned else None
-
-
-async def _seeded_slot(
-    db: AsyncSession,
-    account_id: uuid.UUID,
-    ordering: ordering_module.Ordering,
-    boundaries: Boundaries,
-    band: float,
-) -> TieGroupSlot | None:
-    """This band's provisional tie-group, if the import has already opened one.
-
-    A slot counts as the band's seed group only while every film in it is still an
-    import seed. Once a comparison has pulled a film out into a definitive slot, that
-    slot is a judgment about two particular films, and a later seed joining it would be
-    asserting a tie nobody made.
-    """
-    seeded = await ordering_module.seeded_slot_ids(db, account_id)
-    for index, slot in enumerate(ordering.slots):
-        if slot.id in seeded and bands.band_of_slot(boundaries, index) == band:
-            return await ordering_module.slot_by_id(db, slot.id)
-    return None
-
-
 async def _account_film(
     db: AsyncSession, account_id: uuid.UUID, film_id: int
 ) -> AccountFilm | None:
@@ -371,16 +308,16 @@ async def realm_counts(db: AsyncSession, account_id: uuid.UUID) -> RealmCounts:
             .select_from(ComparisonLogEntry)
             .where(
                 ComparisonLogEntry.account_id == account_id,
-                ComparisonLogEntry.kind == ComparisonKind.overall,
+                ComparisonLogEntry.kind == ComparisonKind.band_comparison,
             ),
         ),
         anchors=await _count(
             db,
             select(func.count())
-            .select_from(AnchorDesignation)
+            .select_from(Placement)
             .where(
-                AnchorDesignation.account_id == account_id,
-                AnchorDesignation.status == AnchorStatus.current,
+                Placement.account_id == account_id,
+                Placement.anchored_at.is_not(None),
             ),
         ),
         backlog_films=await _count(

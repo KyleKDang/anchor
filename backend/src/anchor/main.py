@@ -8,7 +8,6 @@ from anchor import (
     accounts,
     anchors,
     criteria,
-    drift,
     errors,
     films,
     health,
@@ -22,7 +21,6 @@ from anchor import (
     rated,
     rewatch,
     sentry,
-    sitting,
     sync,
     tmdb,
     warmup,
@@ -71,7 +69,6 @@ def create_app(
     app.include_router(rated.router)
     app.include_router(placement.router)
     app.include_router(anchors.router)
-    app.include_router(drift.router)
     app.include_router(rewatch.router)
     app.include_router(criteria.router)
     app.include_router(profile.router)
@@ -79,7 +76,6 @@ def create_app(
     app.include_router(imports.router)
     app.include_router(watchlist.unlocks)
     app.include_router(warmup.router)
-    app.include_router(sitting.router)
     app.include_router(sync.router)
     return app
 

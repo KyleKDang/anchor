@@ -1,279 +1,313 @@
-"""The ordering: the explicit persisted sequence of tie-group slots, and how films move in it.
+"""The ordering: ten band rows, each a strict order, and how a film gets into one.
 
-The sequence is primary state (ADR 0001). Nothing here derives it from the comparison
-log and nothing here is reachable from the advisory math; every function that writes it
-runs only at the end of a flow the owner's own answers settled, and the account-realm
-wipe is the only other thing that touches these rows.
+The ordering is explicit persisted state (ADR 0001, ADR 0013). Every film's band and
+rank are written down on its placement and nothing derives them - not from the
+comparison log, not from the advisory math. Every function here that writes runs at the
+end of a flow the owner's own act settled, and the account-realm wipe is the only other
+thing that touches these rows.
 
-Positions are dense and start at 0, best to worst, so opening a slot shifts every slot
-below it down by one. That keeps "the film two places above this one" a plain
-subtraction, at the cost of one bulk update per placement - the right trade for a
-personal library, where placements are rare and reads are constant. Dividers are indices
-into the same sequence, so every write here renumbers them in step: they must go on
-separating the same two slots they separated before, which is why the slot writers own
-that renumbering rather than leaving it to their callers to remember.
+Three ideas carry the module:
 
-Rating is derived, never stored: :func:`bands_of` is the whole of it, reading a slot's
-position against the dividers and yielding nothing where the dividers that would decide
-it are unpinned.
+*A band is a row, and its rank is dense.* Ranks run 1..n inside a band with no gaps, so
+"the film above this one" is a plain subtraction and the wall renders straight off a
+sorted read. Landing a film shifts the films it lands above by one, which is one bulk
+update per rating - the right trade for a personal library, where ratings are rare and
+reads constant.
+
+*The default order is where a film waits for the owner.* Within a band it is TMDB's
+average shrunk toward the catalog mean where votes are few, best first, title as the
+tiebreak. The shrinkage is the whole point: an obscure film with a handful of perfect
+votes must not top a row. The same rule seeds every imported band and seats every newly
+rated film, so there is one rule to know, and it is a starting point rather than a
+judgment - ``moved_at`` stays empty until the owner actually moves the film.
+
+*The band is the rating.* It is stored because the owner chose it, which is what makes
+storing it honest (ADR 0013 supersedes ADR 0002). There is nothing to derive and
+nothing that can go stale.
 """
 
 import uuid
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 
-from sqlalchemy import delete, func, select, update
+from sqlalchemy import Select, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import bands
-from anchor.bands import Boundaries
 from anchor.catalog import FilmCard
-from anchor.models import (
-    AccountFilm,
-    ComparisonLogEntry,
-    Film,
-    LifecycleState,
-    Placement,
-    PlacementProvenance,
-    PlacementTrust,
-    TieGroupSlot,
-)
+from anchor.models import BANDS, AccountFilm, Film, LifecycleState, Placement
+
+FALLBACK_CATALOG_MEAN = 6.5
+"""What the shrinkage pulls toward while the catalog is empty enough to have no mean.
+
+Only reachable on an account rating its first film before any other film is stored,
+where every candidate shrinks toward the same number and the tiebreak decides anyway.
+"""
 
 
 @dataclass(frozen=True)
-class Slot:
-    """One position of the ordering and the films the owner has judged equal there."""
+class Placed:
+    """One rated film as the ordering holds it."""
 
-    id: uuid.UUID
-    position: int
-    film_ids: tuple[int, ...]
+    film_id: int
+    band: float
+    rank: int
+    """1 is the best film of the band."""
+    anchored: bool
 
 
 @dataclass(frozen=True)
 class Ordering:
-    """One account's whole ordering, best to worst, as the placement search reads it."""
+    """One account's whole ordering: ten band rows, best band first, each in rank order."""
 
-    slots: tuple[Slot, ...]
+    rows: Mapping[float, tuple[Placed, ...]]
+    """Keyed by band; a band with no films is absent rather than empty."""
 
     def __len__(self) -> int:
-        return len(self.slots)
+        return sum(len(row) for row in self.rows.values())
 
-    def index_of(self, film_id: int) -> int | None:
-        """Which slot a rated film sits in, or None where the film is not rated."""
-        return next((i for i, slot in enumerate(self.slots) if film_id in slot.film_ids), None)
+    def bands(self) -> tuple[float, ...]:
+        """The bands holding at least one film, best first."""
+        return tuple(band for band in BANDS if self.rows.get(band))
+
+    def row(self, band: float) -> tuple[Placed, ...]:
+        return self.rows.get(band, ())
+
+    def of(self, film_id: int) -> Placed | None:
+        """Where a film sits, or None where it is not rated."""
+        return next(
+            (placed for row in self.rows.values() for placed in row if placed.film_id == film_id),
+            None,
+        )
 
     def all_film_ids(self) -> list[int]:
-        """Every rated film, best slot first. Named apart from ``Slot.film_ids``."""
-        return [film_id for slot in self.slots for film_id in slot.film_ids]
+        """Every rated film, best band first and best rank first within a band."""
+        return [placed.film_id for band in self.bands() for placed in self.rows[band]]
 
-    def without(self, film_id: int) -> "Ordering":
-        """The ordering as it would read if this film had never been placed.
+    def anchors(self, band: float) -> tuple[int, ...]:
+        """The band's anchor pool, in rank order."""
+        return tuple(placed.film_id for placed in self.row(band) if placed.anchored)
 
-        What the film's own judgments are re-read against when its position is being
-        re-derived, since a film cannot be evidence about where it belongs.
+    def neighbours(self, film_id: int) -> tuple[int | None, int | None]:
+        """The films immediately above and below this one *in its own band*.
+
+        Band-local on purpose: the film page shows a rank within a band, so the films
+        that rank is against are that band's. An end of a row has no neighbour that way,
+        and the honest answer is None rather than the next band's edge, which the owner
+        never ranked this film against.
         """
-        kept: list[Slot] = []
-        for slot in self.slots:
-            members = tuple(member for member in slot.film_ids if member != film_id)
-            if members:
-                kept.append(Slot(id=slot.id, position=len(kept), film_ids=members))
-        return Ordering(slots=tuple(kept))
+        placed = self.of(film_id)
+        if placed is None:
+            return None, None
+        row = self.row(placed.band)
+        index = placed.rank - 1
+        above = row[index - 1].film_id if index > 0 else None
+        below = row[index + 1].film_id if index + 1 < len(row) else None
+        return above, below
 
 
 async def load(db: AsyncSession, account_id: uuid.UUID) -> Ordering:
-    """The account's ordering. One query: a slot is only ever read with its members."""
+    """The account's ordering, in one query. Bands best first, ranks dense from 1."""
     rows = await db.execute(
-        select(TieGroupSlot.id, TieGroupSlot.position, AccountFilm.film_id)
-        .join(Placement, Placement.slot_id == TieGroupSlot.id)
+        select(Placement.band, Placement.rank, Placement.anchored_at, AccountFilm.film_id)
         .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
-        .where(TieGroupSlot.account_id == account_id)
-        # Within a slot the members are tied, so any stable order will do; oldest first
-        # reads as "and then this one joined it".
-        .order_by(TieGroupSlot.position, Placement.placed_at, AccountFilm.film_id)
-    )
-    members: dict[uuid.UUID, list[int]] = {}
-    positions: dict[uuid.UUID, int] = {}
-    for slot_id, position, film_id in rows:
-        members.setdefault(slot_id, []).append(film_id)
-        positions[slot_id] = position
-    slots = [
-        Slot(id=slot_id, position=positions[slot_id], film_ids=tuple(film_ids))
-        for slot_id, film_ids in members.items()
-    ]
-    return Ordering(slots=tuple(sorted(slots, key=lambda slot: slot.position)))
-
-
-async def seeded_slot_ids(db: AsyncSession, account_id: uuid.UUID) -> set[uuid.UUID]:
-    """Slots whose every member is still an untouched import seed.
-
-    The distinction the whole provisional lifecycle turns on: these films are *seeded*
-    equal, never judged equal, so the group is a placeholder that only ever shrinks -
-    while a slot holding anything else is a tie somebody actually made, and nothing may
-    take a film out of it.
-    """
-    rows = await db.execute(
-        select(Placement.slot_id)
         .where(Placement.account_id == account_id)
-        .group_by(Placement.slot_id)
-        .having(
-            func.bool_and(
-                (Placement.trust == PlacementTrust.provisional)
-                & (Placement.provenance == PlacementProvenance.import_seeded)
-            )
-        )
+        .order_by(Placement.band.desc(), Placement.rank)
     )
-    return {slot_id for (slot_id,) in rows}
+    grouped: dict[float, list[Placed]] = {}
+    for band, rank, anchored_at, film_id in rows:
+        grouped.setdefault(band, []).append(
+            Placed(film_id=film_id, band=band, rank=rank, anchored=anchored_at is not None)
+        )
+    return Ordering(rows={band: tuple(row) for band, row in grouped.items()})
 
 
-# --- Derivation ---
+# --- The default order ---
 
 
-def bands_of(ordering: Ordering, boundaries: Boundaries) -> dict[int, float | None]:
-    """Every rated film's half-star band, or None where its band is not yet derivable.
+@dataclass(frozen=True)
+class DefaultOrder:
+    """The rule that seats an unmoved film: shrunk average, best first, title tiebreak.
 
-    This is the only place a rating comes from. Nothing stores one, so nothing can go
-    stale, and a film whose bracketing dividers are unpinned honestly has no value -
-    it shows its position instead until the band structure reaches it.
+    Held as a value rather than computed per film so a whole imported band sorts against
+    one catalog mean, and so a test can seat films against a mean it chose.
     """
-    return {
-        film_id: bands.band_of_slot(boundaries, index)
-        for index, slot in enumerate(ordering.slots)
-        for film_id in slot.film_ids
-    }
+
+    catalog_mean: float
+    prior_votes: int
+    """How many votes of the catalog mean a film's own average has to outweigh."""
+
+    def score(self, film: Film) -> float:
+        """The film's average pulled toward the catalog mean in proportion to its thinness.
+
+        The standard shrinkage: a film with many votes keeps its own average almost
+        entirely, and one with a handful is mostly the catalog speaking. It is what
+        stops three perfect votes from topping a row over a film thousands agree on.
+        """
+        votes = max(film.vote_count, 0)
+        return (votes * film.vote_average + self.prior_votes * self.catalog_mean) / (
+            votes + self.prior_votes
+        )
+
+    def key(self, film: Film) -> tuple[float, str, int]:
+        """A film's place in the default order: best score first, then title.
+
+        The id rides last so two films sharing a score and a title still sort the same
+        way on every read, which is what makes a seeded band reproducible.
+        """
+        return (-self.score(film), film.title, film.tmdb_id)
+
+    def sorted(self, films: Sequence[Film]) -> list[Film]:
+        return sorted(films, key=self.key)
+
+    def rank_among(self, film: Film, band: Sequence[Film]) -> int:
+        """Where the default order puts ``film`` in a band that already holds ``band``.
+
+        The rank the default order gives it, counted against the films actually there:
+        a band nobody has touched reads back exactly as :meth:`sorted` left it, and one
+        the owner has edited seats the newcomer where the rule says while leaving every
+        move they made alone.
+        """
+        key = self.key(film)
+        return 1 + sum(1 for other in band if self.key(other) < key)
 
 
-async def derived_bands(db: AsyncSession, account_id: uuid.UUID) -> dict[int, float | None]:
-    """:func:`bands_of` for callers holding neither the ordering nor the dividers yet."""
-    return bands_of(await load(db, account_id), await bands.load(db, account_id))
+async def default_order(db: AsyncSession, prior_votes: int) -> DefaultOrder:
+    """The default order as the catalog currently reads: its own mean, and the prior."""
+    mean = await db.scalar(select(func.avg(Film.vote_average)).where(Film.vote_count > 0))
+    return DefaultOrder(
+        catalog_mean=float(mean) if mean is not None else FALLBACK_CATALOG_MEAN,
+        prior_votes=prior_votes,
+    )
 
 
-# --- Writing the sequence ---
+async def band_films(db: AsyncSession, account_id: uuid.UUID, band: float) -> list[Film]:
+    """The films of one band in rank order: what a landing is seated against."""
+    rows = await db.scalars(
+        _rated(select(Film), account_id)
+        .join(Film, Film.tmdb_id == AccountFilm.film_id)
+        .where(Placement.band == band)
+        .order_by(Placement.rank)
+    )
+    return list(rows)
 
 
-def land(
-    db: AsyncSession,
-    account_film: AccountFilm,
-    *,
-    slot: TieGroupSlot,
-    provenance: PlacementProvenance = PlacementProvenance.completed,
-) -> Placement:
-    """Seat a film in a slot, which is what makes it rated.
+async def default_rank(
+    db: AsyncSession, account_id: uuid.UUID, band: float, film: Film, order: DefaultOrder
+) -> int:
+    """The rank the default order gives a film landing in a band it is not already in."""
+    return order.rank_among(film, await band_films(db, account_id, band))
+
+
+# --- Writing the ordering ---
+
+
+async def land(db: AsyncSession, account_film: AccountFilm, *, band: float, rank: int) -> Placement:
+    """Seat a film at a band and rank, which is what makes it rated.
 
     The rate-later seat goes with it: the seat is meaningful only while a film is
-    watched-unrated, and a placed film is not.
+    watched-unrated, and a rated film is not.
     """
+    assert band in BANDS, f"not a half-star band: {band}"
     account_film.state = LifecycleState.rated
     account_film.rate_later = False
+    await _open_rank(db, account_film.account_id, band, rank)
     placement = Placement(
         account_id=account_film.account_id,
         account_film_id=account_film.id,
-        slot_id=slot.id,
-        trust=(
-            PlacementTrust.full
-            if provenance is PlacementProvenance.completed
-            else PlacementTrust.provisional
-        ),
-        provenance=provenance,
+        band=band,
+        rank=rank,
     )
     db.add(placement)
+    await db.flush()
     return placement
 
 
-async def new_slot(
-    db: AsyncSession,
-    account_id: uuid.UUID,
-    index: int,
-    *,
-    band: float | None = None,
-    judgment: ComparisonLogEntry | None = None,
-) -> TieGroupSlot:
-    """Open a slot at ``index``, pushing everything from there down one position.
+async def re_rate(db: AsyncSession, placement: Placement, *, band: float, rank: int) -> None:
+    """Run the picker's answer over a film that was already rated.
 
-    The dividers renumber with it, and the ``band`` the film landed in is what settles
-    the one divider a renumbering cannot: one sitting exactly at ``index`` has the new
-    slot on neither side of it until an answer says. Passing the ``judgment`` that
-    answer produced stamps it on every divider it decided, which is what makes the move
-    auditable back to the question the owner was asked.
+    Landing in the same band keeps the film's rank: the owner re-affirmed the rating,
+    and where they had put the film inside it was never the question. Landing in another
+    takes the rank the default order gives it there and retires the anchor mark, because
+    a reference that moved is no longer certain (rating-system.md).
+
+    Either way the placement's clock restarts: "recently rated" is the last placement
+    *or re-rate*.
     """
-    boundaries = await bands.load(db, account_id)
-    decided = bands.sharpened_by(boundaries, index) if judgment is not None else ()
-    shifted = bands.after_insert(boundaries, index, band)
-    await bands.renumber(db, account_id, shifted)
-    if judgment is not None:
-        await bands.move(db, account_id, shifted, {key: shifted[key] for key in decided}, judgment)
-
-    await db.execute(
-        update(TieGroupSlot)
-        .where(TieGroupSlot.account_id == account_id, TieGroupSlot.position >= index)
-        .values(position=TieGroupSlot.position + 1)
-    )
-    slot = TieGroupSlot(account_id=account_id, position=index)
-    db.add(slot)
-    await db.flush()
-    return slot
-
-
-async def drop_slot(
-    db: AsyncSession, account_id: uuid.UUID, slot_id: uuid.UUID, index: int
-) -> None:
-    """Close the slot at ``index``, now that the last film in it has moved elsewhere.
-
-    A slot never sits empty, so the one a re-seated film leaves behind goes with it, and
-    the dividers renumber back down. Renumbering only: the dividers still separate the
-    same films they separated before, and no judgment was made here.
-    """
-    await bands.renumber(
-        db, account_id, bands.after_remove(await bands.load(db, account_id), index)
-    )
-    await db.execute(delete(TieGroupSlot).where(TieGroupSlot.id == slot_id))
-    await db.execute(
-        update(TieGroupSlot)
-        .where(TieGroupSlot.account_id == account_id, TieGroupSlot.position > index)
-        .values(position=TieGroupSlot.position - 1)
-    )
-    await db.flush()
-
-
-async def reseat(
-    db: AsyncSession,
-    account_id: uuid.UUID,
-    placement: Placement,
-    ordering: Ordering,
-    film_id: int,
-    *,
-    index: int | None = None,
-    slot: TieGroupSlot | None = None,
-    band: float | None = None,
-    judgment: ComparisonLogEntry | None = None,
-) -> None:
-    """Move an already-placed film: to a slot of its own at ``index``, or into ``slot``.
-
-    ``index`` is an insertion index read against ``ordering.without(film_id)`` - the
-    ordering as it reads with this film lifted out of it. That is the same sequence the
-    film's own search runs against, since a film is never evidence about where it
-    belongs, so callers hand over the index they already have rather than translating.
-
-    The placement's clock restarts here: a re-seat is the film being placed again, and
-    "recently rated" is the last placement *or re-placement* (screens-and-flows.md).
-    """
+    assert band in BANDS, f"not a half-star band: {band}"
     placement.placed_at = func.now()
-    old = ordering.index_of(film_id)
-    assert old is not None  # only a placed film is ever re-seated
-    if len(ordering.slots[old].film_ids) == 1:
-        # The film was the whole slot, so the slot goes with it and the sequence
-        # closes up - which is exactly what ``without`` said it would look like.
-        await drop_slot(db, account_id, ordering.slots[old].id, old)
-    if slot is not None:
-        placement.slot_id = slot.id
+    if band == placement.band:
         return
-    assert index is not None  # a re-seat names either a slot to join or an index to open
-    opened = await new_slot(db, account_id, index, band=band, judgment=judgment)
-    placement.slot_id = opened.id
+    await _close_rank(db, placement.account_id, placement.band, placement.rank)
+    await _open_rank(db, placement.account_id, band, rank)
+    placement.band = band
+    placement.rank = rank
+    placement.anchored_at = None
+    await db.flush()
 
 
-async def slot_by_id(db: AsyncSession, slot_id: uuid.UUID) -> TieGroupSlot:
-    slot = await db.get(TieGroupSlot, slot_id)
-    assert slot is not None  # read straight out of the ordering this request just loaded
-    return slot
+async def unrate(db: AsyncSession, placement: Placement) -> None:
+    """Take a film out of the ordering and close the gap it leaves behind."""
+    await _close_rank(db, placement.account_id, placement.band, placement.rank)
+    await db.delete(placement)
+    await db.flush()
+
+
+async def _open_rank(db: AsyncSession, account_id: uuid.UUID, band: float, rank: int) -> None:
+    """Push every film from ``rank`` down one, so the rank is free to be taken."""
+    await db.execute(
+        update(Placement)
+        .where(
+            Placement.account_id == account_id,
+            Placement.band == band,
+            Placement.rank >= rank,
+        )
+        .values(rank=Placement.rank + 1)
+    )
+
+
+async def _close_rank(db: AsyncSession, account_id: uuid.UUID, band: float, rank: int) -> None:
+    """Pull every film below ``rank`` up one, so the band stays dense."""
+    await db.execute(
+        update(Placement)
+        .where(
+            Placement.account_id == account_id,
+            Placement.band == band,
+            Placement.rank > rank,
+        )
+        .values(rank=Placement.rank - 1)
+    )
+
+
+# --- Reads ---
+
+
+def _rated(query: Select[tuple[Film]], account_id: uuid.UUID) -> Select[tuple[Film]]:
+    """One account's placements joined to their films; the left side is named, not guessed."""
+    return (
+        query.select_from(Placement)
+        .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
+        .where(Placement.account_id == account_id)
+    )
+
+
+async def placement_of(db: AsyncSession, account_id: uuid.UUID, film_id: int) -> Placement | None:
+    """A film's placement, or None where the account has not rated it."""
+    placement: Placement | None = await db.scalar(
+        select(Placement)
+        .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
+        .where(Placement.account_id == account_id, AccountFilm.film_id == film_id)
+    )
+    return placement
+
+
+async def bands_of(db: AsyncSession, account_id: uuid.UUID) -> dict[int, float]:
+    """Every rated film's band. The rating, read straight off the placement."""
+    rows = await db.execute(
+        select(AccountFilm.film_id, Placement.band)
+        .join(AccountFilm, AccountFilm.id == Placement.account_film_id)
+        .where(Placement.account_id == account_id)
+    )
+    return {film_id: band for film_id, band in rows}
 
 
 async def cards(db: AsyncSession, film_ids: list[int]) -> dict[int, FilmCard]:

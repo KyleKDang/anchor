@@ -11,32 +11,28 @@ on every ordering change costs milliseconds at library scale, which is cheaper t
 scheme for keeping an incremental model honest, and it means the vector can never be
 subtly out of date with the judgments it claims to summarise.
 
-Five decisions about the pairs, all of them the spec's:
+Four decisions about the pairs, all of them the spec's (ADR 0013):
 
-*Every pair the owner actually answered.* They are the highest-value signal there is, so
-they are never left to the sampler's luck - but their *direction* is read off the
-ordering, never off the answer, because the ordering is the primary state and the log is
-evidence about it (ADR 0010).
+*Across bands, order is a judgment.* Every film draws opponents from the bands above and
+below it, adjacent bands and long-range alike, up to a budget per film. These carry full
+weight, and the band gap is what teaches magnitude - that the distance from a 5.0 to a
+1.0 is not the distance from a 5.0 to a 4.5. The budget is what keeps a band of a
+hundred films costing hundreds of pairs rather than thousands (#59).
 
-*Every adjacent pair, always.* Adjacency fully captures the order, so it is never
-sampled; long-range pairs are, and they are what teach magnitude - that the gap between
-the owner's first and fiftieth film is not the gap between their first and second. The
-one qualification is a tie-group too big to have been made by hand: a seed import parks
-a hundred films in one band, and every pair inside it and every pair against the band
-below say the same two things a hundred times over. There each film draws a budget of
-slot-mates and of neighbours either side, which still captures the order - every film
-is tied to some of its band and stands above and below some of its neighbours - while
-the pair count follows the library rather than the square of a band (#59).
+*Within a band, order is a range.* Pairs inside a band are sampled per film and weighted
+by the distance between the two films as a fraction of the band's span, so neighbours
+train as near-equals and the top of a band against its bottom trains as a judgment. One
+rank apart is, to the engine, very nearly the same film. This is what lets a strict order
+stand in for the judgments the owner cannot actually make between neighbours.
 
-*Ties are equality targets, not missing data.* "These two are the same to me" is a
-judgment, and the model is told so.
+*Explicit band comparisons outweigh implied pairs - where they still agree.* A pair the
+owner actually answered is worth more than one the ordering merely implies, but the
+ordering is primary state and the log is evidence about it (ADR 0010): an answer the
+owner has since moved past is dropped rather than argued with, because a later move wins.
 
-*Explicit answers outweigh implied pairs, and provisional placements are discounted.*
-Both are the same idea: a pair the owner actually answered is worth more than one the
-ordering merely implies, and a position the owner has not really settled is worth less.
-
-*No recency decay.* The ordering as it stands is the signal; drift resolution is the one
-mechanism that owns taste change, and a second silent correction channel would blur it.
+*No recency decay, and no ties.* The ordering as it stands is the signal, and the owner's
+moves are the one mechanism that owns taste change. Nothing is provisional and nothing is
+tied, so there is no discount to apply and no equality target to hit.
 
 There is no intercept, by construction: the model reads a difference, so it must answer
 ``1 - p`` when handed the pair the other way round. A bias term would mean "A wins by
@@ -44,17 +40,15 @@ default", which says nothing about anybody's taste.
 """
 
 import random
-from collections.abc import Collection, Container, Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 
 from anchor.features import FeatureSpace
 from anchor.models import Film
-from anchor.ordering import Ordering
-
-TIED = 0.5
-"""The target for a pair the owner judged equal: neither film is likelier to win."""
+from anchor.ordering import Ordering, Placed
 
 L2 = 1e-3
 """How hard the fit is pulled back towards zero. Small: the pairs are few and the
@@ -73,28 +67,25 @@ class Sampling:
     """The extraction knobs taste-profile.md leaves to implementation tuning.
 
     Validated empirically rather than derived: what matters to the spec is the shape -
-    explicit above implied, provisional below both - and these are the numbers that hold
-    that shape at library scale.
+    cross-band at full weight, within-band by distance, explicit above implied - and
+    these are the numbers that hold that shape at library scale.
+    """
+
+    adjacent_per_film: int = 4
+    """Opponents a film draws from each of the two nearest occupied bands, either side.
+
+    Drawn from both sides so every film in a big imported band stands above some of the
+    band below and below some of the band above, whatever the bands' sizes.
     """
 
     long_range_per_film: int = 4
-    """Distant opponents sampled per film. Enough to teach magnitude, few enough that
-    adjacency - the part that actually carries the order - is not drowned out."""
+    """Opponents drawn from the bands further off than those. What teaches magnitude."""
 
-    tied_per_film: int = 4
-    """Slot-mates a film is tied with, where its slot holds more than this. A slot that
-    fits the budget trains on every tie, so a tie the owner made by hand is whole."""
-
-    adjacent_per_film: int = 4
-    """Opponents a film draws from each neighbouring slot, where that slot holds more
-    than this. Drawn from both sides, so every film in a seeded band stands above some
-    of the band below and below some of the band above, whatever the bands' sizes."""
+    within_per_film: int = 4
+    """Opponents a film draws from its own band, where the band holds more than this."""
 
     explicit_weight: float = 3.0
     """What an answer the owner gave is worth against a pair the ordering merely implies."""
-
-    provisional_weight: float = 0.4
-    """What a pair touching an unsettled position is worth. It still says something."""
 
 
 SAMPLING = Sampling()
@@ -102,128 +93,187 @@ SAMPLING = Sampling()
 
 
 @dataclass(frozen=True)
+class Answered:
+    """One band comparison the owner gave, as they gave it: the winner and the loser.
+
+    Read off the log and checked against the ordering rather than trusted outright, so
+    the direction here is the owner's answer and not yet a claim about anything.
+    """
+
+    better: int
+    worse: int
+
+
+@dataclass(frozen=True)
 class Pair:
-    """One training example: two rated films, which way the ordering has them, and how much
-    that counts."""
+    """One training example: two rated films, which way the ordering has them, and how
+    much that counts."""
 
     a: int
     b: int
-    target: float
-    """1.0 where ``a`` sits above ``b``; :data:`TIED` where the owner judged them equal."""
+    """``a`` is the film the ordering puts above ``b``."""
     weight: float
     explicit: bool
     """The owner answered this exact pair, rather than the ordering implying it."""
+    within_band: bool
+    """Both films sit in one band, so this pair is a range rather than a verdict."""
+
+    @property
+    def target(self) -> float:
+        """Always a win for ``a``: there are no ties in the ordering to aim at."""
+        return 1.0
 
 
 def extract(
     ordering: Ordering,
     *,
     seed: int,
-    explicit: Collection[frozenset[int]] = frozenset(),
-    provisional: Container[int] = frozenset(),
+    explicit: Collection[Answered] = (),
     sampling: Sampling = SAMPLING,
 ) -> list[Pair]:
     """Read the ordering into the pairs that train on it.
 
-    ``explicit`` is the unordered pairs the owner actually answered and ``provisional``
-    the films whose placement is not yet fully trusted; both only ever change a pair's
-    weight, never which pairs exist or which way they point. Sampling takes ``seed`` so a
-    scripted flow retrains identically every run (testing.md).
+    ``explicit`` is the band comparisons the owner actually answered. They are kept where
+    the ordering still agrees with them and dropped where it does not - the ordering is
+    primary and a later move wins (ADR 0013) - and where kept they carry the explicit
+    weight rather than a new direction, since the direction is the ordering's to state.
+
+    Sampling takes ``seed`` so a scripted flow retrains identically every run
+    (testing.md).
     """
     rng = random.Random(seed)
     pairs: list[Pair] = []
     seen: set[frozenset[int]] = set()
+    answered = {frozenset({one.better, one.worse}) for one in _agreeing(explicit, ordering)}
 
-    def emit(a: int, b: int, target: float) -> None:
-        if a == b or (key := frozenset({a, b})) in seen:
+    def emit(a: int, b: int, *, weight: float, within_band: bool) -> None:
+        if a == b or (key := frozenset({a, b})) in seen or weight <= 0.0:
             return
         seen.add(key)
-        weight = sampling.explicit_weight if key in explicit else 1.0
-        if a in provisional or b in provisional:
-            weight *= sampling.provisional_weight
-        pairs.append(Pair(a=a, b=b, target=target, weight=weight, explicit=key in explicit))
+        pairs.append(
+            Pair(
+                a=a,
+                b=b,
+                weight=sampling.explicit_weight if key in answered else weight,
+                explicit=key in answered,
+                within_band=within_band,
+            )
+        )
 
-    slots = ordering.slots
-    seats = {film_id: index for index, slot in enumerate(slots) for film_id in slot.film_ids}
-    for answered in _answered(explicit, seats):
-        above, below = answered
-        emit(above, below, TIED if seats[above] == seats[below] else 1.0)
+    bands = ordering.bands()
+    for position, band in enumerate(bands):
+        row = ordering.row(band)
+        for placed in row:
+            for other in _within_band_opponents(rng, row, placed, sampling.within_per_film):
+                above, below = (placed, other) if placed.rank < other.rank else (other, placed)
+                emit(
+                    above.film_id,
+                    below.film_id,
+                    weight=_within_band_weight(above.rank, below.rank, len(row)),
+                    within_band=True,
+                )
 
-    for index, slot in enumerate(slots):
-        for film_id in slot.film_ids:
-            for other in _slot_mates(rng, slot.film_ids, film_id, sampling.tied_per_film):
-                emit(film_id, other, TIED)
-        if index + 1 < len(slots):
-            next_slot = slots[index + 1].film_ids
-            for film_id in slot.film_ids:
-                for opponent in _some(rng, next_slot, sampling.adjacent_per_film):
-                    emit(film_id, opponent, 1.0)
-            for film_id in next_slot:
-                for opponent in _some(rng, slot.film_ids, sampling.adjacent_per_film):
-                    emit(opponent, film_id, 1.0)
-
-    for index, slot in enumerate(slots):
-        distant = [other for other in range(len(slots)) if abs(other - index) > 1]
-        for film_id in slot.film_ids:
-            for far in rng.sample(distant, min(sampling.long_range_per_film, len(distant))):
-                opponent = rng.choice(slots[far].film_ids)
-                emit(*((film_id, opponent) if far > index else (opponent, film_id)), 1.0)
+        near = [bands[other] for other in (position - 1, position + 1) if 0 <= other < len(bands)]
+        far = [
+            other
+            for index, other in enumerate(bands)
+            if abs(index - position) > 1 and index != position
+        ]
+        for placed in row:
+            for opponent_band in near:
+                for opponent in _some(rng, ordering.row(opponent_band), sampling.adjacent_per_film):
+                    _emit_cross_band(emit, placed, opponent, band, opponent_band)
+            for opponent_band in _some_bands(rng, far, sampling.long_range_per_film):
+                opponent = rng.choice(ordering.row(opponent_band))
+                _emit_cross_band(emit, placed, opponent, band, opponent_band)
     return pairs
 
 
-def _some(rng: random.Random, pool: Sequence[int], budget: int) -> Sequence[int]:
+def _emit_cross_band(emit, subject, opponent, band: float, opponent_band: float) -> None:  # type: ignore[no-untyped-def]
+    """One cross-band pair at full weight, the better band's film first."""
+    if band > opponent_band:
+        emit(subject.film_id, opponent.film_id, weight=1.0, within_band=False)
+    else:
+        emit(opponent.film_id, subject.film_id, weight=1.0, within_band=False)
+
+
+def _within_band_weight(better_rank: int, worse_rank: int, size: int) -> float:
+    """How much a within-band pair counts: the gap between the two, over the band's span.
+
+    A band of ``size`` films spans ``size - 1`` ranks, so neighbours in a long row come
+    out near zero and the row's top against its bottom comes out at one - a full judgment,
+    which is what the spec asks for. A two-film band is the degenerate case of exactly
+    that: its one pair *is* its top against its bottom.
+    """
+    span = max(size - 1, 1)
+    return (worse_rank - better_rank) / span
+
+
+def _agreeing(explicit: Collection[Answered], ordering: Ordering) -> list[Answered]:
+    """The owner's band comparisons the ordering still stands behind.
+
+    Contradiction is judged at the band, because that is what a band comparison was
+    about: an answer whose winner now sits in a *worse* band has been overruled by a
+    later act of the owner's and is dropped. An answer whose two films ended up in one
+    band is not overruled - within-band order is a range, not a verdict - so it stands,
+    and it stands as the real answer it is rather than as a range.
+
+    Sorted rather than taken in set order, so a retrain over unchanged data produces the
+    same pairs in the same order every time: reproducibility the metrics log depends on.
+    """
+    kept = []
+    for one in sorted(explicit, key=lambda answer: (answer.better, answer.worse)):
+        better, worse = ordering.of(one.better), ordering.of(one.worse)
+        if better is None or worse is None:
+            continue
+        if better.band < worse.band:
+            continue
+        kept.append(one)
+    return kept
+
+
+def _some(rng: random.Random, pool: Sequence[Any], budget: int) -> Sequence[Any]:
     """Up to ``budget`` of the pool - the whole pool where it fits, drawn where it does not.
 
-    The rng is only consulted where a draw happens, so an ordering with no slot over
+    The rng is only consulted where a draw happens, so an ordering with no band over
     budget extracts exactly as it did before there was one, long-range sample included.
     """
     return pool if len(pool) <= budget else rng.sample(pool, budget)
 
 
-def _slot_mates(
-    rng: random.Random, slot: Sequence[int], film_id: int, budget: int
-) -> Sequence[int]:
-    """Up to ``budget`` other members of the film's own slot.
+def _some_bands(rng: random.Random, bands: Sequence[float], budget: int) -> Sequence[float]:
+    return bands if len(bands) <= budget else rng.sample(bands, budget)
+
+
+def _within_band_opponents(
+    rng: random.Random, row: Sequence[Placed], placed: Placed, budget: int
+) -> Sequence[Placed]:
+    """Up to ``budget`` other films of the same band.
 
     One more than the budget is drawn and the film itself dropped if it came up, which
-    is cheaper than building the slot-minus-self once per member of a fat slot.
+    is cheaper than building the row-minus-self once per member of a long row.
     """
-    if len(slot) - 1 <= budget:
-        return [other for other in slot if other != film_id]
-    drawn = rng.sample(slot, budget + 1)
-    return [other for other in drawn if other != film_id][:budget]
-
-
-def _answered(
-    explicit: Collection[frozenset[int]], seats: Mapping[int, int]
-) -> list[tuple[int, int]]:
-    """The answered pairs both of whose films are still rated, better film first.
-
-    Sorted rather than taken in set order, so a retrain over unchanged data produces the
-    same pairs in the same order every time - reproducibility the metrics log depends on.
-    """
-    ordered = []
-    for pair in sorted(sorted(one) for one in explicit):
-        a, b = pair
-        if a in seats and b in seats:
-            ordered.append((a, b) if seats[a] <= seats[b] else (b, a))
-    return ordered
+    if len(row) - 1 <= budget:
+        return [other for other in row if other.film_id != placed.film_id]
+    drawn = rng.sample(row, budget + 1)
+    return [other for other in drawn if other.film_id != placed.film_id][:budget]
 
 
 def hold_out(pairs: Sequence[Pair], *, share: float, seed: int) -> tuple[list[Pair], list[Pair]]:
     """Split off a slice to measure against, and hand back the rest to train on.
 
-    The slice is drawn from the pairs the owner *answered*, because those are the only
-    ones with an independent right answer in them - an implied pair is a restatement of
-    the ordering the model is being fitted to, and predicting it proves nothing. Where
-    the account has no explicit answers yet, nothing is held out and the retrain simply
+    The slice is the cross-band pairs together with the owner's own band comparisons
+    (evaluation.md). Within-band pairs are excluded from it, because the ordering itself
+    calls them a range rather than a verdict: scoring the model on whether it can tell
+    two neighbours apart would be marking it against a question the ordering does not
+    claim to answer. Where nothing eligible exists, nothing is held out and the retrain
     reports no accuracy, which is honest rather than flattering.
     """
-    answered = [index for index, pair in enumerate(pairs) if pair.explicit and pair.target != TIED]
-    wanted = int(len(answered) * share)
+    eligible = [index for index, pair in enumerate(pairs) if pair.explicit or not pair.within_band]
+    wanted = int(len(eligible) * share)
     if wanted == 0:
         return [], list(pairs)
-    held_out = set(random.Random(seed).sample(answered, wanted))
+    held_out = set(random.Random(seed).sample(eligible, wanted))
     return (
         [pairs[index] for index in sorted(held_out)],
         [pair for index, pair in enumerate(pairs) if index not in held_out],
@@ -318,16 +368,14 @@ def fit(design: Design, *, l2: float = L2, iterations: int = ITERATIONS) -> np.n
 
 
 def accuracy(weights: np.ndarray, design: Design) -> float | None:
-    """The share of directional pairs the vector gets the right way round.
+    """The share of the held-out pairs the vector gets the right way round.
 
-    None where nothing directional was measured against: a tie has no direction to get
-    right, so a slice holding only ties says nothing about the scorer either way.
+    None where nothing was measured against, which is honest rather than flattering:
+    a fresh account has no cross-band pairs and no answers, so it has no accuracy.
     """
-    directional = design.y != TIED
-    if not directional.any():
+    if len(design) == 0:
         return None
-    predicted = design.apply(weights)[directional] > 0
-    return float((predicted == (design.y[directional] > TIED)).mean())
+    return float((design.apply(weights) > 0).mean())
 
 
 def score(weights: np.ndarray, space: FeatureSpace, film: Film) -> float:

@@ -641,7 +641,7 @@ def _evidence_text(evidence: "prose.Evidence") -> str:
     hundred is the one failure an owner would notice immediately.
     """
     sections = (
-        ("Their anchors, the films they picked to define each rating band", evidence.anchors),
+        ("Their anchors, the films they are certain of in each rating band", evidence.anchors),
         ("Their favourite films, favourite first", evidence.loved),
         ("Their least favourite films, least favourite first", evidence.disliked),
         ("Bonus questions they answered about specific qualities", evidence.criteria),
@@ -650,8 +650,8 @@ def _evidence_text(evidence: "prose.Evidence") -> str:
     written = "\n\n".join(f"{heading}:\n{_bulleted(lines)}" for heading, lines in sections if lines)
     return (
         f"{written}\n\n"
-        f"They have rated {evidence.rated_films} film(s) and answered "
-        f"{evidence.explicit_comparisons} comparison(s)."
+        f"They have rated {evidence.rated_films} film(s) and made "
+        f"{evidence.judgments} recorded judgment(s)."
     )
 
 

@@ -33,19 +33,20 @@ from sqlalchemy.sql.elements import UnaryExpression
 
 from anchor import readiness as readiness_module
 from anchor import tier as tier_module
+from anchor import unlocks as unlocks_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import BacklogFilm
 from anchor.deps import AppSettings, DbSession
 from anchor.errors import ApiError
-from anchor.models import Account, AccountFilm, Film, LifecycleState, TierZone
+from anchor.models import Account, AccountFilm, Film, LifecycleState, TierZone, Unlock
 from anchor.profile import Threshold
 from anchor.readiness import Readiness
 from anchor.settings import Settings
 
 router = APIRouter(prefix="/api/watchlist")
 unlocks = APIRouter(prefix="/api/unlocks")
-"""The nav's own read. Separate because the dot has to show from any screen, and because
-surfacing.md has exactly two of them - Discovery's arrives with its own ticket."""
+"""The nav's own read. Separate because a dot has to show from any screen, and because
+surfacing.md has exactly two of them: Discovery at forming, Watchlist at ready."""
 
 BacklogSort = Literal["added", "title", "year"]
 """Every sort the backlog offers. "score" is absent on purpose (ADR 0005)."""
@@ -183,6 +184,7 @@ class Tier(BaseModel):
 class Unlocks(BaseModel):
     """The nav's dots. One per readiness unlock, and nothing else ever gets one."""
 
+    discovery: bool
     watchlist: bool
 
 
@@ -204,9 +206,9 @@ async def tier(
     last one, so an arrival in a second tab spends no second swap budget.
     """
     await tier_module.note_unlock(db, account.id, settings)
-    if boundary or await tier_module.pending_unlock(db, account.id):
+    if boundary or Unlock.watchlist in await unlocks_module.pending(db, account.id):
         await tier_module.refresh(db, account.id, settings)
-    await tier_module.clear_unlock(db, account.id)
+    await unlocks_module.clear(db, account.id, Unlock.watchlist)
     await db.commit()
     return await _tier(db, account, settings)
 
@@ -255,10 +257,22 @@ async def not_now(
 
 @unlocks.get("")
 async def unlock_dots(account: CurrentAccount, db: DbSession, settings: AppSettings) -> Unlocks:
-    """Whether the nav is showing a dot. Read from every screen, so it arms the dot too."""
+    """Whether the nav is showing a dot. Read from every screen, so it arms them too."""
     await tier_module.note_unlock(db, account.id, settings)
     await db.commit()
-    return Unlocks(watchlist=await tier_module.pending_unlock(db, account.id))
+    showing = await unlocks_module.pending(db, account.id)
+    return Unlocks(discovery=Unlock.discovery in showing, watchlist=Unlock.watchlist in showing)
+
+
+@unlocks.delete("/discovery", status_code=204)
+async def seen_discovery(account: CurrentAccount, db: DbSession) -> None:
+    """First visit to Discovery: its dot has done its job and never returns.
+
+    Discovery has no read of its own to hang this on the way the Watchlist's tier does,
+    so the arrival is stated rather than inferred. It is the same clearing either way.
+    """
+    await unlocks_module.clear(db, account.id, Unlock.discovery)
+    await db.commit()
 
 
 # --- Reading the tier ---

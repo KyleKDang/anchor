@@ -14,13 +14,13 @@ spec asks for, and unanswered offers are exactly what the adaptive frequency rea
 
 *It never moves the ordering* (ADR 0007). Criteria answers are loose evidence about
 taste and nothing more: no per-quality ordering exists, shown or internal. Structurally
-that holds because every consumer of the log - the placement search, the trainer's pair
-extraction, readiness, the band machinery - filters to ``overall`` rows, so a criteria
-row is invisible to all of them by construction rather than by anyone remembering.
+that holds because every consumer of the log - the trainer's pair extraction, the film
+page's history, the frequency dial - names the kind of row it wants, so a criteria row is
+invisible to all of them by construction rather than by anyone remembering.
 
-*At most one per placement.* The card is delivered in the response that lands the film
-and nowhere else, so re-visiting the done screen cannot produce a second, and once the
-offer row exists the same landing repeated returns the same card rather than a new one.
+*At most one per rating.* The card is delivered in the response that lands the film and
+nowhere else, so there is exactly one call that can mint one and no screen that can ask
+for a second.
 """
 
 import uuid
@@ -34,7 +34,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import ordering as ordering_module
-from anchor import qualities, tags
+from anchor import qualities, remembered, tags
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import DbSession
@@ -45,7 +45,6 @@ from anchor.models import (
     ComparisonContext,
     ComparisonKind,
     ComparisonLogEntry,
-    ComparisonStatus,
     ComparisonVerdict,
     CriteriaFrequency,
     QualityListEntry,
@@ -53,13 +52,13 @@ from anchor.models import (
 
 router = APIRouter(prefix="/api/criteria")
 
-STEP = 6
-"""One placement's worth of comparisons, roughly: the unit the gaps are counted in.
+STEP = 1
+"""One rating: the unit the gaps are counted in.
 
-Frequency is denominated in answered comparisons rather than in placements because the
-log counts comparisons exactly and holds no landing record to count instead - and a gap
-measured in questions the owner actually answered tracks their engagement more honestly
-than one measured in films anyway.
+Frequency used to be denominated in answered comparisons, because the log counted those
+exactly and held no landing record to count instead. It holds one now - a band pick is a
+rating, one row per - and a rating is what a card follows, so the gap is counted in the
+thing it gates rather than in a proxy for it (ADR 0013).
 """
 
 MANUAL_GAPS: dict[CriteriaFrequency, int] = {
@@ -77,12 +76,26 @@ a change of heart within a few placements rather than average over a whole histo
 OFFERED = ComparisonVerdict.skip
 """What an offer says before the owner says anything: no judgment, on purpose."""
 
-PLACEMENTS = (ComparisonContext.placement, ComparisonContext.re_placement)
-"""The only two moments a card is offered at: the end of a placement, or of a re-placement.
+CANDIDATES = 12
+"""How far down the ladder a card looks for its opponent.
 
-Keep-comparing and drift checks are deliberately excluded (taste-profile.md). They return
-to the same done screen, but they are not a placement ending, and treating them as one is
-how "at most one card per placement" would quietly become several.
+The ladder's last rung is the whole rated library, which is the right answer for
+*selection* - there is always something to ask about - and the wrong one for everything
+downstream of it: the tag-sharing preference reads a tag for every candidate, and the
+landing buys tags for every film a card could have named. Unbounded, one rating would
+pay to tag a six-hundred-row import.
+
+Cutting it here costs nothing the ladder was buying. The rungs are ordered by how well
+this owner knows the film, so the twelfth candidate is already well past the ones a
+question would land on, and the fallback below the cut is the same fallback the ladder
+already has when nothing shares a tag.
+"""
+
+PLACEMENTS = (ComparisonContext.placement, ComparisonContext.re_placement)
+"""The only two moments a card is offered at: a rating, or a re-rate (taste-profile.md).
+
+The criteria *session* from a film's page is the other home and is deliberately absent:
+it is pull-only and unbounded, so the frequency dial has no business governing it.
 """
 
 
@@ -108,7 +121,7 @@ class CriteriaCard(BaseModel):
 
 @dataclass(frozen=True)
 class Matchup:
-    """A pair the owner judged during the placement that just finished."""
+    """A pair a card could ask about: the film just rated, and one to set it against."""
 
     film_a: int
     film_b: int
@@ -122,32 +135,29 @@ async def offer(
     account: Account,
     subject: int,
     context: ComparisonContext,
-    since: datetime | None,
-    entries: list[ComparisonLogEntry],
 ) -> CriteriaCard | None:
     """The card this landing earns, or None - which is the ordinary outcome.
 
-    ``entries`` are the flow's comparisons, oldest first, and ``context`` and ``since``
-    say which of them the flow actually collected. The two are not the same list: a
-    re-placement resumes from judgments other flows produced, and a settle resumes from
-    every judgment the film has ever collected (rating-system.md), so ``entries`` can
-    hold work the owner did weeks ago for some other film. The card says "you just
-    compared these two", so the matchup is drawn from the collected ones alone - a head
-    start is evidence, never a matchup. The row this writes is flushed, not committed:
-    the caller commits it with the landing, so the two stand or fall together.
+    The candidates are the films the owner is likely to remember beside the subject,
+    down the ladder taste-profile.md fixes: the subject's own band's anchors first, then
+    its neighbours on the wall, then the films it was set against while being rated, then
+    the wider library. Rating a film no longer produces comparisons of its own (ADR 0013),
+    so there is no "the pair you just judged" to draw on - and every rung here is a film
+    the owner has rated, because the question is which of two films did something better
+    and they have to remember both.
+
+    Which of those candidates, and which quality, is :func:`_select`: it prefers the one
+    sharing a quality tag with the subject, which is the other half of the same rule.
+
+    The row this writes is flushed, not committed: the caller commits it with the landing,
+    so the two stand or fall together.
     """
     if context not in PLACEMENTS:
         return None
 
-    standing = await _offer_of_flow(db, account.id, subject, context, since)
-    if standing is not None:
-        # This landing already made its offer; repeating the request re-shows the same
-        # card rather than minting a second one.
-        return await _card(db, standing)
-
     if account.criteria_frequency is CriteriaFrequency.off:
         return None
-    candidates = _matchups(_collected(entries, context, since))
+    candidates = await _candidates(db, account.id, subject)
     if not candidates:
         return None
     listed = await qualities.listing(db, account.id)
@@ -166,62 +176,67 @@ async def offer(
         verdict=OFFERED,
         quality_id=quality.id,
         context=context,
-        status=ComparisonStatus.active,
     )
     db.add(entry)
     await db.flush()
     return await _card(db, entry)
 
 
-def askable_films(
-    entries: list[ComparisonLogEntry], context: ComparisonContext, since: datetime | None
-) -> list[int]:
-    """Every film a card from this landing could name, each once.
+async def askable_films(db: AsyncSession, account_id: uuid.UUID, subject: int) -> list[int]:
+    """Every film a card about ``subject`` could name, each once.
 
     Exported for the quality tagging, which buys tags for exactly this set: the films
-    selection will look tags up for next time. It is deliberately the same derivation the
-    card itself uses rather than a similar one - a re-placement resumes from judgments
-    other flows produced, and :func:`_collected` drops them, so a tagging that read the
-    raw ``entries`` would buy tags for films no card here can ever ask about.
+    selection will look tags up for next time. Deliberately the same derivation the card
+    itself uses rather than a similar one, so a tagging never buys tags for films no card
+    here can ask about - nor misses the ones it will.
     """
     return sorted(
         {
             film
-            for matchup in _matchups(_collected(entries, context, since))
+            for matchup in await _candidates(db, account_id, subject)
             for film in (matchup.film_a, matchup.film_b)
         }
     )
 
 
-def _collected(
-    entries: list[ComparisonLogEntry], context: ComparisonContext, since: datetime | None
-) -> list[ComparisonLogEntry]:
-    """The judgments this flow put on screen, dropping the head start it resumed from.
+async def _candidates(db: AsyncSession, account_id: uuid.UUID, subject: int) -> list[Matchup]:
+    """The films to set the subject against, best candidate first (taste-profile.md).
 
-    Scoped the same way the flow's own answers are, because that is what the flow asked:
-    a card naming a pair the owner never saw in this flow would be a bonus for a
-    placement that earned nothing, and would ask about a comparison they made for some
-    other film entirely.
+    The order is the point, and it is a claim about memory rather than about quality: an
+    anchor of the subject's own band is the film this owner is most certain of, its
+    neighbours on the wall are the films it sits between, and the rest of the library is
+    the fallback that keeps the card possible at all. Inside the last rung the
+    best-remembered film wins, which is the same ranking the warmup's candidates use.
     """
-    return [
-        entry
-        for entry in entries
-        if entry.context is context and (since is None or entry.created_at > since)
-    ]
+    ordering = await ordering_module.load(db, account_id)
+    placed = ordering.of(subject)
+    rungs: list[int] = []
+    if placed is not None:
+        rungs += list(ordering.anchors(placed.band))
+        rungs += [film for film in ordering.neighbours(subject) if film is not None]
+    rungs += await _compared_against(db, account_id, subject)
+    rest = [film for film in ordering.all_film_ids() if film not in rungs and film != subject]
+    key = await remembered.ranking(db, account_id, rest)
+    rungs += sorted(rest, key=key)
+    # Deduped in place: a film can be an anchor and a neighbour, and the ladder is an
+    # order of preference rather than a set of tiers.
+    ranked = [film for film in dict.fromkeys(rungs) if film != subject]
+    return [Matchup(subject, film) for film in ranked[:CANDIDATES]]
 
 
-def _matchups(entries: list[ComparisonLogEntry]) -> list[Matchup]:
-    """Every pair the owner actually judged in this flow, most recent first.
-
-    Skips are not judgments and so are not matchups: the card asks about a pair the owner
-    compared, and a skipped pair is one they declined to. Most recent first because that
-    is the order selection reads them in - the tie-break is toward the freshest memory.
-    """
-    return [
-        Matchup(entry.film_a_id, entry.film_b_id)
-        for entry in reversed(entries)
-        if entry.film_b_id is not None and entry.verdict is not ComparisonVerdict.skip
-    ]
+async def _compared_against(db: AsyncSession, account_id: uuid.UUID, subject: int) -> list[int]:
+    """The films the subject was set against while being rated, most recent first."""
+    rows = await db.execute(
+        select(ComparisonLogEntry.film_a_id, ComparisonLogEntry.film_b_id)
+        .where(
+            ComparisonLogEntry.account_id == account_id,
+            ComparisonLogEntry.kind == ComparisonKind.band_comparison,
+            ComparisonLogEntry.subject_film_id == subject,
+            ComparisonLogEntry.film_b_id.is_not(None),
+        )
+        .order_by(ComparisonLogEntry.created_at.desc())
+    )
+    return [b if a == subject else a for a, b in rows]
 
 
 async def _select(
@@ -232,16 +247,17 @@ async def _select(
 ) -> tuple[Matchup, QualityListEntry]:
     """Which pair to ask about, and which quality to ask (taste-profile.md).
 
-    *Prefer the pair whose films share a quality tag, tie-broken toward the most recent
-    matchup.* Two films both known for their tension make "which had the better tension?"
-    a question about a real difference, where the same question about a film that is not
-    notable for it is a question the owner has to invent an answer to. ``candidates`` is
-    already most recent first, so the first overlap found is the tie-break's own answer.
+    *Prefer the pair whose films share a quality tag, tie-broken toward the best
+    candidate.* Two films both known for their tension make "which had the better
+    tension?" a question about a real difference, where the same question about a film
+    that is not notable for it is a question the owner has to invent an answer to.
+    ``candidates`` already runs best first, so the first overlap found is the tie-break's
+    own answer.
 
-    *If no pair overlaps, rotate through the quality list on the last matchup* - which is
-    also what happens when nothing has been tagged yet, when the caps are spent, and when
-    the two films simply have nothing in common. The fallback is the ordinary case, not
-    the error case.
+    *If no pair overlaps, rotate through the quality list on the best candidate* - which
+    is also what happens when nothing has been tagged yet, when the caps are spent, and
+    when the two films simply have nothing in common. The fallback is the ordinary case,
+    not the error case.
 
     Tags name built-in vocabulary only, so a shared tag is asked about only if this
     account still has that quality on its list; the rotation is where a custom quality
@@ -298,9 +314,9 @@ async def _last_asked(db: AsyncSession, account_id: uuid.UUID) -> dict[uuid.UUID
 
 
 async def _due(db: AsyncSession, account: Account, made: int) -> bool:
-    """Whether enough comparisons have passed since the last offer to make another."""
+    """Whether enough ratings have passed since the last offer to make another."""
     if made == 0:
-        # Nothing to wait behind: the first placement that produces a matchup gets a card
+        # Nothing to wait behind: the first rating that can produce a pair gets a card
         # whatever the setting, so the owner sees what they are being offered to opt out
         # of rather than having to find a control for a feature they have never met.
         return True
@@ -309,7 +325,7 @@ async def _due(db: AsyncSession, account: Account, made: int) -> bool:
         if account.criteria_frequency is CriteriaFrequency.adaptive
         else MANUAL_GAPS[account.criteria_frequency]
     )
-    return await _comparisons_since_last_offer(db, account.id) >= gap
+    return await _ratings_since_last_offer(db, account.id) >= gap
 
 
 async def _adaptive_gap(db: AsyncSession, account_id: uuid.UUID) -> int:
@@ -341,8 +357,8 @@ async def _adaptive_gap(db: AsyncSession, account_id: uuid.UUID) -> int:
     return 4 * STEP
 
 
-async def _comparisons_since_last_offer(db: AsyncSession, account_id: uuid.UUID) -> int:
-    """Comparisons the owner has answered since the last card was put in front of them."""
+async def _ratings_since_last_offer(db: AsyncSession, account_id: uuid.UUID) -> int:
+    """Ratings the owner has made since the last card was put in front of them."""
     last = await db.scalar(
         select(func.max(ComparisonLogEntry.created_at)).where(
             ComparisonLogEntry.account_id == account_id,
@@ -355,8 +371,7 @@ async def _comparisons_since_last_offer(db: AsyncSession, account_id: uuid.UUID)
         .select_from(ComparisonLogEntry)
         .where(
             ComparisonLogEntry.account_id == account_id,
-            ComparisonLogEntry.kind == ComparisonKind.overall,
-            ComparisonLogEntry.verdict != ComparisonVerdict.skip,
+            ComparisonLogEntry.kind == ComparisonKind.band_pick,
             ComparisonLogEntry.created_at > last,
         )
     )
@@ -374,28 +389,6 @@ async def _offers(db: AsyncSession, account_id: uuid.UUID) -> int:
         )
     )
     return int(count or 0)
-
-
-async def _offer_of_flow(
-    db: AsyncSession,
-    account_id: uuid.UUID,
-    subject: int,
-    context: ComparisonContext,
-    since: datetime | None,
-) -> ComparisonLogEntry | None:
-    """This flow's own offer, scoped exactly as the flow's comparisons are."""
-    query = select(ComparisonLogEntry).where(
-        ComparisonLogEntry.account_id == account_id,
-        ComparisonLogEntry.kind == ComparisonKind.criteria,
-        ComparisonLogEntry.subject_film_id == subject,
-        ComparisonLogEntry.context == context,
-    )
-    if since is not None:
-        query = query.where(ComparisonLogEntry.created_at > since)
-    entry: ComparisonLogEntry | None = await db.scalar(
-        query.order_by(ComparisonLogEntry.created_at.desc(), ComparisonLogEntry.id.desc()).limit(1)
-    )
-    return entry
 
 
 async def _card(db: AsyncSession, entry: ComparisonLogEntry) -> CriteriaCard | None:

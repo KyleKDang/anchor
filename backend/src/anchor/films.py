@@ -8,6 +8,8 @@ A film's lifecycle state is exclusive and untracked films have no record at all,
 these transitions create the record on the way in and delete it on the way back out.
 """
 
+import uuid
+from datetime import datetime
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
@@ -15,20 +17,22 @@ from pydantic import BaseModel
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import anchors as anchors_module
-from anchor import catalog, drift, rewatch, settling
+from anchor import catalog, rewatch
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
-from anchor.catalog import FilmDetail, SearchResult
+from anchor.catalog import FilmCard, FilmDetail, SearchResult
 from anchor.deps import AppSettings, AppTmdb, DbSession
-from anchor.drift import DriftFlagView
 from anchor.errors import ApiError
 from anchor.models import (
     Account,
     AccountFilm,
+    ComparisonKind,
+    ComparisonLogEntry,
+    ComparisonVerdict,
     Film,
     LifecycleState,
+    QualityListEntry,
     WatchEvent,
     WatchOrigin,
 )
@@ -44,26 +48,51 @@ class SearchResults(BaseModel):
     results: list[SearchResult]
 
 
-class FilmPage(FilmDetail):
-    """The film page: a film's standing, plus the three things only a rated film carries.
+class Judgment(BaseModel):
+    """One of the film's own comparison-log entries, as the page shows it back.
 
-    All three are absent on every other film, and empty on a rated one with nothing
-    pending, which is why they live here rather than on the shared detail: an unwatched
-    film has no drift to have, no rewatch to answer and no position to settle, and ADR
-    0005 wants that said by absence.
+    No status and no flag: an entry the ordering has since been moved past is shown
+    exactly as it was made, and the reader compares it with the band and rank above it -
+    the ordering wins (ADR 0013). What the page owes the owner is the record of what they
+    said, not a verdict on whether they still mean it.
     """
 
-    drift: DriftFlagView | None = None
-    """The open drift flag and its resolution options, where the owner has one to see."""
+    kind: ComparisonKind
+    other: FilmCard | None
+    """The film this judgment set the subject against; absent on a plain band pick."""
+    verdict: ComparisonVerdict | None
+    """Which film won a comparison. None on a band pick, whose answer is the band."""
+    band: float | None
+    """The band a pick chose. None on every comparison."""
+    quality: str | None
+    """The quality a criteria answer was about. None on every other kind."""
+    created_at: datetime
+
+
+class Neighbours(BaseModel):
+    """The films immediately above and below this one in its own band."""
+
+    above: FilmCard | None
+    below: FilmCard | None
+
+
+class FilmPage(FilmDetail):
+    """The film page: a film's standing, plus what only a rated film carries.
+
+    Every rated-only field is absent on films in any other state, which is stronger than
+    carrying it empty: an unwatched film has no rank to have and no rewatch to answer,
+    and ADR 0005 wants that said by absence.
+    """
+
+    rank: int | None = None
+    """Where the film sits inside its band, 1 the best."""
+    band_size: int | None = None
+    """How many films the band holds, so the rank reads as "3 of 41"."""
+    neighbours: Neighbours | None = None
     rewatch: RewatchPrompt | None = None
     """The still-feel-the-same question the last rewatch left open."""
-    provisional: bool = False
-    """The position is a placeholder, so the page offers to settle it rather than re-place it.
-
-    The same fact the "settling" mark carries on Rated, and the same door: both open the
-    placement flow on this film. It only decides how the page words the offer - a
-    provisional film has a position to finish rather than one to question.
-    """
+    judgments: list[Judgment] = []
+    """The film's comparison-log entries, newest first."""
 
 
 class MarkWatched(BaseModel):
@@ -95,7 +124,7 @@ async def search(
     """
     hits = await catalog.search(tmdb, query)
     tracked = await _tracked(db, account, [hit.tmdb_id for hit in hits])
-    derived = await ordering_module.derived_bands(db, account.id)
+    derived = await ordering_module.bands_of(db, account.id)
     return SearchResults(
         results=[
             SearchResult.of(hit, tracked.get(hit.tmdb_id), derived.get(hit.tmdb_id)) for hit in hits
@@ -121,7 +150,7 @@ async def browse(
     """
     hits = await catalog.browse(tmdb, kind)
     tracked = await _tracked(db, account, [hit.tmdb_id for hit in hits])
-    derived = await ordering_module.derived_bands(db, account.id)
+    derived = await ordering_module.bands_of(db, account.id)
     return SearchResults(
         results=[
             SearchResult.of(hit, tracked.get(hit.tmdb_id), derived.get(hit.tmdb_id)) for hit in hits
@@ -258,23 +287,71 @@ async def leave_rate_later(tmdb_id: int, account: CurrentAccount, db: DbSession)
 async def _detail(
     db: AsyncSession, account: Account, film: Film, account_film: AccountFilm | None
 ) -> FilmPage:
-    """The film page, with the band its position derives into where it has one.
+    """The film page: the film's standing, and its whole rated context where it has one.
 
-    Nothing rating-shaped is computed for an unwatched film (ADR 0005): the derivation
-    only ever looks up a film the owner has actually placed, and answers None for
-    everything else - including a rated film whose bracketing dividers are unpinned.
+    Nothing rating-shaped is computed for an unwatched film (ADR 0005): everything below
+    the state check is read off a placement, and a film without one has none of it.
     """
     if account_film is None or account_film.state is not LifecycleState.rated:
         return FilmPage.of(film, account_film)
-    band = (await ordering_module.derived_bands(db, account.id)).get(film.tmdb_id)
-    anchors = await anchors_module.current(db, account.id)
-    page = FilmPage.of(
-        film, account_film, band, anchor=band is not None and anchors.get(band) == film.tmdb_id
+    ordering = await ordering_module.load(db, account.id)
+    placed = ordering.of(film.tmdb_id)
+    assert placed is not None  # a rated film is a placed film
+    above, below = ordering.neighbours(film.tmdb_id)
+    cards = await ordering_module.cards(
+        db, [film_id for film_id in (above, below) if film_id is not None]
     )
-    page.drift = await drift.view(db, account.id, film.tmdb_id)
+    page = FilmPage.of(film, account_film, placed.band, anchor=placed.anchored)
+    page.rank = placed.rank
+    page.band_size = len(ordering.row(placed.band))
+    page.neighbours = Neighbours(
+        above=cards.get(above) if above else None,
+        below=cards.get(below) if below else None,
+    )
     page.rewatch = await rewatch.prompt(db, account.id, film.tmdb_id)
-    page.provisional = await settling.provisional(db, account_film)
+    page.judgments = await _judgments(db, account.id, film.tmdb_id)
     return page
+
+
+async def _judgments(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> list[Judgment]:
+    """This film's own log entries, newest first, read against the ordering as it stands."""
+    rows = list(
+        await db.execute(
+            select(ComparisonLogEntry, QualityListEntry.name)
+            .outerjoin(QualityListEntry, QualityListEntry.id == ComparisonLogEntry.quality_id)
+            .where(
+                ComparisonLogEntry.account_id == account_id,
+                ComparisonLogEntry.subject_film_id == tmdb_id,
+            )
+            .order_by(ComparisonLogEntry.created_at.desc(), ComparisonLogEntry.id)
+        )
+    )
+    others = await ordering_module.cards(
+        db,
+        [other for entry, _ in rows if (other := _other_film(entry, tmdb_id)) is not None],
+    )
+    return [
+        Judgment(
+            kind=entry.kind,
+            other=others.get(other) if (other := _other_film(entry, tmdb_id)) else None,
+            verdict=entry.verdict,
+            band=entry.band,
+            quality=quality,
+            created_at=entry.created_at,
+        )
+        for entry, quality in rows
+    ]
+
+
+def _other_film(entry: ComparisonLogEntry, tmdb_id: int) -> int | None:
+    """The film on the other side of a judgment, or None where it involved one film.
+
+    A criteria answer is about a pair neither of which need be the subject's own side of
+    the row, so both columns are checked rather than ``film_b_id`` assumed.
+    """
+    if entry.film_b_id is None:
+        return None
+    return entry.film_b_id if entry.film_a_id == tmdb_id else entry.film_a_id
 
 
 async def _account_film(db: AsyncSession, account: Account, tmdb_id: int) -> AccountFilm | None:

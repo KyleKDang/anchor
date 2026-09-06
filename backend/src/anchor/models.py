@@ -243,18 +243,42 @@ class TierZone(enum.StrEnum):
     pool = "pool"
 
 
-class UnlockState(enum.StrEnum):
-    """How far the Watchlist's one-time unlock dot has got.
+class Unlock(enum.StrEnum):
+    """The two readiness unlocks, which are the only things that ever get a nav dot."""
+
+    discovery = "discovery"
+    """Lit at readiness *forming*."""
+    watchlist = "watchlist"
+    """Lit at readiness *ready*, when the ranked tier appears."""
+
+
+class UnlockMark(Base):
+    """One account's one-time dot for one unlock; absence is the locked state.
 
     The dot is the only nav-level marker in the whole product and it fires once ever
     (surfacing.md), which is precisely the kind of fact that cannot be derived: readiness
     is a pure function of the evidence and would light the dot again on every read.
+
+    A row appears when the bar is crossed and carries ``seen_at`` once the owner has
+    visited the screen it points at, the way a warmup mark does: a state gains meaning by
+    appearing, so an account that has crossed nothing owns no rows at all. An import that
+    clears both bars at once writes both rows in the same breath, which is what earns it
+    both dots (onboarding-and-import.md).
     """
 
-    locked = "locked"
-    pending = "pending"
-    """Ready has been reached and the owner has not been to the Watchlist since."""
-    seen = "seen"
+    __tablename__ = "unlock_marks"
+    __table_args__ = (UniqueConstraint("account_id", "unlock"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    unlock: Mapped[Unlock] = mapped_column(Enum(Unlock, name="unlock"), nullable=False)
+    armed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner first arrived at the unlocked screen. None while the dot is showing."""
 
 
 class AccountFilm(Base):
@@ -355,68 +379,50 @@ class TierState(Base):
     The immediate half of both already happened; this is what makes the engine reconsider
     the rest of the list at the next boundary rather than at the next request.
     """
-    unlock_state: Mapped[UnlockState] = mapped_column(
-        Enum(UnlockState, name="unlock_state"), server_default="locked", nullable=False
-    )
 
 
-class TieGroupSlot(Base):
-    """One slot of the ordering: the films the owner has judged equal, at one position.
+BANDS: tuple[float, ...] = (5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5)
+"""The ten half-star bands, best first: the fixed vocabulary a rating is drawn from.
 
-    The ordering is this table read in ``position`` order, best to worst (ADR 0001):
-    explicit persisted state, never derived from the comparison log and never moved by
-    the advisory math. Positions are dense and start at 0, so inserting a slot shifts
-    everything below it down - which is why the uniqueness of (account, position) is
-    deferred to commit time, since a shift is momentarily two slots on one position.
-    """
-
-    __tablename__ = "tie_group_slots"
-    __table_args__ = (
-        UniqueConstraint(
-            "account_id",
-            "position",
-            deferrable=True,
-            initially="DEFERRED",
-            name="uq_tie_group_slots_account_id_position",
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    position: Mapped[int] = mapped_column(Integer, nullable=False)
-    """0 is the owner's best film; a slot never sits empty."""
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class PlacementTrust(enum.StrEnum):
-    """How much a placement's position is trusted; the advisory math may graduate it."""
-
-    provisional = "provisional"
-    full = "full"
-
-
-class PlacementProvenance(enum.StrEnum):
-    """What produced the placement; import-seeded ones arrive with the seed import (#29)."""
-
-    import_seeded = "import_seeded"
-    early_bail = "early_bail"
-    completed = "completed"
+In code rather than in a table for the same reason the quality vocabulary is: it is
+account-independent, closed, and never changes at runtime (data-model.md). A band is
+also a row of the wall, so this tuple is the wall's order as well as the scale's.
+"""
 
 
 class Placement(Base):
-    """Where one rated film sits, and how much that position is trusted.
+    """Where one rated film sits: its band, and its rank inside that band.
 
-    A rated film has exactly one placement and a placement's film is exactly one slot's
-    member, so this row is also what makes a film rated. The rating itself is never
-    stored: it derives from the slot's position against the dividers.
+    The ordering is the set of an account's placements, read band by band and rank by
+    rank (ADR 0001, ADR 0013). It is explicit persisted state: the band is the rating
+    the owner chose and the rank is where the owner put the film, or where the default
+    order seated it until they move it. Nothing derives either, and nothing but the
+    owner's own picks, moves, re-rates and marks ever writes them.
+
+    Ranks are dense from 1 within each band, so a move shifts the films it passes -
+    which is why (account, band, rank) is deferred to commit time, the same way the
+    old sequence's positions were: a shift is momentarily two films on one rank.
     """
 
     __tablename__ = "placements"
-    __table_args__ = (UniqueConstraint("account_film_id"),)
+    __table_args__ = (
+        UniqueConstraint("account_film_id"),
+        UniqueConstraint(
+            "account_id",
+            "band",
+            "rank",
+            deferrable=True,
+            initially="DEFERRED",
+            name="uq_placements_account_id_band_rank",
+        ),
+        # The band is the rating, and the scale is closed: a value off the half-star
+        # grid is not a rating anybody could have chosen.
+        CheckConstraint(
+            "band IN (0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0)",
+            name="ck_placements_band",
+        ),
+        CheckConstraint("rank >= 1", name="ck_placements_rank"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     account_id: Mapped[uuid.UUID] = mapped_column(
@@ -425,182 +431,41 @@ class Placement(Base):
     account_film_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("account_films.id", ondelete="CASCADE"), nullable=False
     )
-    slot_id: Mapped[uuid.UUID] = mapped_column(
-        # Deferred rather than RESTRICT: the guard wanted here is "a slot is never
-        # dropped out from under its members", but the account-realm wipe deletes
-        # slots and placements in one transaction, in whatever order the cascades
-        # happen to fire. Checking at commit refuses the bug and allows the wipe.
-        ForeignKey(
-            "tie_group_slots.id",
-            ondelete="NO ACTION",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
-        index=True,
-        nullable=False,
-    )
-    trust: Mapped[PlacementTrust] = mapped_column(
-        Enum(PlacementTrust, name="placement_trust"), nullable=False
-    )
-    provenance: Mapped[PlacementProvenance] = mapped_column(
-        Enum(PlacementProvenance, name="placement_provenance"), nullable=False
-    )
+    band: Mapped[float] = mapped_column(Float, nullable=False)
+    """One of the ten half-star values: the film's rating, stored because the owner chose it."""
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Position within the band, 1 the best. Dense: a band's ranks run 1..n with no gaps."""
+    anchored_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner marked this film an anchor, or None while it is not one.
+
+    A timestamp rather than a flag because the exemplar set caps a large pool to a few
+    per band, most recently marked first (taste-profile.md), and "most recently" needs a
+    moment to read. Cleared by retiring the mark and by any write that carries the film
+    into another band, which is what makes "an anchor is always in the band it was
+    marked in" true by construction rather than by policing.
+    """
     placed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
-
-
-class ReplacementRequest(Base):
-    """The owner asking outright to place a film again: the fourth door's mark.
-
-    The other three doors leave their mark on something that already exists - a drift
-    flag's ``re_placing_since``, a rewatch's outcome, a designation intent. Asking
-    outright has no such carrier, and the search keeps no state of its own, so the ask
-    itself is the row: without it a reload of the placement screen would either reopen
-    questions on a film the owner walked away from or never open any at all.
-
-    It expires by itself rather than being cleared, the way a rewatch's does: landing
-    restamps the placement's clock, so a request older than the position it questioned
-    has plainly been answered by it. Bailing out lands the film too, which is what makes
-    a bailed-out settle stay bailed out across a reload.
-    """
-
-    __tablename__ = "replacement_requests"
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    account_film_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("account_films.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    requested_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class Divider(Base):
-    """The stored boundary between two adjacent bands: at most nine per account.
-
-    ``upper_band`` names the pair - the divider carrying 4.0 is the 4.0/3.5 boundary -
-    and ``boundary`` is an index into the ordering: the slots above the divider are the
-    ones at indices below it, and the slots from ``boundary`` down are below it. There
-    is no row at all while a divider is unpinned, which is what makes a film's band
-    honestly underivable rather than quietly guessed.
-
-    A divider moves only as the direct consequence of a band judgment, and
-    ``pinned_by_id`` is which one, so every position it has ever held is auditable back
-    to the answer that put it there. Inserting a slot above a divider renumbers it, but
-    that is not a move: it says exactly what it said before, about the same two slots.
-    """
-
-    __tablename__ = "dividers"
-    __table_args__ = (UniqueConstraint("account_id", "upper_band"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    upper_band: Mapped[float] = mapped_column(Float, nullable=False)
-    """The better of the two bands this divider separates; the worse is the next one down."""
-    boundary: Mapped[int] = mapped_column(Integer, nullable=False)
-    pinned_by_id: Mapped[uuid.UUID] = mapped_column(
-        # Deferred for the same reason the placement's slot reference is: the guard
-        # wanted is "a divider always names a judgment that exists", but the
-        # account-realm wipe deletes the log and the dividers in one transaction, in
-        # whatever order the cascades fire.
-        ForeignKey(
-            "comparison_log_entries.id",
-            ondelete="NO ACTION",
-            deferrable=True,
-            initially="DEFERRED",
-        ),
-        nullable=False,
-    )
-    """The band judgment that last moved this divider: what makes the move auditable."""
-    moved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-
-
-class AnchorStatus(enum.StrEnum):
-    """Whether a designation is the band's anchor, or only the intent behind a re-placement."""
-
-    current = "current"
-    intended = "intended"
-
-
-class AnchorDesignation(Base):
-    """The owner's canonical exemplar of a band - and the intent aiming at one.
-
-    Current-only: retiring an anchor clears the row rather than closing it, so no
-    designation history is kept, and clearing changes no rating and no divider.
-
-    An ``intended`` row is not an anchor. It is the intent a designation-mismatch
-    re-placement runs under, held here because that flow spans several requests and the
-    placement search deliberately keeps no state of its own: losing the intent would
-    silently cancel a designation the owner asked for. It becomes current if the film
-    lands in the band and is dropped if it lands anywhere else, and either way the
-    re-placement's own result stands.
-    """
-
-    __tablename__ = "anchor_designations"
-    __table_args__ = (
-        # At most one anchor per band. An intended designation is not an anchor yet, so
-        # it deliberately does not contend with the current anchor of the band it aims at.
-        Index(
-            "uq_anchor_designations_current_band",
-            "account_id",
-            "band",
-            unique=True,
-            postgresql_where=text("status = 'current'"),
-        ),
-        # One film anchors one band: designating it elsewhere retires it here first.
-        Index(
-            "uq_anchor_designations_current_film",
-            "account_id",
-            "account_film_id",
-            unique=True,
-            postgresql_where=text("status = 'current'"),
-        ),
-        # One re-placement at a time, so the intent is per account rather than per band.
-        Index(
-            "uq_anchor_designations_intended",
-            "account_id",
-            unique=True,
-            postgresql_where=text("status = 'intended'"),
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    band: Mapped[float] = mapped_column(Float, nullable=False)
-    account_film_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("account_films.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    status: Mapped[AnchorStatus] = mapped_column(
-        Enum(AnchorStatus, name="anchor_status"), nullable=False
-    )
-    designated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
+    """The last placement or re-rate: the "recently rated" clock."""
+    moved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """The last move, and None while the film still holds the rank the default order gave it."""
 
 
 class ComparisonKind(enum.StrEnum):
-    """The log's row types; band and criteria answers ride here as typed siblings.
+    """The log's three row types (rating-system.md, "The comparison log").
 
-    ``sliver`` and ``band`` are both band judgments - "this film is a 4.0" - and differ
-    only in how the question was put: a sliver answer is the owner picking which of two
-    canonical exemplars the film sits closer to, so it names one; a band answer is a
-    plain pick off a list of bands, which names none.
+    A band comparison and a band pick are the two halves of rating a film: the pick is
+    the answer - "this film is a 4.0" - and a comparison is one of the questions that
+    narrowed a range down to it, set against an anchor or a stand-in.
     """
 
-    overall = "overall"
-    sliver = "sliver"
-    band = "band"
+    band_comparison = "band_comparison"
+    """The film being rated against one film standing for a band: better, worse, same, skip."""
+    band_pick = "band_pick"
+    """The band chosen: outright, at the boundary question, or as a range's last resort."""
     criteria = "criteria"
+    """Which of two films had the better quality. Feeds the taste profile only (ADR 0007)."""
 
 
 class ComparisonVerdict(enum.StrEnum):
@@ -618,32 +483,26 @@ class ComparisonVerdict(enum.StrEnum):
 
 
 class ComparisonContext(enum.StrEnum):
-    """The moment that produced a judgment. Only placement exists before drift (#31)."""
+    """The moment that produced a judgment."""
 
     placement = "placement"
+    """The band picker, run on a film that was not rated."""
     re_placement = "re_placement"
-    keep_comparing = "keep_comparing"
-    drift_check = "drift_check"
+    """The band picker, run again on a rated film from its page or a rewatch."""
     warmup = "warmup"
     spontaneous = "spontaneous"
+    """A criteria session, opened from a film's own page."""
     seed_import = "seed_import"
-    """The one-time Letterboxd import: its ratings count as the owner's band judgments."""
-
-
-class ComparisonStatus(enum.StrEnum):
-    """Whether a judgment still stands against the ordering."""
-
-    active = "active"
-    in_tension = "in_tension"
-    superseded = "superseded"
+    """The one-time Letterboxd import: its ratings count as the owner's band picks."""
 
 
 class ComparisonLogEntry(Base):
-    """One judgment, appended and never deleted (ADR 0010: evidence, not an event source).
+    """One judgment, appended and never edited (ADR 0010: evidence, not an event source).
 
-    Nothing here is ever rewritten except ``status``, which is how a later resolution
-    records that a judgment was settled against without erasing that it was made. The
-    account-realm wipe is the one thing that removes a row.
+    No row here has a status. A judgment the ordering has since been moved past is not
+    flagged or superseded: whoever reads it reads it against the ordering as it stands,
+    and the ordering wins (ADR 0013). The account-realm wipe is the one thing that
+    removes a row.
     """
 
     __tablename__ = "comparison_log_entries"
@@ -703,9 +562,6 @@ class ComparisonLogEntry(Base):
     """Which quality a criteria row asked about. None on every other kind."""
     context: Mapped[ComparisonContext] = mapped_column(
         Enum(ComparisonContext, name="comparison_context"), nullable=False
-    )
-    status: Mapped[ComparisonStatus] = mapped_column(
-        Enum(ComparisonStatus, name="comparison_status"), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -782,106 +638,6 @@ class WatchEvent(Base):
     has one to ask. An imported diary rewatch is never asked, so it is None forever -
     the offer belongs to the moment, and the moment is long past.
     """
-
-
-class DriftStage(enum.StrEnum):
-    """How loud a flag is allowed to be. Escalation stops here: no auto-move, ever."""
-
-    quiet = "quiet"
-    """Thin evidence: the app may slip a targeted drift check into a comparison moment."""
-    surfaced = "surfaced"
-    """The owner sees it, and the film is benched as an opponent - a doubted ruler is bent."""
-
-
-class DriftOutcome(enum.StrEnum):
-    """What closed a flag. ``self_resolved`` is the one nobody chose."""
-
-    re_placed = "re_placed"
-    kept = "kept"
-    re_pointed = "re_pointed"
-    """The owner said the opponent is the misplaced one, so the tension moved to it."""
-    self_resolved = "self_resolved"
-    """The evidence stopped contradicting on its own, so the flag had nothing left to stand on."""
-
-
-class DriftFlag(Base):
-    """The per-film aggregation of in-tension judgments: drift, tracked where it lands.
-
-    Drift is a condition of a *film*, not of a judgment, which is why this is a row of
-    its own rather than a status on the log: several judgments can implicate one film,
-    and the owner resolves the film once rather than each judgment separately.
-
-    A flag never moves anything (ADR 0001). It escalates from quiet to surfaced, benches
-    the film as an opponent, and offers the owner three choices - and that is the whole
-    of its power. Closed flags are kept: the outcome is the record of what the owner
-    decided, and the judgments themselves keep their own statuses in the log.
-    """
-
-    __tablename__ = "drift_flags"
-    __table_args__ = (
-        # At most one open flag per film. A second one could only ever say the same
-        # thing, and the owner would have to resolve the same doubt twice.
-        Index(
-            "uq_drift_flags_open_film",
-            "account_id",
-            "account_film_id",
-            unique=True,
-            postgresql_where=text("closed_at IS NULL"),
-        ),
-    )
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    account_film_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("account_films.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    stage: Mapped[DriftStage] = mapped_column(Enum(DriftStage, name="drift_stage"), nullable=False)
-    re_placing_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    """When the owner chose re-place, which is what makes the placement flow a re-placement.
-
-    The placement search deliberately keeps no state of its own, so the one thing it
-    cannot re-derive from the log is which flow the owner thinks they are in. This is
-    that, and nothing more: it is cleared when the re-placement lands.
-    """
-    opened_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    outcome: Mapped[DriftOutcome | None] = mapped_column(Enum(DriftOutcome, name="drift_outcome"))
-    """Set exactly when ``closed_at`` is; an open flag has no outcome yet."""
-
-
-class DriftEvidence(Base):
-    """Which in-tension judgment hangs on which open flag.
-
-    The pointer exists because a contradiction implicates *two* films and the flag sits
-    on one of them - so "the in-tension judgments touching this film" is not the same
-    set as "this flag's evidence", and re-pointing at the opponent moves a judgment from
-    one flag to the other without changing the judgment at all.
-
-    Rows live only as long as the flag is open: closing it drops them, because what
-    became of each judgment is recorded where it belongs, on the judgment's own status
-    in the append-only log. Nothing auditable is lost, and ``entry_id`` stays unique.
-    """
-
-    __tablename__ = "drift_evidence"
-    __table_args__ = (UniqueConstraint("entry_id", name="uq_drift_evidence_entry_id"),)
-
-    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
-    account_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    flag_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("drift_flags.id", ondelete="CASCADE"), index=True, nullable=False
-    )
-    entry_id: Mapped[uuid.UUID] = mapped_column(
-        ForeignKey("comparison_log_entries.id", ondelete="CASCADE"), nullable=False
-    )
-    attached_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
 
 
 BUILT_IN_QUALITIES: tuple[str, ...] = (
@@ -1112,15 +868,14 @@ class Exemplar(Base):
 class ProseTrigger(enum.StrEnum):
     """What accumulated far enough to be worth a regeneration.
 
-    The four middle ones are taste-profile.md's own list; ``first`` is the account
+    The three middle ones are taste-profile.md's own list; ``first`` is the account
     earning its very first prose, and ``staleness`` is the backstop that catches an
-    owner whose answering never lands enough new placements to trip anything else.
+    owner whose re-rating never lands enough *new* films to trip anything else.
     """
 
     first = "first"
     placements = "placements"
     anchors = "anchors"
-    drift = "drift"
     constraints = "constraints"
     staleness = "staleness"
 
@@ -1158,14 +913,15 @@ class ProseProfileVersion(Base):
         Enum(ProseTrigger, name="prose_trigger"), nullable=False
     )
     placements: Mapped[int] = mapped_column(Integer, nullable=False)
-    explicit_comparisons: Mapped[int] = mapped_column(Integer, nullable=False)
-    drift_resolutions: Mapped[int] = mapped_column(Integer, nullable=False)
-    """The three counted dimensions of the watermark; all three only ever go up."""
+    """Rated films: what "N new placements" counts (taste-profile.md)."""
+    judgments: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Every comparison-log row. The staleness backstop's measure, and it catches what
+    the placement count cannot: a re-rate appends a pick without adding a film."""
     anchors: Mapped[str] = mapped_column(String(64), nullable=False)
     constraints: Mapped[str] = mapped_column(String(64), nullable=False)
     """The two set-shaped dimensions, as digests. Anchors and constraints are current-only
-    - designating over one clears the old row - so there is no count that changing them
-    reliably moves, and comparing digests catches a swap that leaves the count alone."""
+    - retiring a mark clears it - so there is no count that changing them reliably moves,
+    and comparing digests catches a swap that leaves the count alone."""
     generated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1197,10 +953,14 @@ class TasteMetrics(Base):
     """The fit the accuracy was earned on. With ``held_out_pairs`` this partitions the
     evidence; the stored vector is trained on both halves and carries its own count."""
     rated_films: Mapped[int] = mapped_column(Integer, nullable=False)
-    explicit_comparisons: Mapped[int] = mapped_column(Integer, nullable=False)
-    settled_films: Mapped[int] = mapped_column(Integer, nullable=False)
-    """Rated films whose position rests on the owner's own comparisons, not a seed or a bail."""
     bands_spanned: Mapped[int] = mapped_column(Integer, nullable=False)
+    """The two readiness dimensions, which are the whole of what gates the features."""
+    band_comparisons: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Band comparisons the owner answered: the explicit half of the held-out slice.
+
+    Not a readiness dimension (ADR 0013 removed the comparison bar) but still the context
+    the accuracy has to be read against, since those answers are what it is measured on.
+    """
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
@@ -1333,9 +1093,9 @@ class WarmupMark(enum.StrEnum):
     entered = "entered"
     """The entry fork has been answered, whichever way. It is never asked twice."""
     anchors = "anchors"
-    """Designation skipped: for one band with a ``band``, for the phase without one."""
-    evidence = "evidence"
-    """The evidence phase skipped, however few of its questions were answered."""
+    """Marking skipped: for one band with a ``band``, for the phase without one."""
+    rating = "rating"
+    """The fresh fill's rate-some-films phase skipped, however few were rated."""
     backlog = "backlog"
     """The backlog phase skipped."""
     dismissed = "dismissed"

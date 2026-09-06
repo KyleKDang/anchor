@@ -118,17 +118,14 @@ class Settings(BaseSettings):
     enough above one that no comparison can ever be what triggers a regeneration.
     """
 
-    prose_drift_trigger: int = 3
-    """Drift resolutions since the live prose that count as a wave rather than a one-off."""
+    prose_staleness_judgments: int = 40
+    """The backstop: comparison-log rows since the live prose, whatever else moved.
 
-    prose_staleness_comparisons: int = 40
-    """The backstop: answered comparisons since the live prose, whatever else moved.
-
-    An owner who settles films they already placed - keep-comparing, drift checks, the
-    settling door - accumulates real evidence that lands no new placement, so without
-    this their prose would describe a library they have since re-judged. Denominated in
-    answers rather than days, because spend is earned by engagement (ADR 0004): a
-    dormant account never reaches it.
+    An owner who re-rates films they already rated, or answers criteria questions about
+    them, accumulates real evidence that lands no new placement, so without this their
+    prose would describe a library they have since re-judged. Denominated in judgments
+    rather than days, because spend is earned by engagement (ADR 0004): a dormant account
+    never reaches it.
     """
 
     film_refresh_days: int = 150
@@ -152,13 +149,17 @@ class Settings(BaseSettings):
     """
 
     readiness_ready_films: int = 50
-    readiness_ready_comparisons_per_film: float = 3.0
-    readiness_ready_settled_share: float = 0.5
-    """Ready: a real library that the owner has actually answered their way through.
+    """Ready: more films at the same spread, enough that "watch these next" rests on a
+    real library. Same two dimensions as forming, because there are only two (ADR 0013).
+    """
 
-    The two bars are the two halves of the spec's sentence - the vector must not be
-    dominated by implied pairs (so answers have to accumulate faster than films do) nor
-    by provisional ones (so half the library must rest on real judgments).
+    default_order_prior_votes: int = 100
+    """How many votes of the catalog mean a film's own TMDB average must outweigh.
+
+    The shrinkage the default order runs on (rating-system.md): a film with thousands of
+    votes keeps its average almost entirely, and one with three is mostly the catalog
+    speaking, so a handful of perfect votes cannot top a band row. The shape is spec and
+    the number is tuning - a hundred is roughly where TMDB's own weighted rating sits.
     """
 
     tier_swap_budget: int = 3

@@ -40,14 +40,14 @@ router = APIRouter(prefix="/api/profile")
 
 
 class Evidence(BaseModel):
-    """What the account has told Anchor, as readiness counts it."""
+    """What the account has told Anchor, as readiness counts it: films, and bands.
+
+    Two figures, because there are two dimensions (ADR 0013). The comparison counts that
+    used to sit here are gone with the bar they served: the ordering is complete the
+    moment a film is rated, so no count of answers makes it more trustworthy.
+    """
 
     rated_films: int
-    explicit_comparisons: int
-    settled_films: int
-    """Rated films the owner's own comparisons settled, rather than a seed or an early bail."""
-    settled_share: float
-    comparisons_per_film: float
     bands_spanned: int
 
 
@@ -122,10 +122,6 @@ async def profile(account: CurrentAccount, db: DbSession, settings: AppSettings)
         readiness=state,
         evidence=Evidence(
             rated_films=counted.rated_films,
-            explicit_comparisons=counted.explicit_comparisons,
-            settled_films=counted.settled_films,
-            settled_share=counted.settled_share,
-            comparisons_per_film=counted.comparisons_per_film,
             bands_spanned=counted.bands_spanned,
         ),
         stages=[
