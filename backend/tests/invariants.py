@@ -13,6 +13,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor.db import Database
+from anchor.models import BUILT_IN_QUALITIES
 
 # The account record itself: the one row an unverified account may have.
 ACCOUNT_TABLE = "accounts"
@@ -225,6 +226,25 @@ async def quality_list(db: Database, account_id: uuid.UUID) -> list[str]:
                 """
             ),
             {"id": account_id},
+        )
+        return [row[0] for row in rows]
+
+
+async def quality_tags(db: Database, film_id: int) -> list[str]:
+    """The shared tags on one film, in the vocabulary's own order. No account scopes it."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text("SELECT quality FROM quality_tags WHERE film_id = :film"), {"film": film_id}
+        )
+        found = {row[0] for row in rows}
+    return [name for name in BUILT_IN_QUALITIES if name in found]
+
+
+async def tagged_films(db: Database) -> list[int]:
+    """Every film anybody has paid to have tagged, including those tagged with nothing."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text("SELECT tmdb_id FROM films WHERE tagged_at IS NOT NULL ORDER BY tmdb_id")
         )
         return [row[0] for row in rows]
 

@@ -22,7 +22,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from anchor import catalog, matching, seeding
 from anchor.db import Database
 from anchor.errors import ApiError
-from anchor.models import AuthSession, Import, ImportRow, ImportRowState, ImportStatus
+from anchor.models import (
+    BUILT_IN_QUALITIES,
+    AuthSession,
+    Import,
+    ImportRow,
+    ImportRowState,
+    ImportStatus,
+)
 from anchor.settings import Settings
 from anchor.tmdb import FilmNotInTmdb, Tmdb, TmdbUnavailable
 
@@ -245,6 +252,44 @@ async def refresh_quality_suggestions(context: JobContext, account_id: str) -> N
             await session.commit()
 
 
+async def tag_film(context: JobContext, tmdb_id: int) -> None:
+    """Buy one film's quality tags, unless somebody already has.
+
+    The seam is imported inside the function for architecture.md's structural rule, the
+    same as the regeneration above: the web process imports this module to enqueue, and
+    must not load the LLM module by doing so.
+
+    Idempotent, because every task on this queue can be re-run from the top by the
+    stalled-job sweep and because two accounts can place the same film at once. The stamp
+    is checked before the call and again with the write, so a film is bought once even
+    when two jobs get past the first check together - and the write is one transaction,
+    so a film is never stamped tagged with its tags missing.
+
+    A cap, a missing credential or a provider that is down all arrive as ``Skipped``, and
+    the answer to all of them is to leave the film untagged. Nothing degrades visibly:
+    criteria selection falls back to the quality rotation, which is what it did before
+    any film had tags at all.
+    """
+    from anchor import llm as llm_module
+    from anchor import tags
+
+    db, seam = database_of(context), llm_of(context)
+    async with db.sessions() as session:
+        film = await tags.pending(session, tmdb_id)
+    if film is None:
+        return
+
+    try:
+        named = await seam.tag_film_qualities(film, BUILT_IN_QUALITIES)
+    except llm_module.Skipped as skipped:
+        log.info("film %s not tagged: %s", tmdb_id, skipped)
+        return
+
+    async with db.sessions() as session:
+        await tags.record(session, tmdb_id, named)
+        await session.commit()
+
+
 async def match_import_rows(context: JobContext, import_id: str) -> None:
     """Work an import's rows: apply what the matcher is sure of, queue the rest to review.
 
@@ -462,6 +507,9 @@ def _declare_tasks() -> procrastinate.Blueprint:
     tasks.task(name=refresh_quality_suggestions.__name__, retry=2, pass_context=True)(
         refresh_quality_suggestions
     )
+    # Retried for the same reason, and safe for the same reason: a re-run re-reads the
+    # stamp, and a film that got tagged in between answers with nothing left to do.
+    tasks.task(name=tag_film.__name__, retry=2, pass_context=True)(tag_film)
     # Retried, because the whole job is one long conversation with TMDB and the far end
     # goes down. Every row commits on its own, so a retry resumes rather than repeats.
     tasks.task(name=match_import_rows.__name__, retry=3, pass_context=True)(match_import_rows)

@@ -47,7 +47,7 @@ from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands, drift, jobs, rewatch, settling, tier
+from anchor import bands, drift, jobs, rewatch, settling, tags, tier
 from anchor import criteria as criteria_module
 from anchor import ordering as ordering_module
 from anchor.accounts import CurrentAccount
@@ -760,6 +760,12 @@ async def _advance(
     # Offered inside the landing's transaction, so a placement never commits without the
     # card it earned and the log never carries an offer for a landing that rolled back.
     card = await criteria_module.offer(db, account, tmdb_id, flow.context, flow.since, entries)
+    # The films this flow put on screen are the ones a later card can ask about, so this
+    # landing is what buys their quality tags - for the next placement, never for this
+    # one. Precompute only: nothing above waits on the job this queues. A film the owner
+    # skipped is in the set too, because it is a film they are actively comparing and the
+    # tag it buys is permanent and shared; the next flow to judge it wants it already.
+    await tags.schedule(db, queue, account, [tmdb_id, *_opponents(entries, tmdb_id)], settings)
     # Read after the graduation above, so a film that has just come off the mark is not
     # counted among what is left, and before the commit that ends the request.
     settle_another = (
