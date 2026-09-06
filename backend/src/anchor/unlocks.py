@@ -20,6 +20,7 @@ in the same instant.
 import uuid
 
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor.models import Unlock, UnlockMark
@@ -42,19 +43,25 @@ async def arm(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> se
 
     Returns the unlocks that crossed *in this call*, so a caller can name them on the
     screen of the act that earned them and every later caller says nothing.
+
+    The insert is an upsert that does nothing on conflict, and the returned rows are what
+    say which dots this call actually lit. Every surface that could notice a crossing
+    calls this - the nav's read on every navigation, the screen itself, a rating, the end
+    of an import - so two of them racing on the very first crossing is the ordinary case
+    rather than the exotic one, and a plain insert would answer it with a 500.
     """
     state = await readiness_state(db, account_id, settings)
-    already = {mark.unlock for mark in await _marks(db, account_id)}
-    crossed = {
-        unlock
-        for unlock, needed in EARNED_BY.items()
-        if unlock not in already and LADDER.index(state) >= LADDER.index(needed)
-    }
-    for unlock in crossed:
-        db.add(UnlockMark(account_id=account_id, unlock=unlock))
-    if crossed:
-        await db.flush()
-    return crossed
+    earned = [unlock for unlock in Unlock if LADDER.index(state) >= LADDER.index(EARNED_BY[unlock])]
+    if not earned:
+        return set()
+    rows = [{"id": uuid.uuid4(), "account_id": account_id, "unlock": unlock} for unlock in earned]
+    lit = await db.scalars(
+        insert(UnlockMark)
+        .values(rows)
+        .on_conflict_do_nothing(index_elements=[UnlockMark.account_id, UnlockMark.unlock])
+        .returning(UnlockMark.unlock)
+    )
+    return set(lit)
 
 
 async def pending(db: AsyncSession, account_id: uuid.UUID) -> set[Unlock]:

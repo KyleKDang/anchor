@@ -567,8 +567,9 @@ function StageRow({ stage }: { stage: Stage }) {
  * in the label and the figure column carries only where the account actually stands.
  */
 function Bar({ threshold }: { threshold: Threshold }) {
-  const have = format(threshold.dimension, threshold.have);
-  const need = format(threshold.dimension, threshold.need);
+  // Both readiness dimensions are counts, so both read as counts (ADR 0013).
+  const have = String(threshold.have);
+  const need = String(threshold.need);
   const filled = Math.min(1, threshold.need === 0 ? 1 : threshold.have / threshold.need);
   return (
     <li className="bar">
@@ -585,10 +586,7 @@ function Bar({ threshold }: { threshold: Threshold }) {
   );
 }
 
-/** Both dimensions are counts, so both read as counts. */
-function format(_dimension: Dimension, value: number): string {
-  return String(value);
-}
+
 
 function AccountSection() {
   const { account, logOut, accountDeleted } = useAuth();

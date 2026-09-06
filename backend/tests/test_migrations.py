@@ -243,7 +243,7 @@ def test_the_log_is_re_typed_and_loses_its_status(old_shape_account):
         (1, "band_pick", "placement"),
         (2, "band_comparison", "placement"),
         (3, "band_pick", "placement"),
-        (4, "band_comparison", "re_placement"),
+        (4, "band_comparison", "re_rate"),
     ]
     columns = rows(
         url,

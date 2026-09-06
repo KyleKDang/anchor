@@ -1,5 +1,7 @@
 """Cross-cutting invariants of data-model.md that hold structurally, whatever the flow."""
 
+import ast
+import pathlib
 import subprocess
 import sys
 import textwrap
@@ -94,33 +96,35 @@ def test_nothing_but_the_owners_own_acts_writes_the_ordering():
     that must never move a film, and a new module that did would have to be added to
     :data:`OWNER_ACTS` deliberately.
 
-    Three ways in are checked, which is all there are: calling one of the ordering
-    module's writers, building a ``Placement`` row by hand, and setting an anchor mark.
+    Read rather than run, unlike the two import-graph tests above: those need a fresh
+    interpreter to answer "what did importing this pull in?", and this only needs the
+    source. So it stays plain in-process code that the linter and the type checker can
+    both see, and a failure names the module and the line rather than a return code.
     """
-    program = textwrap.dedent(
-        f"""
-        import ast, pathlib
+    offenders = [
+        offence
+        for path in sorted(pathlib.Path("src/anchor").glob("*.py"))
+        if f"anchor.{path.stem}" not in (*OWNER_ACTS, "anchor.ordering")
+        for offence in _reaches_the_ordering(f"anchor.{path.stem}", path)
+    ]
 
-        writers = {WRITERS!r}
-        allowed = {(*OWNER_ACTS, "anchor.ordering")!r}
-        offenders = []
-        for path in sorted(pathlib.Path("src/anchor").glob("*.py")):
-            module = "anchor." + path.stem
-            if module in allowed:
-                continue
-            for node in ast.walk(ast.parse(path.read_text())):
-                called = getattr(node, "func", None)
-                if isinstance(called, ast.Attribute) and called.attr in writers:
-                    offenders.append((module, called.attr, node.lineno))
-                if isinstance(called, ast.Name) and called.id == "Placement":
-                    offenders.append((module, "Placement()", node.lineno))
-                targets = node.targets if isinstance(node, ast.Assign) else []
-                for target in targets:
-                    if isinstance(target, ast.Attribute) and target.attr == "anchored_at":
-                        offenders.append((module, "anchored_at", node.lineno))
-        assert not offenders, offenders
-        """
-    )
-    done = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True)
+    assert offenders == [], offenders
 
-    assert done.returncode == 0, done.stdout + done.stderr
+
+def _reaches_the_ordering(module: str, path: pathlib.Path) -> list[tuple[str, str, int]]:
+    """Every place one module writes the ordering, as (module, what, line).
+
+    Three ways in, which is all there are: calling one of the ordering module's writers,
+    building a ``Placement`` row by hand, and setting an anchor mark.
+    """
+    found = []
+    for node in ast.walk(ast.parse(path.read_text())):
+        called = getattr(node, "func", None)
+        if isinstance(called, ast.Attribute) and called.attr in WRITERS:
+            found.append((module, called.attr, node.lineno))
+        if isinstance(called, ast.Name) and called.id == "Placement":
+            found.append((module, "Placement()", node.lineno))
+        for target in node.targets if isinstance(node, ast.Assign) else []:
+            if isinstance(target, ast.Attribute) and target.attr == "anchored_at":
+                found.append((module, "anchored_at", node.lineno))
+    return found

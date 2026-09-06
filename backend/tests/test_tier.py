@@ -15,9 +15,14 @@ is denominated in the watch clock, so a test that needs the clock to move logs w
 there is no calendar clock anywhere to freeze (testing.md).
 """
 
+import uuid
+
 import pytest
+from sqlalchemy import text
 
 import flows
+from anchor import unlocks
+from anchor.models import Unlock
 from faketmdb import FilmFixture
 from flows import (
     add_to_backlog,
@@ -224,6 +229,45 @@ async def test_the_dot_shows_once_and_clears_on_the_first_visit(owner):
     assert (await flows.unlocks(owner))["watchlist"] is False
     await flows.tier(owner)
     assert (await flows.unlocks(owner))["watchlist"] is False, "the dot never returns"
+
+
+@tuned()
+async def test_arming_a_dot_that_is_already_lit_says_nothing_and_raises_nothing(
+    owner, db, settings
+):
+    """Every surface that could be first to notice a crossing arms, so re-arming is ordinary.
+
+    The nav re-asks on every navigation, the Watchlist arms on its own read, a rating arms
+    as it lands, and the import worker arms as it finishes. Only the caller that actually
+    lit a dot may say so - that is what puts the line on one screen and nowhere else - and
+    none of the others may fail.
+
+    The insert behind this is an upsert precisely so that two of them *arriving together*
+    is a no-op for the loser rather than a unique-constraint 500. That concurrent case is
+    deliberately not driven here: two open transactions racing one key block on each other,
+    which in a single-threaded test harness is a wedge rather than a proof (testing.md
+    wants no flakiness). What is pinned is the property the upsert exists for.
+    """
+    account = uuid.UUID(await flows.account_id(owner))
+    await make_ready(owner)
+    # Back to the instant before any surface had noticed, which is the moment this is
+    # about: rating the films that crossed the bar is itself one of the surfaces that arms.
+    async with db.sessions() as session:
+        await session.execute(
+            text("DELETE FROM unlock_marks WHERE account_id = :id"), {"id": account}
+        )
+        await session.commit()
+
+    async with db.sessions() as session:
+        lit = await unlocks.arm(session, account, settings)
+        await session.commit()
+    async with db.sessions() as session:
+        again = await unlocks.arm(session, account, settings)
+        await session.commit()
+
+    assert lit == {Unlock.discovery, Unlock.watchlist}, "the first caller gets to say so"
+    assert again == set(), "and every later one says nothing"
+    assert await flows.unlocks(owner) == {"discovery": True, "watchlist": True}
 
 
 @tuned()

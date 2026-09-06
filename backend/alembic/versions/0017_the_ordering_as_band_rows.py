@@ -25,6 +25,11 @@ the account genuinely never said:
 Rank comes from the old sequence: within a band, films keep the order their slots had,
 and a tie group's members keep the order they were seated in. Nothing is reordered.
 
+Two enums are renamed rather than merely trimmed, because CONTEXT.md now calls the act a
+*re-rate*: a log entry's ``re_placement`` context and a watch event's ``re_placed``
+outcome both become ``re_rated``/``re_rate``. The old drift-check context folds into the
+same value, since a check on an existing rating is what a re-rate now is.
+
 The downgrade restores the old shape but not the old data. Tie groups and dividers cannot
 be reconstructed from band rows - that is the whole point of the change - so it recreates
 the tables empty and leaves the placements it cannot re-seat.
@@ -79,6 +84,7 @@ def upgrade() -> None:
 
     _move_the_unlock_dots(bind)
     _retype_the_log()
+    _rename_the_rewatch_outcome()
     _retype_the_warmup_marks()
     _reshape_the_counters(bind)
     _drop_the_settling_tables()
@@ -346,7 +352,7 @@ def _retype_the_log() -> None:
     op.execute("ALTER TYPE comparison_context RENAME TO comparison_context_old")
     op.execute(
         "CREATE TYPE comparison_context AS ENUM "
-        "('placement', 're_placement', 'warmup', 'spontaneous', 'seed_import')"
+        "('placement', 're_rate', 'warmup', 'spontaneous', 'seed_import')"
     )
     op.execute(
         """
@@ -354,12 +360,29 @@ def _retype_the_log() -> None:
         ALTER COLUMN context TYPE comparison_context
         USING (CASE
             WHEN context::text = 'keep_comparing' THEN 'placement'
-            WHEN context::text = 'drift_check' THEN 're_placement'
+            WHEN context::text IN ('drift_check', 're_placement') THEN 're_rate'
             ELSE context::text
         END)::comparison_context
         """
     )
     op.execute("DROP TYPE comparison_context_old")
+
+
+def _rename_the_rewatch_outcome() -> None:
+    """A rewatch that changed the owner's mind is a re-rate, and says so (CONTEXT.md)."""
+    op.execute("ALTER TYPE rewatch_outcome RENAME TO rewatch_outcome_old")
+    op.execute("CREATE TYPE rewatch_outcome AS ENUM ('confirmed', 're_rated', 'skipped')")
+    op.execute(
+        """
+        ALTER TABLE watch_events
+        ALTER COLUMN rewatch_outcome TYPE rewatch_outcome
+        USING (CASE
+            WHEN rewatch_outcome::text = 're_placed' THEN 're_rated'
+            ELSE rewatch_outcome::text
+        END)::rewatch_outcome
+        """
+    )
+    op.execute("DROP TYPE rewatch_outcome_old")
 
 
 def _retype_the_warmup_marks() -> None:
@@ -425,6 +448,7 @@ def downgrade() -> None:
     _recreate_the_settling_tables()
     _restore_the_counters()
     _restore_the_log()
+    _restore_the_rewatch_outcome()
     _restore_the_warmup_marks()
     _restore_the_unlock_dot(bind)
     _narrow_placements()
@@ -685,10 +709,32 @@ def _restore_the_log() -> None:
         "'spontaneous', 'seed_import')"
     )
     op.execute(
-        "ALTER TABLE comparison_log_entries "
-        "ALTER COLUMN context TYPE comparison_context USING context::text::comparison_context"
+        """
+        ALTER TABLE comparison_log_entries
+        ALTER COLUMN context TYPE comparison_context
+        USING (CASE
+            WHEN context::text = 're_rate' THEN 're_placement'
+            ELSE context::text
+        END)::comparison_context
+        """
     )
     op.execute("DROP TYPE comparison_context_new")
+
+
+def _restore_the_rewatch_outcome() -> None:
+    op.execute("ALTER TYPE rewatch_outcome RENAME TO rewatch_outcome_new")
+    op.execute("CREATE TYPE rewatch_outcome AS ENUM ('confirmed', 're_placed', 'skipped')")
+    op.execute(
+        """
+        ALTER TABLE watch_events
+        ALTER COLUMN rewatch_outcome TYPE rewatch_outcome
+        USING (CASE
+            WHEN rewatch_outcome::text = 're_rated' THEN 're_placed'
+            ELSE rewatch_outcome::text
+        END)::rewatch_outcome
+        """
+    )
+    op.execute("DROP TYPE rewatch_outcome_new")
 
 
 def _restore_the_warmup_marks() -> None:

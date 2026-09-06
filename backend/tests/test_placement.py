@@ -224,7 +224,7 @@ async def test_every_rating_appends_a_band_pick_and_rewrites_nothing(owner, db):
     assert_appended_only(before, after, "a re-rate")
     assert [row[1] for row in after] == ["band_pick", "band_pick"]
     assert [row[6] for row in after] == [4.0, 2.0]
-    assert [row[7] for row in after] == ["placement", "re_placement"]
+    assert [row[7] for row in after] == ["placement", "re_rate"]
 
 
 async def test_a_fresh_rating_holds_the_default_rank(owner, db):

@@ -1,10 +1,10 @@
 """How well the owner remembers a film, as a sort key two flows share.
 
-The spec names this ranking once, as the warmup's candidate ranking, and then re-uses it
-by name: the warmup offers the best-remembered film per band as an anchor candidate
-(onboarding-and-import.md), and settling breaks its next-film tie with the same order
-(screens-and-flows.md). It lives here rather than in either caller because both would
-otherwise import the other's flow to borrow four lines of arithmetic.
+The spec names this ranking once, as the warmup's candidate ranking: the warmup offers
+the best-remembered film per band as an anchor candidate (onboarding-and-import.md). It
+lives here rather than inside the warmup because it is a fact about the owner's library
+rather than about onboarding, and the criteria system's opponent choice asks the same
+question of it.
 
 Every term is a proxy for one question: which of these does the owner remember clearly
 enough to judge? A film they went back to is remembered; a film they rated recently is
@@ -39,8 +39,8 @@ async def ranking(db: AsyncSession, account_id: uuid.UUID, film_ids: Collection[
     """The key ordering ``film_ids`` best-remembered first.
 
     Returned as a key rather than a sorted list so a caller can fold it into a wider
-    order - settling sorts on the remaining range first and only reaches for this to
-    break a tie - and so the several reads behind it happen once for the whole set.
+    order, and so the several reads behind it happen once for the whole set rather than
+    once per film.
     """
     favorites = await _profile_favorites(db, account_id)
     rewatches = await _rewatch_counts(db, account_id)

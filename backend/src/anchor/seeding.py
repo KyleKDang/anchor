@@ -283,11 +283,11 @@ async def _account_film(
 async def wipe_realm(db: AsyncSession, account_id: uuid.UUID) -> None:
     """Empty the account realm in one transaction: the sole exception to never-deleted.
 
-    There is no merge path, ever, so a second import starts from nothing: the ordering,
-    the comparison log, the anchors, the drift flags, the taste profile, the backlog
-    including hand-added films, and the watch history all go, and the new export rebuilds
-    from itself alone. The account record and its live sessions are not account data and
-    stay, so the owner is still logged in on the other side of it.
+    There is no merge path, ever, so a second import starts from nothing: the ordering
+    and its anchor marks, the comparison log, the taste profile, the backlog including
+    hand-added films, and the watch history all go, and the new export rebuilds from
+    itself alone. The account record and its live sessions are not account data and stay,
+    so the owner is still logged in on the other side of it.
     """
     for table in WIPED:
         await db.execute(text(f'DELETE FROM "{table}" WHERE account_id = :id'), {"id": account_id})

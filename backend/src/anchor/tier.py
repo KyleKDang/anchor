@@ -6,9 +6,9 @@ owner has not seen, and the whole design of this module is about making that opi
 
 *Position is the entire statement.* Nothing rating-shaped is computed for display: a
 score exists only inside this module, decides an order, and dies with the request (ADR
-0005). A predicted band seen before watching would tilt the comparison answers
-themselves, and that contamination is invisible to drift detection and permanent in the
-ordering.
+0005). A predicted band seen before watching would tilt the owner's own pick on the band
+picker, and a rating steered that way is permanent in the ordering - nothing downstream
+could tell it from a judgment.
 
 *The list is state, not a view.* Membership is persisted on the backlog account-films and
 read back verbatim; nothing recomputes it at read time. That is what lets damping mean
@@ -422,9 +422,7 @@ async def not_now(db: AsyncSession, account_film: AccountFilm, settings: Setting
 # --- The unlock ---
 
 
-async def note_unlock(
-    db: AsyncSession, account_id: uuid.UUID, settings: Settings
-) -> set[Unlock]:
+async def note_unlock(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> set[Unlock]:
     """Arm whatever readiness bars this account has crossed, and react to the tier's own.
 
     Everything that could be the first to notice a crossing goes through here rather than

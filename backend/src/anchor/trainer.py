@@ -144,7 +144,8 @@ def extract(
     rng = random.Random(seed)
     pairs: list[Pair] = []
     seen: set[frozenset[int]] = set()
-    answered = {frozenset({one.better, one.worse}) for one in _agreeing(explicit, ordering)}
+    agreeing = _agreeing(explicit, ordering)
+    answered = {frozenset({one.better, one.worse}) for one in agreeing}
 
     def emit(a: int, b: int, *, weight: float, within_band: bool) -> None:
         if a == b or (key := frozenset({a, b})) in seen or weight <= 0.0:
@@ -158,6 +159,20 @@ def extract(
                 explicit=key in answered,
                 within_band=within_band,
             )
+        )
+
+    # The owner's own answers first, and never left to the sampler's luck: a budget of
+    # four opponents per film would drop most of them at library scale, and they are the
+    # highest-value evidence there is. Their *direction* still comes off the ordering,
+    # because the ordering is primary state and the log is evidence about it (ADR 0010).
+    for one in agreeing:
+        above, below = ordering.of(one.better), ordering.of(one.worse)
+        assert above is not None and below is not None  # _agreeing dropped the rest
+        emit(
+            one.better,
+            one.worse,
+            weight=1.0,
+            within_band=above.band == below.band,
         )
 
     bands = ordering.bands()

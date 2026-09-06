@@ -91,7 +91,7 @@ question would land on, and the fallback below the cut is the same fallback the 
 already has when nothing shares a tag.
 """
 
-PLACEMENTS = (ComparisonContext.placement, ComparisonContext.re_placement)
+RATINGS = (ComparisonContext.placement, ComparisonContext.re_rate)
 """The only two moments a card is offered at: a rating, or a re-rate (taste-profile.md).
 
 The criteria *session* from a film's page is the other home and is deliberately absent:
@@ -152,7 +152,7 @@ async def offer(
     The row this writes is flushed, not committed: the caller commits it with the landing,
     so the two stand or fall together.
     """
-    if context not in PLACEMENTS:
+    if context not in RATINGS:
         return None
 
     if account.criteria_frequency is CriteriaFrequency.off:

@@ -487,7 +487,7 @@ class ComparisonContext(enum.StrEnum):
 
     placement = "placement"
     """The band picker, run on a film that was not rated."""
-    re_placement = "re_placement"
+    re_rate = "re_rate"
     """The band picker, run again on a rated film from its page or a rewatch."""
     warmup = "warmup"
     spontaneous = "spontaneous"
@@ -597,7 +597,7 @@ class RewatchOutcome(enum.StrEnum):
     """
 
     confirmed = "confirmed"
-    re_placed = "re_placed"
+    re_rated = "re_rated"
     skipped = "skipped"
 
 
@@ -735,9 +735,9 @@ class ProfileConstraint(Base):
     regeneration; kept as a row, it is an input the regeneration has to respect, and it
     survives however many times the prose is rewritten.
 
-    Lifting a constraint stamps ``lifted_at`` rather than deleting the row, the way a
-    drift flag closes: the owner changing their mind is itself a fact about their taste,
-    and an active constraint is simply one that has not been lifted.
+    Lifting a constraint stamps ``lifted_at`` rather than deleting the row: the owner
+    changing their mind is itself a fact about their taste, and an active constraint is
+    simply one that has not been lifted.
 
     The picker that writes these arrives with #37; what lives here is the concept every
     regeneration already has to honour, and the read that makes it honour it.

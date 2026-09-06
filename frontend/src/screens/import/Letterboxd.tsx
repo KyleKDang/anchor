@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import {
+  Fragment,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import { Link } from "react-router";
 
 import {
@@ -7,6 +15,7 @@ import {
   type ImportState,
   type ImportUnmatchedRow,
   type ImportWarning,
+  type Unlock,
 } from "../../api";
 import { releaseYear } from "../../films/tmdb";
 import { useAsyncAction } from "../../films/useAsyncAction";
@@ -110,7 +119,38 @@ function Summary({ state }: { state: ImportState }) {
           can carry on using Anchor while this finishes.
         </p>
       )}
+      <Unlocked unlocked={state.unlocked} />
     </>
+  );
+}
+
+const UNLOCKED: Record<Unlock, ReactNode> = {
+  discovery: <Link to="/discovery">Discovery</Link>,
+  watchlist: <Link to="/watchlist">a ranked watchlist</Link>,
+};
+
+/**
+ * What the import just unlocked, named on the screen that earned it.
+ *
+ * An export of any real size crosses both readiness bars the moment matching completes,
+ * and saying so is the point of importing (onboarding-and-import.md). It is the same
+ * moment the nav's dots light, and this line is the other half of it: it appears once,
+ * empties as the owner visits each screen, and is never repeated (ADR 0011).
+ */
+function Unlocked({ unlocked }: { unlocked: Unlock[] }) {
+  if (unlocked.length === 0) return null;
+  const named = unlocked.map((unlock) => UNLOCKED[unlock]);
+  return (
+    <p className="nudge">
+      That was enough to go on. You have{" "}
+      {named.map((name, index) => (
+        <Fragment key={index}>
+          {index > 0 && (index === named.length - 1 ? " and " : ", ")}
+          {name}
+        </Fragment>
+      ))}{" "}
+      from here.
+    </p>
   );
 }
 

@@ -3,14 +3,14 @@
 The owner-readable third of the taste profile (ADR 0004). The weight vector and the
 exemplar set are recomputed on every ordering change because they cost milliseconds;
 this one costs money, so it is regenerated on *accumulated* change instead - and never
-per comparison, which is the difference between a taste engine and a meter running.
+per rating, which is the difference between a taste engine and a meter running.
 
 *Accumulated change is measured, not guessed.* Every version row carries the watermark
 of what the account looked like when it was written, and :func:`due` compares the
-account's current state against the newest one. The four dimensions are taste-profile.md's
-own triggers - new placements, an anchor change, a drift-resolution wave, a picker or
-constraint edit - plus a staleness backstop denominated in answered comparisons, for the
-owner whose settling work never lands a new placement.
+account's current state against the newest one. The three dimensions are
+taste-profile.md's own triggers - new ratings, an anchor change, a picker or constraint
+edit - plus a staleness backstop denominated in recorded judgments, for the owner whose
+re-rating never lands a new film.
 
 *No calendar anywhere.* Spend is earned by engagement, so nothing here reads a clock: a
 dormant account is never due, however long it has been dormant, and an owner who rates
