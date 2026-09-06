@@ -53,21 +53,26 @@ class FakeLlm:
     input_tokens: int = 1000
     output_tokens: int = 200
     asked: list[Asked] = field(default_factory=list)
-    answers: dict[str, list[str]] = field(default_factory=dict)
+    answers: dict[str, list[tuple[str | None, str]]] = field(default_factory=dict)
     raw: list[tuple[str | None, str]] = field(default_factory=list)
     failure: Exception | None = None
     """Raised instead of answering, for the provider-is-down and no-credential paths."""
 
-    def will_say(self, **payload: Any) -> "FakeLlm":
+    def will_say(self, system: str | None = None, **payload: Any) -> "FakeLlm":
         """Queue one answer, as the JSON the provider would have returned.
 
         Queued against the answer shape rather than in one flat line, so a test scripts
         the operation it means: a run that regenerates prose and refreshes the picker's
         suggestions dispatches both, and a single queue would hand the first answer to
         whichever went first and make every such test an assertion about job order.
+
+        Two operations can still want the same shape - the picker's guess and a film's
+        tagging both answer with a list of qualities - so ``system`` narrows the queue to
+        one of them by its own system prompt. Left off, the answer goes to whichever
+        dispatch of that shape comes first, which is all a test with only one needs.
         """
         (shape,) = payload
-        self.answers.setdefault(shape, []).append(json.dumps(payload))
+        self.answers.setdefault(shape, []).append((system, json.dumps(payload)))
         return self
 
     def will_say_exactly(self, text: str, system: str | None = None) -> "FakeLlm":
@@ -138,5 +143,9 @@ class FakeLlm:
                 self.raw.pop(index)
                 return text
         (shape,) = prompt.schema["required"]
-        queued = self.answers.get(shape)
-        return queued.pop(0) if queued else json.dumps(DEFAULTS[shape])
+        queued = self.answers.get(shape, [])
+        for index, (system, text) in enumerate(queued):
+            if system is None or system == prompt.system:
+                queued.pop(index)
+                return text
+        return json.dumps(DEFAULTS[shape])
