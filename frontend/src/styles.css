@@ -702,6 +702,29 @@ select {
   text-align: center;
 }
 
+/* The discovery shelf's row: the same poster-and-body shape every film list uses, with
+   room for the sentence the engine wrote and the plot folded away under it. Two columns
+   rather than three, because a suggestion carries no inline verbs in this slice - and
+   aligned to the top, since the body is now taller than the poster. */
+.suggestion {
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  padding: var(--s4) 0;
+}
+
+.suggestion .poster {
+  width: 4.5rem;
+}
+
+/* The pitch: the only thing the engine ever says out loud about an unwatched film, so it
+   sits at body size under the title rather than down in the muted metadata. Measured
+   rather than full-bleed, because it is one sentence and a sentence 120 characters wide
+   stops being one. Nothing may ever sit beside it that reads as a score (ADR 0005). */
+.pitch {
+  margin: var(--s2) 0;
+  max-width: 46ch;
+}
+
 .empty {
   padding: var(--s7) var(--s4);
   border: 1px dashed var(--border-strong);

@@ -134,6 +134,25 @@ async def schedule_prose_check(
     await enqueue(session, jobs, regenerate_prose, lock=str(account_id), account_id=str(account_id))
 
 
+async def schedule_restock(
+    session: AsyncSession, jobs: procrastinate.App, account_id: uuid.UUID
+) -> None:
+    """Queue the discovery restock, from either of the two triggers it has.
+
+    Both are engagement-gated, which is the whole of the feed's economy (discovery.md):
+    the owner arriving at the feed, and a prose-profile bump - which is itself only ever
+    reached by an account doing enough to earn a regeneration. An owner who ignores
+    discovery causes neither, and costs nothing.
+
+    The job re-asks :func:`anchor.feed.due` itself, so queueing one that has nothing to do
+    costs a queue row and a query rather than a restock. The account lock keeps two of
+    them from sourcing and reranking the same account at once.
+    """
+    await enqueue(
+        session, jobs, restock_discovery, lock=str(account_id), account_id=str(account_id)
+    )
+
+
 async def retrain_taste_profile(context: JobContext, account_id: str) -> None:
     """Regenerate the account's weight vector and exemplar set, and record the retrain.
 
@@ -210,6 +229,10 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
                 lock=str(account),
                 account_id=account_id,
             )
+        # The bump is the discovery cache's invalidation: every verdict was keyed to the
+        # version that just stopped being live, so the batch rerank is scheduled here, at
+        # the one place a version is ever created (taste-profile.md).
+        await schedule_restock(session, context.app, account)
         await session.commit()
 
 
@@ -299,6 +322,29 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     async with db.sessions() as session:
         await tags.record(session, tmdb_id, named)
         await session.commit()
+
+
+async def restock_discovery(context: JobContext, account_id: str) -> None:
+    """Rebuild the discovery shelf: source, prefilter, rerank what is unjudged, refill.
+
+    The pipeline is imported here rather than at the top of the module for the rule the
+    trainer and the seam are imported under: the web process imports this module to
+    *enqueue*, and must not load the code that can spend money by doing so.
+
+    Everything a provider or TMDB might refuse is handled inside the pipeline, and the
+    answer to all of it is the same - build the shelf out of the verdicts that do exist.
+    That is the degraded state discovery.md describes, and from the owner's side it looks
+    like a slightly shorter shelf and nothing else.
+    """
+    from anchor import feed
+
+    await feed.restock(
+        database_of(context),
+        tmdb_of(context),
+        llm_of(context),
+        uuid.UUID(account_id),
+        settings_of(context),
+    )
 
 
 async def match_import_rows(context: JobContext, import_id: str) -> None:
@@ -534,6 +580,10 @@ def _declare_tasks() -> procrastinate.Blueprint:
     # Retried, because the whole job is one long conversation with TMDB and the far end
     # goes down. Every row commits on its own, so a retry resumes rather than repeats.
     tasks.task(name=match_import_rows.__name__, retry=3, pass_context=True)(match_import_rows)
+    # Retried, because it is a long conversation with both outside services at once. Safe
+    # to repeat: every window's verdicts commit as they land and a re-run skips whatever
+    # is already judged, so the second attempt buys only what the first one missed.
+    tasks.task(name=restock_discovery.__name__, retry=2, pass_context=True)(restock_discovery)
     scheduled_tasks = [
         # Every minute, because the window between a worker dying and the next sweep is
         # time an owner spends looking at an import that says it is still running.

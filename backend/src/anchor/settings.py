@@ -203,6 +203,54 @@ class Settings(BaseSettings):
     measure here, so a dormant account never rotates anything.
     """
 
+    discovery_shelf: int = 20
+    """Films the shelf holds when the pipeline is healthy. A ceiling, never a target: the
+    never-pad rule (discovery.md) says a thin pipeline shows a short shelf and no
+    apology."""
+
+    discovery_shortlist: int = 60
+    """What the linear prefilter keeps out of the union, and all the LLM ever sees.
+
+    The one number that sets what a restock costs: everything above it is scored for
+    free, and everything below it is a film with a sentence written about it.
+    """
+
+    discovery_rerank_window: int = 20
+    """Candidates judged against each other in one listwise call.
+
+    Windowed because a listwise ranking is only as good as the model's attention over the
+    list, and because a single call over the whole shortlist would put the month's budget
+    behind one provider timeout. Windows are ordered by the prefilter, so the strongest
+    candidates are judged together rather than scattered.
+    """
+
+    discovery_pool: int = 300
+    """The union's ceiling: the few hundred candidates the prefilter chooses from."""
+
+    discovery_slices: int = 6
+    """Discover slices per restock, one per top-weighted feature the fit names."""
+
+    discovery_seeds: int = 4
+    """Exemplars that seed the similar and recommendations calls, best-first."""
+
+    discovery_min_votes: int = 50
+    """A floor on a discover slice's vote count: sparseness, not popularity.
+
+    Deep cuts are what the feed is for, so this is deliberately low - it excludes the
+    rows TMDB itself has almost nothing on, and nothing else. The soft damper below is
+    what actually holds blockbusters back.
+    """
+
+    discovery_popularity_damper: float = 0.5
+    """How hard the prefilter leans against popularity, in weight-vector units.
+
+    Subtracted from a candidate's score as a multiple of its standardised popularity - the
+    same column the fit already carries - so the damper is measured on the account's own
+    scale and behaves the same for a library of forty films as for one of six hundred.
+    Soft by construction and by design: discovery.md wants deep cuts to dominate with no
+    hard mainstream cap, because the dismissal flow converges the rest.
+    """
+
     import_max_upload_bytes: int = 20 * 1024 * 1024
     """A real export is a few hundred kilobytes; this is generous, not a target."""
 

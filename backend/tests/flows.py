@@ -476,3 +476,42 @@ async def browse(client, kind, expect=200):
 def prompt_for(phase, band):
     """One band's mark prompt, from whichever of the two lists it lives in."""
     return next(one for one in (*phase["prompts"], *phase["continuation"]) if one["band"] == band)
+
+
+# --- Discovery ---
+
+
+async def discovery(client, boundary=True, expect=200):
+    """Open the Discovery screen. Arriving is what queues a restock; a reload is not."""
+    response = await client.get("/api/discovery", params={"boundary": str(boundary).lower()})
+    assert response.status_code == expect, response.text
+    feed = response.json()
+    # Asserted on every read rather than in one test, because this is the invariant the
+    # whole screen exists under: the feed is about films the owner has not watched, so no
+    # rating-shaped key may appear at all (ADR 0005), and the fit bucket that decided the
+    # order is internal - a card carries a sentence and a position and nothing else.
+    assert_no_rating_keys(feed, "the discovery feed")
+    assert "fit" not in str(feed), f"the discovery feed leaked a fit bucket: {feed}"
+    return feed
+
+
+async def shelf(client, boundary=True):
+    """Just the films on the shelf, in the order the screen shows them."""
+    return (await discovery(client, boundary=boundary))["films"]
+
+
+async def unlock_dots(client):
+    """The nav's dots, as every screen reads them."""
+    response = await client.get("/api/unlocks")
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def correct(client, claim, excludes=None, expect=200):
+    """Thumb down a claim in the prose profile, optionally naming what it rules out."""
+    body = {"claim": claim}
+    if excludes is not None:
+        body["excludes"] = excludes
+    response = await client.post("/api/profile/constraints", json=body)
+    assert response.status_code == expect, response.text
+    return response.json()

@@ -22,6 +22,7 @@ Nothing rating-shaped is here and nothing ever can be: readiness is counts, and 
 keeps scores off every surface anyway.
 """
 
+from collections.abc import Sequence
 from datetime import datetime
 
 from fastapi import APIRouter
@@ -61,6 +62,30 @@ class Threshold(BaseModel):
     @classmethod
     def of(cls, bar: Bar) -> "Threshold":
         return cls(dimension=bar.dimension, have=bar.have, need=bar.need)
+
+
+class Progress(BaseModel):
+    """How close the account is to one unlock: one line and one subtle bar.
+
+    Ambient only, and the loudness ceiling for every pre-gate screen (surfacing.md). The
+    thresholds are the engine's own bars, so a screen cannot promise a number the engine
+    is not gating on; ``share`` is those bars averaged, which is the bar to draw.
+
+    It lives here rather than on either screen because both pre-gate screens draw it -
+    Watchlist against *ready*, Discovery against *forming* - and two copies of it would be
+    two chances for the two screens to disagree about what progress means.
+    """
+
+    share: float
+    thresholds: list[Threshold]
+
+    @classmethod
+    def toward(cls, bars: Sequence[Bar]) -> "Progress":
+        cleared = [min(1.0, bar.have / bar.need) if bar.need else 1.0 for bar in bars]
+        return cls(
+            share=sum(cleared) / len(cleared) if cleared else 0.0,
+            thresholds=[Threshold.of(bar) for bar in bars],
+        )
 
 
 class Stage(BaseModel):

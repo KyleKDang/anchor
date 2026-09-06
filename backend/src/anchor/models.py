@@ -183,6 +183,13 @@ class Film(Base):
     credits: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
     vote_average: Mapped[float] = mapped_column(Float, nullable=False)
     vote_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    original_language: Mapped[str | None] = mapped_column(String(16))
+    """TMDB's ISO code for the language the film was made in.
+
+    Stored for exactly one reader: a profile constraint with a language footprint is
+    enforced mechanically in the discovery prefilter (taste-profile.md), and a rule about
+    languages needs a column that names one. Nullable because the catalog predates it.
+    """
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
@@ -566,6 +573,39 @@ class ComparisonLogEntry(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+
+
+class Dismissal(Base):
+    """The owner's "not interested" on a discovery suggestion (discovery.md).
+
+    Deliberately orthogonal to the lifecycle state: a dismissed film can later be
+    hand-added or watched, at which point the suppression is moot - the feed never
+    suggests a tracked film anyway - but the record stays, because the dismissal is a
+    fact about their taste and the accumulated pattern is the one queue signal in Anchor
+    that feeds the prose profile (ADR 0006).
+
+    Permanent until lifted, and lifting stamps rather than deletes, the way a profile
+    constraint does: the owner changing their mind is itself evidence. The feed only ever
+    reads the unlifted ones. Rows are written by the feed's actions (#39); what lives
+    here is the invariant the shelf is built under - only untracked, undismissed films
+    are ever suggested - and the column that lets it be enforced.
+    """
+
+    __tablename__ = "dismissals"
+    __table_args__ = (UniqueConstraint("account_id", "film_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    film_id: Mapped[int] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    lifted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner took it back. None means the film is still suppressed."""
 
 
 class WatchStanding(enum.StrEnum):
@@ -964,6 +1004,127 @@ class TasteMetrics(Base):
     computed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
+
+
+class FitBucket(enum.StrEnum):
+    """How well the reranker thought a film fits this owner, coarsely.
+
+    Internal, always (discovery.md): the bucket decides whether a film may reach the
+    shelf and in which half of it, and only the explanation is ever shown. A bucket on a
+    card would be a rating-shaped prediction about an unwatched film, which ADR 0005
+    bars outright.
+    """
+
+    strong_fit = "strong_fit"
+    plausible = "plausible"
+    poor_fit = "poor_fit"
+    """Cached as a negative: never shown, and never sent to the reranker again."""
+
+
+class Verdict(Base):
+    """The precomputed judgment behind one suggestion, keyed by profile version.
+
+    Append-only across versions (data-model.md): a regeneration bumps the version and
+    every verdict written against the old one stays exactly where it is. That is what
+    makes the bump both the cache invalidation *and* the degraded-mode fallback - under a
+    spend cap the feed still has last version's judgment of the film, and discovery.md
+    says a stale verdict stays usable rather than being thrown away.
+
+    ``rank`` is the listwise rank context: the film's place in the window it was judged
+    in. It is not comparable across windows on its own, which is why the shelf orders by
+    bucket first and breaks ties on the linear scorer.
+    """
+
+    __tablename__ = "verdicts"
+    __table_args__ = (UniqueConstraint("account_id", "film_id", "profile_version"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    film_id: Mapped[int] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
+    )
+    profile_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    """The prose profile version this judgment was made against; the whole cache key.
+
+    Not a foreign key: the version is the account's own monotonic counter, and a verdict
+    outliving the pruning of an ancient prose row is housekeeping rather than a
+    contradiction.
+    """
+    fit: Mapped[FitBucket] = mapped_column(Enum(FitBucket, name="fit_bucket"), nullable=False)
+    explanation: Mapped[str] = mapped_column(String, nullable=False)
+    """The exemplar-grounded pitch, precomputed because no screen may wait on one."""
+    rank: Mapped[int] = mapped_column(Integer, nullable=False)
+    computed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class Suggestion(Base):
+    """One film currently on the feed's shelf.
+
+    The shelf is persisted rather than computed per read, because it is the statement the
+    owner acted on: engine-driven changes land at session boundaries only (discovery.md),
+    and a list recomputed on every request would move under their cursor.
+
+    **Invariants**: every suggestion points at a verdict, so a film with no verdict can
+    never reach the shelf (the never-pad rule); only untracked, undismissed films are
+    suggested; the shelf runs short rather than pad.
+    """
+
+    __tablename__ = "suggestions"
+    __table_args__ = (
+        UniqueConstraint("account_id", "film_id"),
+        # Deferred like the ordering's positions: rebuilding the shelf rewrites the whole
+        # run of them, and mid-rewrite two rows momentarily share a position.
+        UniqueConstraint(
+            "account_id",
+            "position",
+            deferrable=True,
+            initially="DEFERRED",
+            name="uq_suggestions_account_id_position",
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    film_id: Mapped[int] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
+    )
+    verdict_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("verdicts.id", ondelete="CASCADE"), nullable=False
+    )
+    """The judgment this card is standing on, and where its pitch is read from."""
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    """Dense from 0, best first. Position is the entire public statement (ADR 0005)."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class FeedState(Base):
+    """The per-account bookkeeping the feed's economy runs on.
+
+    One column so far, and it is a spend gate: a restock sources a few hundred candidates
+    from TMDB and reranks the ones it has no verdict for, so it may not run again simply
+    because a screen was loaded twice. Stamping the profile version it ran for makes the
+    pipeline idempotent per version - which is exactly the granularity the verdict cache
+    is keyed at, so a restock that would find nothing new to judge never starts.
+    """
+
+    __tablename__ = "feed_states"
+    __table_args__ = (UniqueConstraint("account_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    restocked_profile_version: Mapped[int | None] = mapped_column(Integer)
+    """The version the last restock ran for; None until one ever has."""
+    restocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
 
 class ImportStatus(enum.StrEnum):

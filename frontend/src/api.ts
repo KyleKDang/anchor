@@ -374,6 +374,38 @@ export type Unlock = "discovery" | "watchlist";
 export interface Unlocks {
   discovery: boolean;
   watchlist: boolean;
+  /** Discovery unlocks a whole readiness state earlier, so this is the first to fire. */
+  discovery: boolean;
+}
+
+/**
+ * One card on the discovery shelf.
+ *
+ * There is deliberately no fit, no bucket, no score and no rank: position is the entire
+ * public statement (ADR 0005), and the pitch is the only thing the engine ever says out
+ * loud about why a film is here.
+ */
+export interface Suggestion {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+  genres: string[];
+  directors: string[];
+  /** The plot summary, shown behind the spoiler toggle every surface puts it behind. */
+  overview: string;
+  /** "Because you loved X and Y - ...", precomputed and visible by default. */
+  pitch: string;
+}
+
+/** The Discovery screen: the shelf, or the honest explanation of why there is not one. */
+export interface Feed {
+  readiness: Readiness;
+  unlocked: boolean;
+  /** Why the feed is not live yet. Null once it is. */
+  progress: TierProgress | null;
+  /** Up to about twenty, and fewer whenever the pipeline is thin. Never padded. */
+  films: Suggestion[];
 }
 
 /** Which of the export's five files a row came out of; the rest is discarded unread. */
@@ -646,6 +678,13 @@ export const api = {
   unlocks: () => request<Unlocks>("GET", "/api/unlocks"),
   /** Arriving at Discovery, which is what clears its dot. */
   seenDiscovery: () => request<void>("DELETE", "/api/unlocks/discovery"),
+  /**
+   * The shelf, and the moment the next restock is queued. Arriving at the screen is the
+   * session boundary the shelf changes at; the screen reloading after the owner's own
+   * action is not one, and says so.
+   */
+  feed: ({ boundary = true }: { boundary?: boolean } = {}) =>
+    request<Feed>("GET", `/api/discovery${boundary ? "" : "?boundary=false"}`),
 
   importState: () => request<ImportState>("GET", "/api/import"),
   importWarning: () => request<ImportWarning>("GET", "/api/import/warning"),

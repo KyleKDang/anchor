@@ -73,16 +73,38 @@ class FeatureSpace:
 
     def vector(self, film: Film) -> np.ndarray:
         """One film as a row in this space. Facts with no column here simply drop out."""
+        return self.row(symbols(film), priors(film))
+
+    def row(self, present: Iterable[str], measured: tuple[float, float]) -> np.ndarray:
+        """A row built from whatever facts the caller happens to hold.
+
+        The discovery prefilter is why this is separate from :meth:`vector`: it scores
+        TMDB *list* rows, which carry genres and the two priors and nothing else, and
+        bundling every candidate to learn its director would be hundreds of calls spent
+        on films the prefilter is about to throw away. A fact the caller does not have
+        drops out exactly the way a fact this space has no column for does, so a partial
+        row is a lower bound on the film's score rather than a different measure.
+        """
         row = np.zeros(len(self.columns))
         index = {column: position for position, column in enumerate(self.columns)}
-        for symbol in symbols(film):
+        for symbol in present:
             position = index.get(symbol)
             if position is not None:
                 row[position] = self.values[position]
-        for prior, value in zip(PRIORS, priors(film), strict=True):
+        for prior, value in zip(PRIORS, measured, strict=True):
             position = index[prior]
             row[position] = (value - self.centres[position]) / self.scales[position]
         return row
+
+    def standardised(self, prior: str, value: float) -> float:
+        """One prior on the library's own scale: the number its column would carry.
+
+        The discovery damper reads this. It leans against popularity in the units the
+        weights are already in, so the same setting behaves the same on a library of
+        forty films and one of six hundred.
+        """
+        position = self.columns.index(prior)
+        return (value - self.centres[position]) / self.scales[position]
 
     def to_json(self) -> dict[str, list[Any]]:
         """The space as it is stored beside the weights, which are meaningless without it."""

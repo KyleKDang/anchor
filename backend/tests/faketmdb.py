@@ -16,6 +16,34 @@ import httpx
 
 BASE_URL = "https://api.themoviedb.org/3"
 
+GENRE_IDS = {
+    "Action": 28,
+    "Adventure": 12,
+    "Animation": 16,
+    "Comedy": 35,
+    "Crime": 80,
+    "Documentary": 99,
+    "Drama": 18,
+    "Family": 10751,
+    "Fantasy": 14,
+    "History": 36,
+    "Horror": 27,
+    "Music": 10402,
+    "Mystery": 9648,
+    "Romance": 10749,
+    "Science Fiction": 878,
+    "TV Movie": 10770,
+    "Thriller": 53,
+    "War": 10752,
+    "Western": 37,
+}
+"""TMDB's real genre vocabulary and its real ids.
+
+Real rather than invented, because the pipeline turns a genre *name* from the feature
+space into an id for a discover slice and back again, and a fake with ids of its own
+would let that round trip be wrong in a way no test could see.
+"""
+
 _NOT_WORD = re.compile(r"[^0-9a-z]+")
 
 
@@ -51,6 +79,7 @@ class FilmFixture:
     vote_average: float = 8.4
     vote_count: int = 27000
     popularity: float = 25.0
+    original_language: str = "en"
 
     @property
     def year(self) -> int | None:
@@ -65,6 +94,10 @@ class FilmFixture:
             "overview": self.overview,
             "poster_path": self.poster_path,
             "popularity": self.popularity,
+            "genre_ids": [GENRE_IDS[name] for name in self.genres],
+            "original_language": self.original_language,
+            "vote_average": self.vote_average,
+            "vote_count": self.vote_count,
         }
 
     def detail(self) -> dict[str, Any]:
@@ -73,9 +106,7 @@ class FilmFixture:
             **self.hit(),
             "backdrop_path": self.backdrop_path,
             "runtime": self.runtime,
-            "genres": [{"id": 100 + i, "name": name} for i, name in enumerate(self.genres)],
-            "vote_average": self.vote_average,
-            "vote_count": self.vote_count,
+            "genres": [{"id": GENRE_IDS[name], "name": name} for name in self.genres],
             "credits": {
                 "cast": [
                     {"id": 200 + i, "name": name, "order": i} for i, name in enumerate(self.cast)
@@ -110,6 +141,14 @@ NOSFERATU = FilmFixture(
 )
 
 
+def _people_ids(film: FilmFixture) -> list[int]:
+    """The person ids the detail payload would credit, so a slice can be steered at one."""
+    detail = film.detail()["credits"]
+    return [person["id"] for person in detail["cast"]] + [
+        person["id"] for person in detail["crew"] if person["job"] == "Director"
+    ]
+
+
 @dataclass
 class FakeTmdb:
     """TMDB's HTTP edge: a canned catalog, a request log, and scriptable failures."""
@@ -120,9 +159,23 @@ class FakeTmdb:
     """Upcoming requests to answer 429 before serving normally."""
     retry_after: str | None = None
     down: bool = False
+    neighbours: dict[int, tuple[FilmFixture, ...]] = field(default_factory=dict)
+    """What ``/similar`` and ``/recommendations`` answer, per seed film."""
 
     def with_films(self, *films: FilmFixture) -> "FakeTmdb":
         self.catalog.update({film.tmdb_id: film for film in films})
+        return self
+
+    def with_neighbours(self, seed: int, *films: FilmFixture) -> "FakeTmdb":
+        """What TMDB says is near one film. Both neighbour endpoints answer the same set.
+
+        One set rather than two, because nothing in Anchor treats them differently - the
+        pipeline unions them and the prefilter scores what comes out - and a fake that
+        told them apart would be inviting a test to assert on which endpoint found a film,
+        which is exactly the implementation detail the seam exists to hide.
+        """
+        self.with_films(*films)
+        self.neighbours[seed] = films
         return self
 
     def throttle_next(self, count: int, retry_after: str | None = None) -> None:
@@ -162,6 +215,19 @@ class FakeTmdb:
                 ),
             )
             return httpx.Response(200, json={"page": 1, "results": [f.hit() for f in ranked]})
+        if path == "/genre/movie/list":
+            return httpx.Response(
+                200,
+                json={"genres": [{"id": id, "name": name} for name, id in GENRE_IDS.items()]},
+            )
+        if path == "/discover/movie":
+            return httpx.Response(
+                200, json={"page": 1, "results": [f.hit() for f in self._steered(request)]}
+            )
+        if path.endswith(("/similar", "/recommendations")):
+            seed = int(path.removeprefix("/movie/").rsplit("/", 1)[0])
+            near = self.neighbours.get(seed, ())
+            return httpx.Response(200, json={"page": 1, "results": [f.hit() for f in near]})
         if path.startswith("/movie/"):
             film = self.catalog.get(int(path.removeprefix("/movie/")))
             if film is None:
@@ -171,7 +237,37 @@ class FakeTmdb:
             return httpx.Response(200, json=film.detail())
         raise AssertionError(f"the fake has no answer for {path}")
 
+    def _steered(self, request: httpx.Request) -> list[FilmFixture]:
+        """The catalog through one discover slice's filters, popular first, as TMDB ranks.
+
+        The filters are answered rather than ignored, because the whole point of a slice
+        is that it is pointed somewhere: a fake that returned everything would let a
+        pipeline steer at the wrong feature and still pass.
+        """
+        query = parse_qs(request.url.query.decode())
+        genre = query.get("with_genres")
+        person = query.get("with_people")
+        floor = int(query.get("vote_count.gte", ["0"])[0])
+        found = []
+        for film in self.catalog.values():
+            if genre and int(genre[0]) not in [GENRE_IDS[name] for name in film.genres]:
+                continue
+            if person and int(person[0]) not in _people_ids(film):
+                continue
+            if film.vote_count < floor:
+                continue
+            found.append(film)
+        return sorted(found, key=lambda film: -film.popularity)
+
     # --- What tests assert on ---
+
+    def sliced(self) -> list[dict[str, list[str]]]:
+        """The parameters of every discover slice asked for, in order."""
+        return [
+            parse_qs(request.url.query.decode())
+            for request in self.requests
+            if request.url.path.removeprefix("/3") == "/discover/movie"
+        ]
 
     def paths(self) -> list[str]:
         return [request.url.path.removeprefix("/3") for request in self.requests]
