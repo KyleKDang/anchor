@@ -21,15 +21,10 @@ from faketmdb import FilmFixture
 from flows import account_id
 from invariants import (
     account_realm_tables,
-    assert_bands_derived,
-    assert_bands_well_formed,
     assert_ordering_well_formed,
-    assert_seeded_slots_only_shrank,
+    bands_reported,
     comparison_log,
-    dividers,
     last_synced_ratings,
-    placement_trust,
-    seeded_slots,
     watch_clock,
     watch_events,
 )
@@ -44,10 +39,10 @@ SEEDS = tuple(
     FilmFixture(7000 + n, f"Seed {n:02d}", release_date=f"{1990 + n}-06-01", popularity=30.0 + n)
     for n in range(10)
 )
-"""One rated film per band, so a full export pins all nine dividers."""
+"""One rated film per band, so a full export fills all ten rows of the wall."""
 
 TWIN = FilmFixture(7100, "Seed 04 Also", release_date="2010-01-01", popularity=12.0)
-"""A second film at 3.0, so one band's provisional tie-group holds two."""
+"""A second film at 3.0, so one band row holds two and the default order has to seat them."""
 
 WANTED = FilmFixture(7200, "Wanted Someday", release_date="2021-01-01", popularity=8.0)
 """Only on the watchlist: the seeded backlog."""
@@ -123,13 +118,14 @@ async def test_profile_pii_is_discarded_unread(owner, db):
     assert export.EMAIL not in repr(rows)
 
 
-def _slots(payload):
-    """The ordering as sorted slot membership.
+def _default_order(tmdb_id):
+    """The default order's key over the fixtures here, restated rather than imported.
 
-    Within a slot the films are tied, so whatever order the screen happens to list them
-    in says nothing an assertion should hold it to.
+    Every fixture in this module shares a vote average and count, so the shrinkage is a
+    constant and the title tiebreak is the whole of it - which is the honest way to say
+    what the assertions expect without asking the code under test what it thinks.
     """
-    return [sorted(slot) for slot in flows.ordering_of(payload)]
+    return next(film.title for film in (*SEEDS, TWIN, SEEN_ONLY, WANTED) if film.tmdb_id == tmdb_id)
 
 
 async def owner_id(client):
@@ -159,10 +155,10 @@ async def test_a_full_export_seeds_the_library_the_owner_already_recognises(
     """One import, and the account has its ratings, its backlog, and its history.
 
     The whole of the first acceptance criterion in one flow, because that is how the
-    owner meets it: ratings become provisional tie-groups pinning the dividers so the
-    familiar half-stars show at once, watchlist rows seed the backlog, a watched row
-    with no rating takes a rate-later seat, diary rows become watch events, and
-    profile.csv yields a favourite and nothing else.
+    owner meets it: every rated row lands in its band at its default rank, rated and
+    final, watchlist rows seed the backlog, a watched row with no rating takes a
+    rate-later seat, diary rows become watch events, and profile.csv yields a favourite
+    and nothing else.
     """
     account = await owner_id(owner)
     await flows.upload_export(
@@ -185,28 +181,17 @@ async def test_a_full_export_seeds_the_library_the_owner_already_recognises(
     assert (state["pending"], state["review_pending"], state["unmatched"]) == (0, 0, 0)
 
     payload = await flows.rated(owner)
-    # Ten tie-groups, best to worst, one per half-star value - and the eleventh rating
-    # joins the group its value already has rather than being ordered inside it.
-    assert flows.ordering_of(payload) == [
-        *[[film.tmdb_id] for film in SEEDS[:4]],
-        sorted([SEEDS[4].tmdb_id, TWIN.tmdb_id]),
-        *[[film.tmdb_id] for film in SEEDS[5:]],
-    ]
+    # Ten band rows, best first, one per half-star value - and the eleventh rating lands
+    # in the row its value names, seated by the default order rather than by arrival.
+    assert flows.ordering_of(payload) == {
+        **{band: [film.tmdb_id] for film, band in zip(SEEDS, BANDS, strict=True)},
+        3.0: sorted([SEEDS[4].tmdb_id, TWIN.tmdb_id], key=_default_order),
+    }
     assert flows.bands_of(payload) == {
         **{film.tmdb_id: band for film, band in zip(SEEDS, BANDS, strict=True)},
         TWIN.tmdb_id: 3.0,
     }
-    assert all(
-        film["provisional"]
-        for group in payload["groups"]
-        for slot in group["slots"]
-        for film in slot
-    )
-
-    # All nine dividers pinned, because every band came out of the export holding a film.
-    assert sorted(await dividers(db, account)) == sorted(BANDS[:-1])
-    await assert_bands_derived(db, account, flows.bands_of(payload))
-    await assert_bands_well_formed(db, account)
+    await bands_reported(db, account, flows.bands_of(payload))
     await assert_ordering_well_formed(db, account)
 
     # The watchlist seeds the backlog; the film rated in the same import does not join it.
@@ -224,13 +209,6 @@ async def test_a_full_export_seeds_the_library_the_owner_already_recognises(
         (SEEDS[1].tmdb_id, "import_seeded", True),
     ]
 
-    # Every seeded placement is provisional, and says the import put it there.
-    assert set(await placement_trust(db, account)) == {
-        *(film.tmdb_id for film in SEEDS),
-        TWIN.tmdb_id,
-    }
-    assert set((await placement_trust(db, account)).values()) == {("provisional", "import_seeded")}
-
     # The sync list's baseline: what Letterboxd holds, as far as Anchor knows.
     assert await last_synced_ratings(db, account) == {
         **{film.tmdb_id: band for film, band in zip(SEEDS, BANDS, strict=True)},
@@ -238,23 +216,60 @@ async def test_a_full_export_seeds_the_library_the_owner_already_recognises(
     }
 
 
-async def test_no_within_band_order_is_fabricated(owner, stocked, db, run_jobs):
-    """Two films rated the same value share one slot; nothing puts one above the other."""
+async def test_two_films_of_one_band_take_the_default_order(owner, stocked, db, run_jobs):
+    """Nothing about arrival is a judgment: the row is seated by the rule, not by the CSV.
+
+    The two are exported in the order the assertion does *not* expect, so the only thing
+    that could produce the row read back is the default order itself.
+    """
     await flows.upload_export(
         owner,
         export.export(
             ratings=(
-                Row(SEEDS[4].title, SEEDS[4].year, rating=3.0),
                 Row(TWIN.title, TWIN.year, rating=3.0),
+                Row(SEEDS[4].title, SEEDS[4].year, rating=3.0),
             )
         ),
     )
     await run_jobs()
 
-    assert _slots(await flows.rated(owner)) == [sorted([SEEDS[4].tmdb_id, TWIN.tmdb_id])]
-    assert await seeded_slots(db, await owner_id(owner)) == [
-        sorted([SEEDS[4].tmdb_id, TWIN.tmdb_id])
-    ]
+    row = flows.ordering_of(await flows.rated(owner))[3.0]
+    assert row == sorted([SEEDS[4].tmdb_id, TWIN.tmdb_id], key=_default_order)
+    await assert_ordering_well_formed(db, await owner_id(owner))
+
+
+async def test_a_low_vote_film_with_a_perfect_average_does_not_top_its_row(
+    owner, stocked, tmdb, db, run_jobs
+):
+    """The shrinkage, at the one moment it matters most: a whole library seated at once."""
+    obscure = FilmFixture(7600, "Obscure Gem", "1999-01-01", vote_average=10.0, vote_count=3)
+    famous = FilmFixture(7601, "Everyone Saw It", "1999-01-01", vote_average=8.3, vote_count=12000)
+    tmdb.with_films(obscure, famous)
+
+    await flows.upload_export(
+        owner,
+        export.export(
+            ratings=(
+                Row(obscure.title, obscure.year, rating=4.0),
+                Row(famous.title, famous.year, rating=4.0),
+            )
+        ),
+    )
+    await run_jobs()
+
+    assert flows.ordering_of(await flows.rated(owner))[4.0] == [famous.tmdb_id, obscure.tmdb_id]
+
+
+async def test_nothing_provisional_exists_and_the_sync_list_is_empty(owner, stocked, db, run_jobs):
+    """A rated row is rated and final the moment it is matched (ADR 0013)."""
+    await flows.upload_export(owner, export.export(ratings=_rated_rows()))
+    await run_jobs()
+
+    payload = await flows.rated(owner)
+    listed = flows.listed_of(payload)
+    assert listed and not any("provisional" in film for film in listed)
+    assert "settling" not in payload
+    assert (await flows.sync_list(owner))["count"] == 0
 
 
 # --- What the matcher will and will not decide ---
@@ -352,7 +367,7 @@ async def test_two_films_of_one_name_are_a_question_the_owner_answers(owner, edg
     assert row["candidates"][0]["directors"] == ["David Fincher"]
 
     # Nothing has happened to the account: a row waiting on an answer affects nothing.
-    assert flows.ordering_of(await flows.rated(owner)) == []
+    assert flows.ordering_of(await flows.rated(owner)) == {}
 
 
 async def test_a_row_with_no_film_behind_it_waits_indefinitely(owner, edges, run_jobs):
@@ -379,7 +394,7 @@ async def test_a_row_with_no_film_behind_it_waits_indefinitely(owner, edges, run
         "A Film Since Deleted",
         "Some Miniseries Letterboxd Hosts",
     ]
-    assert flows.ordering_of(await flows.rated(owner)) == []
+    assert flows.ordering_of(await flows.rated(owner)) == {}
 
 
 # --- The retrain is the import's, not the import ---
@@ -567,7 +582,7 @@ async def test_the_wipe_covers_every_table_an_account_owns(db):
 
 
 async def test_the_warning_enumerates_what_it_is_about_to_destroy(owner, stocked, run_jobs):
-    """Counted, not described: "50 ratings, 200 comparisons" is something to weigh."""
+    """Counted, not described: "3 ratings, 3 answers, 1 anchor" is something to weigh."""
     await flows.upload_export(
         owner,
         export.export(
@@ -577,31 +592,31 @@ async def test_the_warning_enumerates_what_it_is_about_to_destroy(owner, stocked
         ),
     )
     await run_jobs()
-    await flows.designate(owner, 5.0, SEEDS[0])
+    await flows.mark_anchor(owner, SEEDS[0])
 
     warning = await flows.reset_warning(owner)
     assert (warning["rated_films"], warning["backlog_films"], warning["watch_events"]) == (3, 1, 1)
     assert warning["anchors"] == 1
-    # Nothing has been answered yet, so the counts carry the whole warning by themselves.
-    assert (warning["comparisons"], warning["confirmation_required"]) == (0, False)
+    # Three imported ratings are three recorded band picks: what the log is about to lose.
+    assert warning["judgments"] == 3
 
 
-@pytest.mark.settings(import_reset_confirm_comparisons=0)
-async def test_a_re_import_over_answered_comparisons_makes_the_owner_type(owner, stocked, run_jobs):
-    """Once the owner has actually answered questions, the log is worth stopping for."""
+@pytest.mark.settings(import_reset_confirm_judgments=0)
+async def test_a_re_import_over_a_real_log_makes_the_owner_type(owner, stocked, run_jobs):
+    """Once the owner has made real judgments, the log is worth stopping for."""
     await flows.upload_export(owner, export.export(ratings=_rated_rows()[:3]))
     await run_jobs()
-    await flows.place(owner, SEEN_ONLY, "b")
+    await flows.rate(owner, SEEN_ONLY, 2.0)
 
     warning = await flows.reset_warning(owner)
-    assert warning["comparisons"] > 0
+    assert warning["judgments"] > 0
     assert warning["confirmation_required"]
 
     again = export.export(ratings=(Row(WANTED.title, WANTED.year, rating=1.0),))
     await flows.upload_export(owner, again, expect=409)
     await flows.upload_export(owner, again, confirm="not the phrase", expect=409)
     # Everything is still there: a refused reset destroys nothing.
-    assert len(flows.ordering_of(await flows.rated(owner))) == 4
+    assert len(flows.listed_of(await flows.rated(owner))) == 4
 
     await flows.upload_export(owner, again, confirm=warning["confirmation_phrase"])
 
@@ -611,7 +626,7 @@ async def test_a_re_import_rebuilds_from_the_new_export_alone(owner, stocked, db
     account = await owner_id(owner)
     await flows.upload_export(owner, export.export(ratings=_rated_rows()[:3]))
     await run_jobs()
-    await flows.designate(owner, 5.0, SEEDS[0])
+    await flows.mark_anchor(owner, SEEDS[0])
     await flows.add_to_backlog(owner, WANTED)  # hand-added, and it goes too
 
     await flows.upload_export(
@@ -623,7 +638,7 @@ async def test_a_re_import_rebuilds_from_the_new_export_alone(owner, stocked, db
     )
     await run_jobs()
 
-    assert flows.ordering_of(await flows.rated(owner)) == [[SEEN_ONLY.tmdb_id]]
+    assert flows.ordering_of(await flows.rated(owner)) == {2.0: [SEEN_ONLY.tmdb_id]}
     assert flows.bands_of(await flows.rated(owner)) == {SEEN_ONLY.tmdb_id: 2.0}
     assert [film["tmdb_id"] for film in (await flows.backlog(owner))["films"]] == [TWIN.tmdb_id]
     assert await anchor_rows(db, account) == {}
@@ -631,7 +646,7 @@ async def test_a_re_import_rebuilds_from_the_new_export_alone(owner, stocked, db
     # The one exception to the comparison log's never-deleted rule: only the new export's
     # own band judgments remain, and every one of them was made by this import.
     log = await comparison_log(db, account)
-    assert {str(entry[6]) for entry in log} == {"seed_import"}
+    assert {str(entry[7]) for entry in log} == {"seed_import"}
     assert len(log) == 1
     await assert_ordering_well_formed(db, account)
 
@@ -663,10 +678,10 @@ async def test_a_first_import_over_an_account_the_owner_already_started_resets_i
     )
     await run_jobs()
 
-    assert flows.ordering_of(await flows.rated(owner)) == [[SEEN_ONLY.tmdb_id]]
+    assert flows.ordering_of(await flows.rated(owner)) == {2.0: [SEEN_ONLY.tmdb_id]}
     assert (await flows.backlog(owner))["films"] == []
     log = await comparison_log(db, account)
-    assert {str(entry[6]) for entry in log} == {"seed_import"}
+    assert {str(entry[7]) for entry in log} == {"seed_import"}
     await assert_ordering_well_formed(db, account)
 
 
@@ -677,30 +692,28 @@ async def test_a_first_import_into_an_empty_account_destroys_nothing(owner, stoc
     nothing and the upload asks for no confirmation.
     """
     warning = await flows.reset_warning(owner)
-    assert (warning["rated_films"], warning["comparisons"], warning["backlog_films"]) == (0, 0, 0)
+    assert (warning["rated_films"], warning["judgments"], warning["backlog_films"]) == (0, 0, 0)
     assert not warning["confirmation_required"]
 
     await flows.upload_export(owner, export.export(ratings=_rated_rows()))
     await run_jobs()
-    assert len(flows.ordering_of(await flows.rated(owner))) == 10
+    assert len(flows.listed_of(await flows.rated(owner))) == 11
 
 
-@pytest.mark.settings(import_reset_confirm_comparisons=0)
-async def test_a_first_import_over_answered_comparisons_makes_the_owner_type(
-    owner, stocked, run_jobs
-):
+@pytest.mark.settings(import_reset_confirm_judgments=0)
+async def test_a_first_import_over_a_real_log_makes_the_owner_type(owner, stocked, run_jobs):
     """A log worth protecting is worth protecting whether or not an import made it."""
-    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]])
+    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]], band=4.0)
 
     warning = await flows.reset_warning(owner)
-    assert warning["comparisons"] > 0
+    assert warning["judgments"] > 0
     assert warning["confirmation_required"]
 
     again = export.export(ratings=(Row(WANTED.title, WANTED.year, rating=1.0),))
     await flows.upload_export(owner, again, expect=409)
     await flows.upload_export(owner, again, confirm="not the phrase", expect=409)
     # A refused reset destroys nothing: both hand-placed films are still there.
-    assert len(flows.ordering_of(await flows.rated(owner))) == 2
+    assert len(flows.listed_of(await flows.rated(owner))) == 2
 
     await flows.upload_export(owner, again, confirm=warning["confirmation_phrase"])
 
@@ -713,7 +726,7 @@ async def test_every_rated_film_records_what_letterboxd_holds(owner, stocked, db
     unconditional those films no longer survive to be skipped, and the guard is left
     covering the case it was written for: one film named by two rows of one export.
     """
-    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]])
+    await flows.build_ordering(owner, [SEEDS[0], SEEDS[1]], band=4.0)
 
     await flows.upload_export(
         owner,
@@ -732,85 +745,6 @@ async def test_every_rated_film_records_what_letterboxd_holds(owner, stocked, db
 
 
 # --- The provisional lifecycle, as it applies to seeded films ---
-
-TRIO = tuple(
-    FilmFixture(7800 + n, f"Trio {n}", release_date=f"{2000 + n}-01-01", popularity=5.0)
-    for n in range(3)
-)
-"""Three films rated the same value: one provisional tie-group with room to shrink."""
-
-
-@pytest.fixture
-def trio(tmdb):
-    return tmdb.with_films(*TRIO, *SEEDS, SEEN_ONLY)
-
-
-async def test_an_imported_film_is_an_opponent_and_the_answer_is_its_first_evidence(
-    owner, trio, db, run_jobs
-):
-    """Post-import there is nothing else to compare against, so seeds are the opponents.
-
-    And a comparison run for another film's placement is evidence about the seed too: it
-    is what pulls a seeded position towards a settled one without ever asking the owner
-    an extra question. Here one placement between two seeds settles both of them, and
-    their placements graduate - still recording that the import is what put them there.
-    """
-    account = await owner_id(owner)
-    await flows.upload_export(
-        owner,
-        export.export(
-            ratings=(
-                Row(SEEDS[0].title, SEEDS[0].year, rating=5.0),
-                Row(SEEDS[1].title, SEEDS[1].year, rating=3.0),
-            )
-        ),
-    )
-    await run_jobs()
-    assert set((await placement_trust(db, account)).values()) == {("provisional", "import_seeded")}
-
-    await flows.place_at(owner, SEEN_ONLY, [SEEDS[0].tmdb_id, SEEDS[1].tmdb_id], 1)
-
-    trust = await placement_trust(db, account)
-    assert trust[SEEDS[0].tmdb_id] == ("full", "import_seeded")
-    assert trust[SEEDS[1].tmdb_id] == ("full", "import_seeded")
-    assert trust[SEEN_ONLY.tmdb_id] == ("full", "completed")
-
-
-async def test_a_tie_against_a_seeded_film_pulls_it_out_of_its_group(owner, trio, db, run_jobs):
-    """Provisional membership is never inherited, so the seed comes out to meet the film.
-
-    The owner judged one film equal to one other film. Joining the group would assert it
-    equal to two more it was never compared with, which is the within-band order the
-    whole design refuses to invent - so the tie opens a definitive two-film slot at the
-    position the seed already held, and the group it left only shrinks.
-    """
-    account = await owner_id(owner)
-    await flows.upload_export(
-        owner, export.export(ratings=tuple(Row(film.title, film.year, rating=4.0) for film in TRIO))
-    )
-    await run_jobs()
-    before = await seeded_slots(db, account)
-    assert before == [sorted(film.tmdb_id for film in TRIO)]
-
-    await flows.mark_watched(owner, SEEN_ONLY, "now")
-    step = await flows.begin(owner, SEEN_ONLY)
-    opponent = step["b"]["tmdb_id"]
-    await flows.answer(owner, SEEN_ONLY, opponent, "tied")
-
-    others = sorted(film.tmdb_id for film in TRIO if film.tmdb_id != opponent)
-    payload = await flows.rated(owner)
-    assert _slots(payload) == [sorted([opponent, SEEN_ONLY.tmdb_id]), others]
-    # Nothing changed band: both slots are still the 4.0 the export said they were.
-    assert set(flows.bands_of(payload).values()) == {4.0}
-
-    trust = await placement_trust(db, account)
-    assert trust[opponent] == ("full", "import_seeded")
-    assert trust[SEEN_ONLY.tmdb_id] == ("full", "completed")
-    assert {trust[film] for film in others} == {("provisional", "import_seeded")}
-
-    assert_seeded_slots_only_shrank(before, await seeded_slots(db, account))
-    await assert_ordering_well_formed(db, account)
-    await assert_bands_well_formed(db, account)
 
 
 async def test_one_film_is_one_question_however_many_lines_named_it(owner, edges, run_jobs):

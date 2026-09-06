@@ -1,30 +1,22 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router";
 
-import {
-  BANDS,
-  api,
-  messageOf,
-  type DriftFlag,
-  type FilmDetail,
-  type KeepOpponent,
-} from "../api";
-import { AnchorBadge, Band, ProvisionalMark } from "../films/Band";
+import { api, messageOf, type FilmDetail, type Judgment } from "../api";
+import { AnchorBadge, Band } from "../films/Band";
 import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { StateFlag } from "../films/StateFlag";
-import { placePath, releaseYear } from "../films/tmdb";
+import { filmPath, placePath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
  * The film page, reached by tapping a film anywhere. It is not a destination of its own.
  *
  * The page shifts with the film's state: untracked and in-backlog offer the backlog and
- * the watch, watched-unrated carries the seen marker and place-it-now, and rated shows
- * its band, whether it anchors that band, the designation control, the rewatch, and the
- * drift flag with its resolution options where one is open. Pin and veto arrive with the
- * ranked tier; the judgment history with the criteria system.
+ * the watch, watched-unrated carries the seen marker and rate-it-now, and rated shows its
+ * band, its rank inside that band with the films either side of it, the anchor toggle,
+ * the rewatch, and its judgment history. Pin and veto arrive with the ranked tier.
  */
 export function Film() {
   const { tmdbId } = useParams();
@@ -139,7 +131,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
             )}
             {film.state === "watched_unrated" && (
               <Link className="button" to={placePath(film.tmdb_id)}>
-                Place it now
+                Rate it now
               </Link>
             )}
             {film.state === "watched_unrated" && film.rate_later && (
@@ -167,27 +159,22 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
               <p className="film-page-band">
                 <Band band={film.rating} />
                 {film.anchor && <AnchorBadge band={film.rating} />}
-                {/* The same ambient marker the film wears on Rated, and the reason the
-                    offer below reads "settle it now" (surfacing.md). */}
-                {film.provisional && <ProvisionalMark />}
               </p>
-              {film.drift !== null && <Drift film={film} flag={film.drift} onChanged={onChange} />}
+              <Standing film={film} />
               {film.rewatch !== null && <Rewatch film={film} onChanged={onChange} />}
-              {/* One row: logging another watch and asking to place it again are the two
-                  things the owner does to a film they already have an opinion about. Both
-                  stand down at once while a rewatch and a flag are open, and an empty row
-                  is not a row. */}
-              {(film.rewatch === null || film.drift === null) && (
-                <div className="actions">
-                  <Watched film={film} onChanged={onChange} />
-                  {film.drift === null && <RePlace film={film} />}
-                </div>
-              )}
-              {film.drift === null && film.anchor && <AnchorWarning band={film.rating} />}
-              <Designate film={film} onChanged={onChange} />
+              {/* One row: logging another watch and rating it again are the two things the
+                  owner does to a film they already have an opinion about. */}
+              <div className="actions">
+                <Watched film={film} onChanged={onChange} />
+                <Link className="button secondary" to={placePath(film.tmdb_id)}>
+                  Re-rate it
+                </Link>
+                <AnchorToggle film={film} onChanged={onChange} />
+              </div>
               <p className="muted">
-                <Link to="/rated">See where it sits in your ordering</Link>
+                <Link to={`/rated?film=${film.tmdb_id}`}>See where it sits on the wall</Link>
               </p>
+              <Judgments judgments={film.judgments} />
             </section>
           )}
           {error && (
@@ -198,218 +185,6 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
         </div>
       </article>
     </>
-  );
-}
-
-/**
- * The owner asking outright to place this film again: the fourth door (rating-system.md).
- *
- * One control with two wordings, because the two cases are genuinely different acts. A
- * provisional film holds a placeholder position and unfinished business, so the offer is
- * to finish it; a settled one holds a position the owner's own answers produced, so the
- * offer is to question it. Either way the comparisons decide and this only opens the flow.
- *
- * It stands down while a drift flag is open. That panel asks this exact question already,
- * with the evidence attached, and two buttons into one flow - one of them without the
- * evidence - would read as two different offers.
- */
-function RePlace({ film }: { film: FilmDetail }) {
-  const navigate = useNavigate();
-  const { busy, error, run } = useAsyncAction();
-
-  return (
-    <>
-      <button
-        type="button"
-        className="button secondary"
-        disabled={busy}
-        onClick={() =>
-          void run(async () => {
-            await api.askToRePlace(film.tmdb_id);
-            await navigate(placePath(film.tmdb_id));
-          })
-        }
-      >
-        {film.provisional ? "Settle it now" : "Re-place it"}
-      </button>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-    </>
-  );
-}
-
-/**
- * What re-placing an anchor costs, said before the flow starts rather than after.
- *
- * Shared by the drift panel and the plain offer, because settling never bypasses it: a
- * canonical 4.0 that answers its way into the 3.5s is a contradiction in terms, and the
- * owner is entitled to know that before they answer rather than when the badge vanishes.
- */
-function AnchorWarning({ band }: { band: number | null }) {
-  return (
-    <p className="muted">
-      This is a canonical {band?.toFixed(1)}. Re-placing it somewhere else retires that,
-      and the comparisons decide where it lands.
-    </p>
-  );
-}
-
-/**
- * An open drift flag, and the three ways out of it.
- *
- * The judgments are shown as the owner made them, because the whole question is "did
- * you mean these?" - and re-place, keep, and not-now are the only answers offered.
- * Dragging the film to a slot is deliberately absent: every move goes through
- * comparisons, so changing your mind means answering questions, not choosing a rank.
- *
- * Nothing here is urgent. The film is already benched as an opponent, so leaving this
- * open costs the ordering nothing, and "not now" is a real answer rather than a delay.
- */
-function Drift({
-  film,
-  flag,
-  onChanged,
-}: {
-  film: FilmDetail;
-  flag: DriftFlag;
-  onChanged: (film: FilmDetail) => void;
-}) {
-  const navigate = useNavigate();
-  const { busy, error, run } = useAsyncAction();
-  const [keeping, setKeeping] = useState(false);
-  const [blamed, setBlamed] = useState<number[]>([]);
-
-  // One follow-up per implicated opponent, not per judgment: the owner is deciding about
-  // a film, and two answers about the same one is still only one film to blame.
-  const implicated = [...new Map(flag.judgments.map((j) => [j.opponent.tmdb_id, j.opponent]))];
-  const opponents: KeepOpponent[] = implicated.map(([tmdbId]) => ({
-    opponent_tmdb_id: tmdbId,
-    resolution: blamed.includes(tmdbId) ? "re_point" : "noise",
-  }));
-
-  return (
-    <section className="drift-panel" aria-labelledby="drift-heading">
-      <h3 id="drift-heading">This may have drifted</h3>
-      <p className="muted">
-        {flag.judgments.length === 1
-          ? "A later answer disagrees with where this sits:"
-          : "Later answers disagree with where this sits:"}
-      </p>
-      <ul className="drift-judgments">
-        {said(flag).map((line) => (
-          <li key={line}>{line}</li>
-        ))}
-      </ul>
-
-      {keeping ? (
-        <div className="drift-keep">
-          <p className="muted">
-            Keeping it here, and treating those as slips. Unless one of the other films is
-            the misplaced one - then say so, and the question moves to it.
-          </p>
-          <ul className="drift-judgments">
-            {implicated.map(([tmdbId, opponent]) => (
-              <li key={`blame-${tmdbId}`}>
-                <label className="field field-check">
-                  <input
-                    type="checkbox"
-                    checked={blamed.includes(tmdbId)}
-                    onChange={(event) =>
-                      setBlamed((was) =>
-                        event.target.checked ? [...was, tmdbId] : was.filter((id) => id !== tmdbId),
-                      )
-                    }
-                  />
-                  <span>{opponent.title} is the misplaced one</span>
-                </label>
-              </li>
-            ))}
-          </ul>
-          <div className="actions">
-            <button
-              type="button"
-              className="button"
-              disabled={busy}
-              onClick={() =>
-                void run(async () => {
-                  await api.keepPosition(film.tmdb_id, opponents);
-                  onChanged(await api.film(film.tmdb_id));
-                })
-              }
-            >
-              Keep it here
-            </button>
-            <button
-              type="button"
-              className="link-button"
-              disabled={busy}
-              onClick={() => setKeeping(false)}
-            >
-              Back
-            </button>
-          </div>
-        </div>
-      ) : (
-        <div className="actions">
-          <button
-            type="button"
-            className="button"
-            disabled={busy}
-            onClick={() =>
-              void run(async () => {
-                await api.rePlaceDrift(film.tmdb_id);
-                navigate(placePath(film.tmdb_id));
-              })
-            }
-          >
-            {flag.re_placing ? "Carry on re-placing it" : "My opinion changed"}
-          </button>
-          <button
-            type="button"
-            className="button secondary"
-            disabled={busy}
-            onClick={() => setKeeping(true)}
-          >
-            Those were noise
-          </button>
-        </div>
-      )}
-
-      {flag.anchor_warning && <AnchorWarning band={film.rating} />}
-      {/* No "not now" button: leaving the page *is* not now, and the flag will still be
-          here. Nothing is blocked while it waits. */}
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-    </section>
-  );
-}
-
-/**
- * What the owner actually said, one line per thing they said, however often they said it.
- *
- * Two answers about the same pair are two separate judgments to the engine and the same
- * sentence to a reader, so repeating the line verbatim reads as a rendering fault rather
- * than as evidence. Counting them says the true and more useful thing: you have told me
- * this twice, which is exactly why you are being asked.
- */
-function said(flag: DriftFlag): string[] {
-  const counts = new Map<string, number>();
-  for (const judgment of flag.judgments) {
-    const line = judgment.tied
-      ? `You called it equal to ${judgment.opponent.title}`
-      : judgment.opponent_won
-        ? `You put ${judgment.opponent.title} above it`
-        : `You put it above ${judgment.opponent.title}`;
-    counts.set(line, (counts.get(line) ?? 0) + 1);
-  }
-  return [...counts].map(([line, times]) =>
-    times === 1 ? `${line}.` : `${line} - ${times === 2 ? "twice" : `${times} times`}.`,
   );
 }
 
@@ -433,7 +208,9 @@ function Rewatch({
   async function answer(choice: "confirmed" | "changed" | "skip") {
     await run(async () => {
       await api.answerRewatch(film.tmdb_id, choice);
-      if (choice === "changed") navigate(placePath(film.tmdb_id));
+      // Changing your mind opens the picker with the current band marked; the pick
+      // decides the rating the same way every other pick does (rating-system.md).
+      if (choice === "changed") await navigate(placePath(film.tmdb_id));
       else onChanged(await api.film(film.tmdb_id));
     });
   }
@@ -496,83 +273,126 @@ function Watched({ film, onChanged }: { film: FilmDetail; onChanged: (film: Film
 }
 
 /**
- * Designating this film as a band's canonical exemplar, from its own page.
+ * Where the film sits inside its band, and the films either side of it.
  *
- * Any band can be chosen, not just the one the film currently derives into: on a fresh
- * account nothing derives into anything yet, and designating is the one sanctioned way
- * to say what a band *is*. Choosing a band the film is not currently in does not move
- * it there - it starts a re-placement seeded by the intent, and the comparisons decide.
+ * Band-local, because the rank is: "third of your 4.0s" is a statement about the 4.0s,
+ * and the film at the end of a row genuinely has no neighbour that way.
  */
-function Designate({
+function Standing({ film }: { film: FilmDetail }) {
+  if (film.rank === null || film.band_size === null) return null;
+  const { above = null, below = null } = film.neighbours ?? {};
+
+  return (
+    <div className="standing">
+      <p className="muted">
+        Number {film.rank} of {film.band_size} in that band.
+      </p>
+      {(above || below) && (
+        <ul className="standing-neighbours">
+          {above && (
+            <li>
+              <span className="muted">Above it</span>{" "}
+              <Link to={filmPath(above.tmdb_id)}>{above.title}</Link>
+            </li>
+          )}
+          {below && (
+            <li>
+              <span className="muted">Below it</span>{" "}
+              <Link to={filmPath(below.tmdb_id)}>{below.title}</Link>
+            </li>
+          )}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The anchor toggle: one control, marking and retiring alike (screens-and-flows.md).
+ *
+ * Marking says the owner is certain of this film's rating, which is what puts it in the
+ * band picker's pool for that band. It changes nothing else - not the rating, not the
+ * rank - so there is nothing to warn about before tapping it.
+ */
+function AnchorToggle({
   film,
   onChanged,
 }: {
   film: FilmDetail;
   onChanged: (film: FilmDetail) => void;
 }) {
-  const navigate = useNavigate();
   const { busy, error, run } = useAsyncAction();
-  const [band, setBand] = useState<number>(film.rating ?? 4);
 
   return (
-    <div className="actions designate">
-      <label className="field">
-        <span>Make this my canonical…</span>
-        <select
-          value={band}
-          disabled={busy}
-          onChange={(event) => setBand(Number(event.target.value))}
-        >
-          {BANDS.map((value) => (
-            <option key={value} value={value}>
-              {value.toFixed(1)}
-            </option>
-          ))}
-        </select>
-      </label>
+    <>
       <button
         type="button"
         className="button secondary"
         disabled={busy}
         onClick={() =>
           void run(async () => {
-            const result = await api.designate(band, film.tmdb_id);
-            if (result.outcome === "re_placement") navigate(placePath(film.tmdb_id));
-            else onChanged(await api.film(film.tmdb_id));
+            if (film.anchor) await api.retireAnchor(film.tmdb_id);
+            else await api.markAnchor(film.tmdb_id);
+            onChanged(await api.film(film.tmdb_id));
           })
         }
       >
-        Designate
+        {film.anchor ? "Retire this anchor" : "Mark as an anchor"}
       </button>
-      {film.anchor && (
-        <button
-          type="button"
-          className="link-button"
-          disabled={busy}
-          onClick={() =>
-            void run(async () => {
-              if (film.rating !== null) await api.retireAnchor(film.rating);
-              onChanged(await api.film(film.tmdb_id));
-            })
-          }
-        >
-          Retire this anchor
-        </button>
-      )}
-      {band !== film.rating && (
-        <p className="muted">
-          {film.rating === null
-            ? "Nothing is a known band yet, so this is what erects the first one."
-            : `It is a ${film.rating.toFixed(1)} today, so this re-places it first and the comparisons decide.`}
-        </p>
-      )}
       {error && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-    </div>
+    </>
   );
+}
+
+/**
+ * The judgment history: this film's comparison-log entries, newest first.
+ *
+ * Shown as the owner made them and never flagged. An entry the ordering has since moved
+ * past is not marked or superseded - the reader compares it with the band and rank above,
+ * and the ordering wins (ADR 0013).
+ */
+function Judgments({ judgments }: { judgments: Judgment[] }) {
+  if (judgments.length === 0) return null;
+
+  return (
+    <section className="judgments" aria-labelledby="judgments-heading">
+      <h3 id="judgments-heading">What you have said about it</h3>
+      <ul className="judgment-list">
+        {judgments.map((judgment, index) => (
+          <li key={index}>
+            {said(judgment)}
+            <span className="muted"> · {when(judgment.created_at)}</span>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** One judgment in the owner's own terms rather than the log's. */
+function said(judgment: Judgment): string {
+  if (judgment.kind === "band_pick") {
+    return `You rated it ${judgment.band?.toFixed(1) ?? ""}`;
+  }
+  if (judgment.kind === "criteria") {
+    const quality = judgment.quality?.toLowerCase() ?? "it";
+    if (judgment.verdict === "tied") return `You called them level on ${quality}`;
+    if (judgment.verdict === "skip") return `You were asked about ${quality}`;
+    const better = judgment.verdict === "a" ? "it" : (judgment.other?.title ?? "the other");
+    return `You said ${better} had the better ${quality}`;
+  }
+  const other = judgment.other?.title ?? "another film";
+  if (judgment.verdict === "tied") return `You called it about the same as ${other}`;
+  if (judgment.verdict === "skip") return `You skipped a question about ${other}`;
+  return judgment.verdict === "a" ? `You put it above ${other}` : `You put ${other} above it`;
+}
+
+function when(timestamp: string): string {
+  return new Date(timestamp).toLocaleDateString();
 }
 
 function BackToSearch() {

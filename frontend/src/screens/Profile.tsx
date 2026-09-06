@@ -78,11 +78,8 @@ function WarmupSection() {
     warmup === null
       ? []
       : [
-          warmup.anchors.state === "todo" && "set your anchors",
-          warmup.evidence.state === "todo" &&
-            (warmup.evidence.kind === "comparisons"
-              ? "answer a few comparisons"
-              : "log a few films you have seen"),
+          warmup.anchors.state === "todo" && "mark your anchors",
+          warmup.rating?.state === "todo" && "rate a few films you have seen",
           warmup.backlog.state === "todo" && "fill your backlog",
         ].filter((one): one is string => one !== false);
   if (warmup === null || left.length === 0) return null;
@@ -117,8 +114,6 @@ const STATE_LABEL: Record<Readiness, string> = {
 const DIMENSION_LABEL: Record<Dimension, string> = {
   rated_films: "Films rated",
   bands_spanned: "Half-star bands your ratings span",
-  settled_share: "Rated by your own comparisons",
-  comparisons_per_film: "Comparisons answered per film",
 };
 
 /**
@@ -157,14 +152,11 @@ function ReadinessSection({
             ))}
           </ol>
           <p className="muted">
-            {profile.evidence.explicit_comparisons} comparison
-            {profile.evidence.explicit_comparisons === 1 ? "" : "s"} answered so far.
-            {shortOnJudgment(profile.stages) && (
-              <>
-                {" "}
-                <Link to="/rated#settling">Settle some films</Link> to answer more.
-              </>
-            )}
+            {profile.evidence.rated_films} film
+            {profile.evidence.rated_films === 1 ? "" : "s"} rated, across{" "}
+            {profile.evidence.bands_spanned}{" "}
+            {profile.evidence.bands_spanned === 1 ? "band" : "bands"}.{" "}
+            <Link to="/rated">See the wall</Link>.
           </p>
         </>
       )}
@@ -550,25 +542,6 @@ function CriteriaSection({ frequency }: { frequency: CriteriaFrequency | null })
   );
 }
 
-/**
- * Whether what this account is short of is the owner's own judgment, rather than films.
- *
- * The two bars that measure it are the two halves of one shortfall - how much of the
- * library rests on comparisons, and how many of them the owner has actually answered - and
- * settling is the one thing in the app that moves either. Where that is what is missing,
- * the readiness section links into the Rated strip rather than dead-ending (surfacing.md).
- */
-function shortOnJudgment(stages: Stage[]): boolean {
-  return stages.some((stage) =>
-    stage.thresholds.some(
-      (threshold) =>
-        (threshold.dimension === "settled_share" ||
-          threshold.dimension === "comparisons_per_film") &&
-        threshold.have < threshold.need,
-    ),
-  );
-}
-
 function StageRow({ stage }: { stage: Stage }) {
   return (
     <li className={`stage card${stage.reached ? " reached" : ""}`}>
@@ -612,10 +585,8 @@ function Bar({ threshold }: { threshold: Threshold }) {
   );
 }
 
-/** A share reads as a percentage; a rate keeps one decimal; a count is just a count. */
-function format(dimension: Dimension, value: number): string {
-  if (dimension === "settled_share") return `${Math.round(value * 100)}%`;
-  if (dimension === "comparisons_per_film") return value.toFixed(1);
+/** Both dimensions are counts, so both read as counts. */
+function format(_dimension: Dimension, value: number): string {
   return String(value);
 }
 

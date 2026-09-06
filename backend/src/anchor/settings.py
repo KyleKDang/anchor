@@ -153,6 +153,15 @@ class Settings(BaseSettings):
     real library. Same two dimensions as forming, because there are only two (ADR 0013).
     """
 
+    default_order_catalog_mean: float = 6.5
+    """The typical TMDB rating the default order shrinks a thin average toward.
+
+    A fixed prior rather than an average over Anchor's own ``films`` table: that table is
+    a sparse mirror of TMDB holding only the films somebody has touched, so its mean
+    tracks the films being seated and would shrink nothing at the moment it matters most.
+    Six and a half is roughly where TMDB's own vote averages sit.
+    """
+
     default_order_prior_votes: int = 100
     """How many votes of the catalog mean a film's own TMDB average must outweigh.
 
@@ -208,24 +217,23 @@ class Settings(BaseSettings):
     import_review_candidates: int = 6
     """Candidates offered per review row. A page of choices is not a decision aid."""
 
-    import_reset_confirm_comparisons: int = 10
-    """Overall comparisons above which re-importing demands the typed confirmation.
+    import_reset_confirm_judgments: int = 10
+    """Comparison-log rows above which re-importing demands the typed confirmation.
 
-    Below it the enumerated counts carry the whole warning; above it the owner has
-    answered enough questions that the log is worth making them stop and type.
+    Below it the enumerated counts carry the whole warning; above it the owner has made
+    enough judgments that the log is worth making them stop and type.
     """
 
     letterboxd_rescue_rate_limit: int = 20
     """Per-row Letterboxd scrapes per IP per window; the rescue is never bulk."""
 
-    warmup_comparisons: int = 10
     warmup_placements: int = 5
-    """How much evidence the warmup asks for, per path. Advisory targets, not gates.
+    """How many films the fresh fill asks the owner to rate. Advisory, not a gate.
 
-    Both are the spec's own indicative numbers and both are tuning knobs: the warmup is
-    skippable at every point, so these decide when it stops asking rather than when the
-    owner is allowed to leave. Five placements at a handful of comparisons each roughly
-    matches the import path's ten, which is why the two differ (onboarding-and-import.md).
+    The spec's own indicative number and a tuning knob: the warmup is skippable at every
+    point, so this decides when it stops asking rather than when the owner is allowed to
+    leave. About five leaves a fresh ordering of ten films including the anchors, which
+    is enough for the picker's pools to mean something (onboarding-and-import.md).
     """
 
     warmup_candidates_per_band: int = 5

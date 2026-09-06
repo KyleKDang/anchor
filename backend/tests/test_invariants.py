@@ -70,3 +70,57 @@ def test_the_worker_process_does_load_it():
     done = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True)
 
     assert done.returncode == 0, done.stderr
+
+
+WRITERS = ("land", "re_rate", "unrate")
+"""The three functions in :mod:`anchor.ordering` that move a film's band or rank."""
+
+OWNER_ACTS = ("anchor.placement", "anchor.anchors", "anchor.seeding")
+"""Where the owner's picks, re-rates and marks land, and the import that carries them in.
+
+The import is the owner's own Letterboxd ratings arriving, which the spec counts as their
+judgments everywhere else too (onboarding-and-import.md). Edit mode joins this list with
+the ticket that builds it. :mod:`anchor.ordering` is absent because it is the seam itself:
+it is the only module that writes these columns at all, and what is under test is who is
+allowed to reach it.
+"""
+
+
+def test_nothing_but_the_owners_own_acts_writes_the_ordering():
+    """The engine is read-only on the band, the rank, and the anchor mark.
+
+    Checked structurally rather than flow by flow, because the claim is about every flow
+    there will ever be: the advisory math, the jobs, and every read surface are the ones
+    that must never move a film, and a new module that did would have to be added to
+    :data:`OWNER_ACTS` deliberately.
+
+    Three ways in are checked, which is all there are: calling one of the ordering
+    module's writers, building a ``Placement`` row by hand, and setting an anchor mark.
+    """
+    program = textwrap.dedent(
+        f"""
+        import ast, pathlib
+
+        writers = {WRITERS!r}
+        allowed = {(*OWNER_ACTS, "anchor.ordering")!r}
+        offenders = []
+        for path in sorted(pathlib.Path("src/anchor").glob("*.py")):
+            module = "anchor." + path.stem
+            if module in allowed:
+                continue
+            for node in ast.walk(ast.parse(path.read_text())):
+                called = getattr(node, "func", None)
+                if isinstance(called, ast.Attribute) and called.attr in writers:
+                    offenders.append((module, called.attr, node.lineno))
+                if isinstance(called, ast.Name) and called.id == "Placement":
+                    offenders.append((module, "Placement()", node.lineno))
+                targets = node.targets if isinstance(node, ast.Assign) else []
+                for target in targets:
+                    if isinstance(target, ast.Attribute) and target.attr == "anchored_at":
+                        offenders.append((module, "anchored_at", node.lineno))
+        assert not offenders, offenders
+        """
+    )
+    done = subprocess.run([sys.executable, "-c", program], capture_output=True, text=True)
+
+    assert done.returncode == 0, done.stdout + done.stderr

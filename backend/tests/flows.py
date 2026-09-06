@@ -1,22 +1,17 @@
 """Driving Anchor's flows over the JSON API, in the vocabulary the design uses.
 
-Tests read as what the owner did - mark a film watched, answer until it lands, designate
-an anchor, keep comparing - rather than as endpoint calls, so they survive the endpoints
-moving. Every driver asserts its own call succeeded, which keeps the failure at the step
-that actually broke instead of three assertions later.
-
-The advisory opponent picker takes a seed, so a scripted answer sequence lands the same
-way every run; nothing here asserts which opponent it picked, because that is the
-advisory math's business and the tests must not pin it (testing.md).
+Tests read as what the owner did - mark a film watched, rate it, re-rate it, mark an
+anchor - rather than as endpoint calls, so they survive the endpoints moving. Every
+driver asserts its own call succeeded, which keeps the failure at the step that actually
+broke instead of three assertions later.
 """
 
 from faketmdb import FilmFixture
-from invariants import assert_no_rating_keys
 
 LIBRARY = tuple(
     FilmFixture(1000 + n, f"Film {n:02d}", release_date=f"{1980 + n}-01-01") for n in range(12)
 )
-"""A dozen films: enough for a bisection deep enough to count, and for ten bands."""
+"""A dozen films: enough to fill several bands and to spread across all ten."""
 
 
 async def account_id(client):
@@ -25,7 +20,7 @@ async def account_id(client):
     return response.json()["id"]
 
 
-# --- Watching and placing ---
+# --- Watching and rating ---
 
 
 async def mark_watched(client, film, rate="later"):
@@ -34,192 +29,74 @@ async def mark_watched(client, film, rate="later"):
     return response.json()
 
 
-async def begin(client, film, seed=1, **params):
-    response = await client.post(f"/api/placements/{film.tmdb_id}", params={"seed": seed, **params})
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def answer(client, film, opponent_tmdb_id, verdict, seed=1):
-    """Answer the question about this film and one opponent, as the flow showed the pair."""
-    return await answer_pair(client, film, film.tmdb_id, opponent_tmdb_id, verdict, seed)
-
-
-async def answer_pair(client, film, a_tmdb_id, b_tmdb_id, verdict, seed=1, expect=200):
-    """Answer whatever pair the step showed, which is not always about ``film``.
-
-    A quiet drift check rides in the placement of another film and is about two others
-    entirely, so the answer echoes back the pair rather than naming an opponent.
-    """
-    response = await client.post(
-        f"/api/placements/{film.tmdb_id}/answers",
-        json={
-            "a_tmdb_id": a_tmdb_id,
-            "b_tmdb_id": b_tmdb_id,
-            "verdict": verdict,
-            "seed": seed,
-        },
-    )
+async def picker(client, film, expect=200):
+    """Open the band picker: the ten bands with their anchor pools, and nothing else."""
+    response = await client.get(f"/api/placements/{film.tmdb_id}")
     assert response.status_code == expect, response.text
     return response.json()
 
 
-async def answer_band(client, film, band, exemplar_tmdb_id=None, seed=1):
-    response = await client.post(
-        f"/api/placements/{film.tmdb_id}/band",
-        json={"band": band, "exemplar_tmdb_id": exemplar_tmdb_id, "seed": seed},
-    )
-    assert response.status_code == 200, response.text
+async def pick(client, film, band, expect=200):
+    """Tap a band, which is the whole of rating a film."""
+    response = await client.post(f"/api/placements/{film.tmdb_id}/band", json={"band": band})
+    assert response.status_code == expect, response.text
     return response.json()
 
 
-async def bail(client, film):
-    response = await client.post(f"/api/placements/{film.tmdb_id}/bail")
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def keep_comparing(client, film, seed=1):
-    response = await client.post(
-        f"/api/placements/{film.tmdb_id}/keep-comparing", params={"seed": seed}
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def place(client, film, verdict, seed=1, band=None, **params):
-    """Watch a film and answer every question the same way until it lands.
-
-    Returns the done screen and how many comparisons it took, which is how the bisection
-    is measured without naming a single opponent. A band question along the way is
-    answered with ``band`` where the caller supplied one, and with the first option
-    offered where they did not, since most tests care about the position, not the stars.
-    """
+async def rate(client, film, band, expect=200):
+    """Watch a film and rate it: mark watched, open the picker, tap a band."""
     await mark_watched(client, film, "now")
-    step = await begin(client, film, seed, **params)
-    asked = 0
-    while not step["done"]:
-        if step["kind"] == "band":
-            step = await answer_the_band(client, film, step, band, seed)
-            continue
-        assert_no_rating_keys(step, "a mid-flow question")
-        asked += 1
-        step = await answer_pair(
-            client, film, step["a"]["tmdb_id"], step["b"]["tmdb_id"], verdict, seed
-        )
-    return step, asked
+    await picker(client, film)
+    return await pick(client, film, band, expect)
 
 
-async def answer_the_band(client, film, step, band=None, seed=1):
-    """Answer a sliver question with ``band`` where the caller named one, else the first."""
-    chosen = band if band is not None else step["options"][0]["band"]
-    exemplar = next(
-        (option["exemplar"] for option in step["options"] if option["band"] == chosen), None
-    )
-    return await answer_band(client, film, chosen, exemplar["tmdb_id"] if exemplar else None, seed)
+async def re_rate(client, film, band, expect=200):
+    """Run the picker again on a rated film, from its page or from a rewatch."""
+    await picker(client, film)
+    return await pick(client, film, band, expect)
 
 
-async def place_at(client, film, ordering_ids, index, seed=1):
-    """Answer every comparison so the film lands at ``index``, whatever opponents come.
-
-    Returns whatever the flow stopped on - the done screen, or the band question, which
-    is exactly the point where the position is settled and only the stars are open.
-    """
+async def abandon(client, film):
+    """Open the picker and walk away, which is the whole of abandoning it."""
     await mark_watched(client, film, "now")
-    step = await begin(client, film, seed)
-    while not step["done"] and step["kind"] == "comparison":
-        assert_no_rating_keys(step, "a mid-flow question")
-        opponent = step["b"]["tmdb_id"]
-        verdict = "a" if ordering_ids.index(opponent) >= index else "b"
-        step = await answer(client, film, opponent, verdict, seed)
-    return step
+    return await picker(client, film)
 
 
-async def tie_into(client, film, slots, index, seed=1):
-    """Answer so ``film`` lands level with the films already at ``slots[index]``.
+async def build_ordering(client, films, band=4.0):
+    """Rate a run of films into one band, in the order given.
 
-    ``slots`` is the ordering as slot lists, best first - what :func:`ordering_of`
-    returns. Steers toward the slot like :func:`place_at` and answers Tied the moment the
-    picker offers one of its members, which is how a tie group of any size is grown a
-    film at a time without a seed import behind it.
+    Within the band they land in the default order rather than the order rated, which is
+    the point: nothing about arrival is a judgment.
     """
-    where = {film_id: at for at, slot in enumerate(slots) for film_id in slot}
-    await mark_watched(client, film, "now")
-    step = await begin(client, film, seed)
-    while not step["done"] and step["kind"] == "comparison":
-        assert_no_rating_keys(step, "a mid-flow question")
-        opponent = step["b"]["tmdb_id"]
-        at = where[opponent]
-        verdict = "tied" if at == index else ("a" if at > index else "b")
-        step = await answer(client, film, opponent, verdict, seed)
-    return step
-
-
-async def replace_at(client, film, ordering_ids, index, seed=1):
-    """The same, for a film already in the ordering: a re-placement the owner started."""
-    step = await begin(client, film, seed)
-    while not step["done"] and step["kind"] == "comparison":
-        assert_no_rating_keys(step, "a mid-flow question")
-        opponent = step["b"]["tmdb_id"]
-        verdict = "a" if ordering_ids.index(opponent) >= index else "b"
-        step = await answer(client, film, opponent, verdict, seed)
-    return step
-
-
-async def build_ordering(client, films):
-    """Place films worst-last: each new one loses every comparison, so order is preserved."""
     for film in films:
-        await place(client, film, "b")
+        await rate(client, film, band)
 
 
-async def scale(client, size=5, top=1, bottom=3):
-    """An ordering of ``size`` films with a 4.0 and a 3.0 anchor inside it.
+async def scale(client, size=5, bands=(5.0, 4.0, 3.0)):
+    """A small library spread across ``bands``, one film per band and then round again.
 
-    The bands fall out of the two designations: the anchors are their own bands, the
-    films between them derive into 3.5, and the films above and below have no rating at
-    all, because the dividers that would decide them are still unpinned.
+    Returns the film ids in the order they were rated. Spread rather than stacked so the
+    account clears the bands-spanned bar and the trainer has cross-band pairs to read.
     """
     films = LIBRARY[:size]
-    await build_ordering(client, films)
-    await designate(client, 4.0, films[top])
-    await designate(client, 3.0, films[bottom])
+    for index, film in enumerate(films):
+        await rate(client, film, bands[index % len(bands)])
     return [film.tmdb_id for film in films]
-
-
-async def answer_until_the_band_locks(client, film, ordering_ids, index):
-    """Answer until the stars are settled but the exact slot is not, and stop there.
-
-    The one moment an early bail is offered: the band cannot change any more, so the film
-    has a rating whatever happens next, and only its exact neighbours are still open.
-    """
-    step = await begin(client, film)
-    while not step["done"] and step["kind"] == "comparison" and not step["band_locked"]:
-        opponent = step["b"]["tmdb_id"]
-        verdict = "a" if ordering_ids.index(opponent) >= index else "b"
-        step = await answer(client, film, opponent, verdict)
-    assert step["done"] is False and step.get("band_locked"), "the search settled before it locked"
-    return step
-
-
-async def bail_inside_the_band(client, film, ordering_ids, index=4):
-    """Place a film only as far as its stars, then stop: the provisional landing."""
-    await mark_watched(client, film, "now")
-    await answer_until_the_band_locks(client, film, ordering_ids, index)
-    return await bail(client, film)
 
 
 # --- Anchors ---
 
 
-async def designate(client, band, film, expect=200):
-    response = await client.post(f"/api/anchors/{band}", json={"tmdb_id": film.tmdb_id})
+async def mark_anchor(client, film, expect=204):
+    """Mark a rated film an anchor: one toggle, from its own page."""
+    response = await client.post(f"/api/anchors/{film.tmdb_id}")
     assert response.status_code == expect, response.text
-    return response.json()
 
 
-async def retire(client, band):
-    response = await client.delete(f"/api/anchors/{band}")
-    assert response.status_code == 204, response.text
+async def retire_anchor(client, film, expect=204):
+    """The same toggle, off. Changes nothing else."""
+    response = await client.delete(f"/api/anchors/{film.tmdb_id}")
+    assert response.status_code == expect, response.text
 
 
 async def anchors(client):
@@ -228,76 +105,17 @@ async def anchors(client):
     return response.json()
 
 
+def pool_for(payload, band):
+    """One band's pool as plain ids, most recently marked first."""
+    row = next(one for one in payload["bands"] if one["band"] == band)
+    return [film["tmdb_id"] for film in row["films"]]
+
+
 async def anchored(client, band, film):
-    """Place a film and make it a band's exemplar, which is the fresh-account bootstrap."""
-    await place(client, film, "b")
-    return await designate(client, band, film)
-
-
-# --- Drift ---
-
-
-async def re_place(client, film, expect=204):
-    """Resolve a drift flag by choosing to re-place: "my opinion changed"."""
-    response = await client.post(f"/api/drift/{film.tmdb_id}/re-place")
-    assert response.status_code == expect, response.text
-
-
-async def keep_position(client, film, opponents=None, expect=204):
-    """Resolve by keeping the position, with the per-opponent follow-up answered."""
-    response = await client.post(
-        f"/api/drift/{film.tmdb_id}/keep", json={"opponents": opponents or []}
-    )
-    assert response.status_code == expect, response.text
-
-
-async def flag_of(client, film):
-    """The open drift flag on a film's page, or None where the owner has none to see."""
-    return (await film_page(client, film))["drift"]
-
-
-# --- Settling ---
-
-
-async def ask_to_re_place(client, film, expect=204):
-    """The owner asking outright, from the film's page or its "settling" mark."""
-    response = await client.post(f"/api/placements/{film.tmdb_id}/re-place")
-    assert response.status_code == expect, response.text
-
-
-async def next_settling(client, offered=(), expect=200):
-    """Ask the sitting for a film to settle, naming what it has already been through."""
-    response = await client.post("/api/settling/next", json={"offered": list(offered)})
-    assert response.status_code == expect, response.text
-    return response.json()
-
-
-async def pass_on_settling(client, film, expect=204):
-    """ "Not this one": decline the film the sitting just offered."""
-    response = await client.post(f"/api/settling/{film.tmdb_id}/pass")
-    assert response.status_code == expect, response.text
-
-
-async def settle(client, film, ordering_ids, index, seed=1, band=None):
-    """Ask to settle a film, then answer every question until it lands at ``index``.
-
-    Returns the done screen and the comparisons it took to get there - the count is what
-    the head start is measured in, so a band question along the way is answered and not
-    counted: it is about the stars, and the search was already over when it was asked.
-    """
-    await ask_to_re_place(client, film)
-    step = await begin(client, film, seed)
-    asked = []
-    while not step["done"]:
-        if step["kind"] == "band":
-            step = await answer_the_band(client, film, step, band, seed)
-            continue
-        assert_no_rating_keys(step, "a mid-flow question")
-        asked.append(step)
-        opponent = step["b"]["tmdb_id"]
-        verdict = "a" if ordering_ids.index(opponent) >= index else "b"
-        step = await answer(client, film, opponent, verdict, seed)
-    return step, asked
+    """Rate a film into a band and mark it, which is the fresh-account bootstrap."""
+    landed = await rate(client, film, band)
+    await mark_anchor(client, film)
+    return landed
 
 
 # --- Rewatches ---
@@ -487,6 +305,12 @@ async def unlocks(client):
     return response.json()
 
 
+async def seen_discovery(client, expect=204):
+    """Arriving at Discovery, which is what clears its dot."""
+    response = await client.delete("/api/unlocks/discovery")
+    assert response.status_code == expect, response.text
+
+
 async def log_watches(client, films):
     """Advance the watch clock without touching the backlog: the only clock the tier reads.
 
@@ -508,18 +332,22 @@ def stage_of(payload, state):
 
 
 def ordering_of(payload):
-    """The ordering as plain ids, flattened back out of its band grouping."""
-    return [
-        [film["tmdb_id"] for film in slot] for group in payload["groups"] for slot in group["slots"]
-    ]
+    """The wall as plain ids per band, best band first and rank order inside each."""
+    return {row["band"]: [film["tmdb_id"] for film in row["films"]] for row in payload["rows"]}
+
+
+def listed_of(payload):
+    """The films the screen showed, whichever shape it used: the wall, or a flat sort."""
+    return (
+        payload["films"]
+        if payload["films"] is not None
+        else [film for row in payload["rows"] for film in row["films"]]
+    )
 
 
 def bands_of(payload):
-    """Every rated film's derived band, however the screen happened to be sorted."""
-    listed = payload["films"] or [
-        film for group in payload["groups"] for slot in group["slots"] for film in slot
-    ]
-    return {film["tmdb_id"]: film["band"] for film in listed}
+    """Every rated film's band, however the screen happened to be sorted."""
+    return {film["tmdb_id"]: film["band"] for film in listed_of(payload)}
 
 
 def queue_of(payload):
@@ -639,39 +467,6 @@ async def dismiss_warmup(client):
     return response.json()
 
 
-async def next_comparison(client, seed=1):
-    response = await client.get("/api/warmup/comparison", params={"seed": seed})
-    assert response.status_code == 200, response.text
-    step = response.json()
-    if not step["done"]:
-        assert_no_rating_keys(step, "a warmup comparison")
-    return step
-
-
-async def answer_comparison(client, a, b, verdict, seed=1, expect=200):
-    response = await client.post(
-        "/api/warmup/comparison",
-        json={"a_tmdb_id": a, "b_tmdb_id": b, "verdict": verdict, "seed": seed},
-    )
-    assert response.status_code == expect, response.text
-    return response.json()
-
-
-async def warm_up(client, verdict="a", seed=1, limit=50):
-    """Answer warmup comparisons the same way until the phase stops asking.
-
-    Returns the pairs it answered and the step it stopped on, so a test can count the
-    questions without naming one: which films the advisory math offered is its own
-    business, and tests must not pin it (testing.md).
-    """
-    answered = []
-    step = await next_comparison(client, seed)
-    while not step["done"] and len(answered) < limit:
-        answered.append((step["a"]["tmdb_id"], step["b"]["tmdb_id"]))
-        step = await answer_comparison(client, step["a"]["tmdb_id"], step["b"]["tmdb_id"], verdict)
-    return answered, step
-
-
 async def browse(client, kind, expect=200):
     response = await client.get("/api/films/browse", params={"kind": kind})
     assert response.status_code == expect, response.text
@@ -679,5 +474,5 @@ async def browse(client, kind, expect=200):
 
 
 def prompt_for(phase, band):
-    """One band's designation prompt, from whichever of the two lists it lives in."""
+    """One band's mark prompt, from whichever of the two lists it lives in."""
     return next(one for one in (*phase["prompts"], *phase["continuation"]) if one["band"] == band)

@@ -16,7 +16,7 @@ import export
 import flows
 from export import Row
 from faketmdb import FilmFixture
-from flows import LIBRARY, account_id, ordering_of, rated, synced_pairs
+from flows import LIBRARY, account_id, bands_of, rated, re_rate, synced_pairs
 from invariants import (
     assert_appended_only,
     assert_ordering_well_formed,
@@ -28,17 +28,9 @@ SEEDS = tuple(
     FilmFixture(7900 + n, f"Sync {n}", release_date=f"{1994 + n}-03-01", popularity=25.0 - n)
     for n in range(6)
 )
-"""Six imported films, one per band from 5.0 down: every divider between them is pinned."""
+"""Six imported films, one per band from 5.0 down."""
 
 RATINGS = (5.0, 4.5, 4.0, 3.5, 3.0, 2.5)
-
-TWIN = FilmFixture(7950, "Sync 4 Also", release_date="2011-01-01", popularity=12.0)
-"""A second film at 3.0, so that band survives its neighbour leaving it - and comes back.
-
-Without it the wobble has nowhere to wobble to: a band whose only film walks out has its
-divider closed up behind it, and the film returning to the same *position* returns to a
-different band.
-"""
 
 FRESH = FilmFixture(7990, "Never Logged", release_date="2022-05-01", popularity=9.0)
 """Rated in Anchor and nowhere else: the not-yet-on-Letterboxd section's one film."""
@@ -46,7 +38,7 @@ FRESH = FilmFixture(7990, "Never Logged", release_date="2022-05-01", popularity=
 
 @pytest.fixture(autouse=True)
 def stocked(tmdb):
-    return tmdb.with_films(*SEEDS, TWIN, FRESH, *LIBRARY)
+    return tmdb.with_films(*SEEDS, FRESH, *LIBRARY)
 
 
 @pytest.fixture
@@ -55,12 +47,9 @@ async def imported(owner, stocked, run_jobs):
     await flows.upload_export(
         owner,
         export.export(
-            ratings=(
-                *(
-                    Row(film.title, film.year, rating=rating)
-                    for film, rating in zip(SEEDS, RATINGS, strict=True)
-                ),
-                Row(TWIN.title, TWIN.year, rating=3.0),
+            ratings=tuple(
+                Row(film.title, film.year, rating=rating)
+                for film, rating in zip(SEEDS, RATINGS, strict=True)
             )
         ),
     )
@@ -72,11 +61,11 @@ async def imported(owner, stocked, run_jobs):
 
 
 async def test_a_freshly_imported_account_has_nothing_to_carry_over(imported, db):
-    """The two sides agree by construction, and every position is still a placeholder.
+    """The two sides agree by construction: the import wrote what Letterboxd holds.
 
-    Both halves of that matter and the empty list is what proves them together: the
-    import wrote what Letterboxd holds, and it placed every film provisionally, so
-    neither a difference nor a graduated judgment exists yet for the list to show.
+    Nothing is held back to make this true any more. Every imported film is rated and
+    final the moment it is matched, and the list is empty because there is genuinely no
+    difference yet - which is exactly what the list is for (ADR 0013).
     """
     account = await account_id(imported)
 
@@ -86,27 +75,19 @@ async def test_a_freshly_imported_account_has_nothing_to_carry_over(imported, db
     assert payload["never_recorded"] == []
     assert payload["count"] == 0
     assert await last_synced_ratings(db, account) == {
-        **{film.tmdb_id: rating for film, rating in zip(SEEDS, RATINGS, strict=True)},
-        TWIN.tmdb_id: 3.0,
+        film.tmdb_id: rating for film, rating in zip(SEEDS, RATINGS, strict=True)
     }
 
 
-async def test_a_film_the_owner_has_moved_shows_what_letterboxd_still_holds(imported, db):
-    """The list is derived: it is the gap between the baseline and the ordering today.
-
-    Nothing recorded the move as a thing to be synced - the owner settled a film, the
-    dividers put it in a different band, and the difference is what the list *is*.
-    """
+async def test_a_film_the_owner_re_rated_shows_what_letterboxd_still_holds(imported, db):
+    """The list is derived: it is the gap between the baseline and the ordering today."""
     account = await account_id(imported)
     moved = SEEDS[4]
-    order = _ordering(await rated(imported))
-    await flows.settle(imported, moved, order, 0)
+    await re_rate(imported, moved, 1.0)
 
     payload = await flows.sync_list(imported)
 
-    band = _band_of(await rated(imported), moved.tmdb_id)
-    assert synced_pairs(payload) == {moved.tmdb_id: (RATINGS[4], band)}
-    assert band != RATINGS[4], "the settle did not move the film out of its band"
+    assert synced_pairs(payload) == {moved.tmdb_id: (RATINGS[4], 1.0)}
     assert payload["count"] == 1
     # The baseline is untouched: only the owner marking it synced ever writes that.
     assert (await last_synced_ratings(db, account))[moved.tmdb_id] == RATINGS[4]
@@ -116,34 +97,29 @@ async def test_a_rating_that_wobbles_back_drops_off_the_list_on_its_own(imported
     """Nothing has to be cleaned up: the list stops holding a film that stopped differing."""
     account = await account_id(imported)
     wobbler = SEEDS[4]
-    await flows.settle(imported, wobbler, _ordering(await rated(imported)), 0)
+    await re_rate(imported, wobbler, 1.0)
     assert wobbler.tmdb_id in synced_pairs(await flows.sync_list(imported))
 
-    # Back beside the twin it left behind, which is where 3.0 still is.
-    order = _ordering(await rated(imported))
-    await flows.settle(imported, wobbler, order, order.index(SEEDS[5].tmdb_id))
+    await re_rate(imported, wobbler, RATINGS[4])
 
     payload = await flows.sync_list(imported)
     assert payload["changed"] == []
     assert payload["count"] == 0
-    assert _band_of(await rated(imported), wobbler.tmdb_id) == RATINGS[4]
     await assert_ordering_well_formed(db, account)
 
 
-async def test_the_list_reads_in_the_same_order_as_the_ratings_screen(imported):
-    """Best first, which is the order the owner already reads their ratings in.
+async def test_the_list_reads_in_the_same_order_as_the_rated_screen(imported):
+    """Best band first, which is the order the owner already reads their ratings in.
 
     A worksheet is read top to bottom, so the one thing it must not do is invent a second
     ordering to learn. Pinned because nothing else would notice it changing.
     """
-    await flows.settle(imported, SEEDS[4], _ordering(await rated(imported)), 0)
-    order = _ordering(await rated(imported))
-    await flows.settle(imported, SEEDS[1], order, len(order) - 1)
+    await re_rate(imported, SEEDS[4], 5.0)
+    await re_rate(imported, SEEDS[1], 0.5)
 
     listed = [row["tmdb_id"] for row in (await flows.sync_list(imported))["changed"]]
 
-    assert len(listed) == 2, "the two settles did not both move a film out of its band"
-    assert listed == [film_id for film_id in _ordering(await rated(imported)) if film_id in listed]
+    assert listed == [SEEDS[4].tmdb_id, SEEDS[1].tmdb_id], "best band first"
 
 
 # --- The two sections ---
@@ -151,34 +127,13 @@ async def test_the_list_reads_in_the_same_order_as_the_ratings_screen(imported):
 
 async def test_a_rating_letterboxd_never_saw_waits_in_its_own_section(imported):
     """A film rated only in Anchor has no old value, so it cannot be an old → new row."""
-    await flows.place(imported, FRESH, "a")
+    await flows.rate(imported, FRESH, 4.0)
 
     payload = await flows.sync_list(imported)
 
     assert payload["changed"] == []
-    assert synced_pairs(payload, "never_recorded") == {
-        FRESH.tmdb_id: (None, _band_of(await rated(imported), FRESH.tmdb_id))
-    }
+    assert synced_pairs(payload, "never_recorded") == {FRESH.tmdb_id: (None, 4.0)}
     assert payload["count"] == 1
-
-
-async def test_a_placement_still_settling_is_held_back_until_it_graduates(owner, stocked):
-    """A placeholder position is not a judgment, so there is nothing to carry over yet.
-
-    This is the same rule that leaves the list empty after an import, reached from the
-    other direction: an early bail settles the stars and leaves the exact seat open, and
-    the owner should not be retyping a value Anchor has not finished deciding. Placed by
-    hand rather than imported, because a band has to span several slots for the bail to be
-    offered at all and an import puts every film that shares a rating in one slot.
-    """
-    order = await flows.scale(owner, size=9, top=1, bottom=7)
-    await flows.bail_inside_the_band(owner, FRESH, order)
-
-    assert FRESH.tmdb_id not in synced_pairs(await flows.sync_list(owner), "never_recorded")
-
-    await flows.settle(owner, FRESH, _ordering(await rated(owner)), 4)
-
-    assert FRESH.tmdb_id in synced_pairs(await flows.sync_list(owner), "never_recorded")
 
 
 # --- Marking synced ---
@@ -188,39 +143,36 @@ async def test_marking_a_film_synced_moves_the_baseline_and_nothing_else(importe
     """The owner has retyped it on Letterboxd; Anchor records that and touches nothing."""
     account = await account_id(imported)
     moved = SEEDS[4]
-    await flows.settle(imported, moved, _ordering(await rated(imported)), 0)
-    band = _band_of(await rated(imported), moved.tmdb_id)
+    await re_rate(imported, moved, 1.0)
     before = await comparison_log(db, account)
-    order_before = _ordering(await rated(imported))
+    wall_before = flows.ordering_of(await rated(imported))
 
     await flows.mark_synced(imported, moved)
 
     assert (await flows.sync_list(imported))["count"] == 0
-    assert (await last_synced_ratings(db, account))[moved.tmdb_id] == band
-    assert _ordering(await rated(imported)) == order_before, "marking synced moved the ordering"
+    assert (await last_synced_ratings(db, account))[moved.tmdb_id] == 1.0
+    assert flows.ordering_of(await rated(imported)) == wall_before, "it moved the ordering"
     assert_appended_only(before, await comparison_log(db, account), "marking a film synced")
 
 
 async def test_mark_all_clears_both_sections_in_one_go(imported, db):
     """One control for the owner who has just typed the whole list into Letterboxd."""
     account = await account_id(imported)
-    await flows.settle(imported, SEEDS[4], _ordering(await rated(imported)), 0)
-    await flows.place(imported, FRESH, "a")
+    await re_rate(imported, SEEDS[4], 1.0)
+    await flows.rate(imported, FRESH, 4.0)
     assert (await flows.sync_list(imported))["count"] == 2
 
     await flows.mark_all_synced(imported)
 
     payload = await flows.sync_list(imported)
     assert payload["changed"] == [] and payload["never_recorded"] == []
-    baseline = await last_synced_ratings(db, account)
-    assert baseline == flows.bands_of(await rated(imported))
+    assert await last_synced_ratings(db, account) == bands_of(await rated(imported))
     await assert_ordering_well_formed(db, account)
 
 
-async def test_a_film_with_no_judgment_to_carry_over_cannot_be_marked_synced(owner, stocked):
-    """Nothing to record: the position is still a placeholder, so a baseline would be one too."""
-    order = await flows.scale(owner, size=9, top=1, bottom=7)
-    await flows.bail_inside_the_band(owner, FRESH, order)
+async def test_a_film_with_no_rating_to_carry_over_cannot_be_marked_synced(owner, stocked):
+    """Nothing to record, so a baseline would be invented out of nothing."""
+    await flows.mark_watched(owner, FRESH, "later")
 
     await flows.mark_synced(owner, FRESH, expect=409)
 
@@ -232,22 +184,10 @@ async def test_marking_a_film_synced_twice_is_the_same_as_marking_it_once(import
     mark-all racing a per-film mark, must not turn into an error the owner has to read.
     """
     account = await account_id(imported)
-    await flows.settle(imported, SEEDS[4], _ordering(await rated(imported)), 0)
+    await re_rate(imported, SEEDS[4], 1.0)
     await flows.mark_synced(imported, SEEDS[4])
     baseline = await last_synced_ratings(db, account)
 
     await flows.mark_synced(imported, SEEDS[4])
 
     assert await last_synced_ratings(db, account) == baseline
-
-
-# --- Reading the screens ---
-
-
-def _ordering(payload):
-    """Every rated film, best first - tie-group members included, since a settle meets them."""
-    return [film_id for slot in ordering_of(payload) for film_id in slot]
-
-
-def _band_of(payload, tmdb_id):
-    return flows.bands_of(payload)[tmdb_id]

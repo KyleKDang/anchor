@@ -391,14 +391,14 @@ function total(state: ImportState): number {
 
 /** Whether the account holds anything an import would take from it. */
 function holds(warning: ImportWarning): boolean {
-  const { rated_films, comparisons, anchors, backlog_films, watch_events } = warning;
-  return rated_films + comparisons + anchors + backlog_films + watch_events > 0;
+  const { rated_films, judgments, anchors, backlog_films, watch_events } = warning;
+  return rated_films + judgments + anchors + backlog_films + watch_events > 0;
 }
 
 function destroyed(warning: ImportWarning): string {
   const parts = [
     plural(warning.rated_films, "rating"),
-    plural(warning.comparisons, "answered comparison"),
+    plural(warning.judgments, "recorded answer"),
     plural(warning.anchors, "anchor"),
     plural(warning.backlog_films, "backlog film"),
     plural(warning.watch_events, "logged watch", "logged watches"),

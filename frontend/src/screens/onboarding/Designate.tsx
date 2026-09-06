@@ -16,15 +16,15 @@ import { useAsyncAction } from "../../films/useAsyncAction";
 import { FilmPicker } from "./FilmPicker";
 
 /**
- * Phase 1: name what each band means, which is the one direct band assignment there is.
+ * Phase 1: mark the films you know cold, one band at a time.
  *
  * One prompt at a time rather than ten at once. The five whole stars come in the order
  * they are easiest to answer - best, worst, middle, then the two that only become
  * findable once their neighbours exist - and asking them all together would throw that
  * away and turn a two-minute flow into a form.
  *
- * The app never designates. Everything here offers, ranks, and gets out of the way; the
- * write happens on the owner's own tap and nowhere else (ADR 0002).
+ * The app never marks an anchor. Everything here offers, ranks, and gets out of the way;
+ * the write happens on the owner's own tap and nowhere else (ADR 0013).
  */
 export function Designate({
   phase,
@@ -77,7 +77,7 @@ function TrackMark({ prompt, current }: { prompt: AnchorPrompt; current: boolean
     >
       <span className="band-value">{prompt.band.toFixed(1)}</span>
       <span className="visually-hidden">
-        {prompt.state === "done" ? "anchored" : prompt.state === "skipped" ? "skipped" : "to do"}
+        {prompt.state === "done" ? "marked" : prompt.state === "skipped" ? "skipped" : "to do"}
       </span>
     </li>
   );
@@ -92,15 +92,17 @@ function Finished({
   continuing: boolean;
   onContinue: () => void;
 }) {
-  const anchored = [...phase.prompts, ...phase.continuation].filter((one) => one.film !== null);
+  const anchored = [...phase.prompts, ...phase.continuation].filter(
+    (one) => one.marked.length > 0,
+  );
   const more = phase.continuation.some((one) => one.state === "todo");
 
   return (
     <>
       {anchored.length === 0 ? (
         <p className="muted">
-          No anchors yet. Your films will sit in order and show their positions; the half-stars
-          arrive when a band has an exemplar to measure against.
+          No anchors yet. Your ratings work exactly the same without them; anchors are what
+          the band picker shows you when you rate, so you choose against your own references.
         </p>
       ) : (
         <ul className="anchor-set">
@@ -110,7 +112,9 @@ function Finished({
                 {stars(prompt.band)}
               </span>
               <span className="band-value">{prompt.band.toFixed(1)}</span>
-              <span className="film-title">{prompt.film?.title}</span>
+              <span className="film-title">
+                {prompt.marked.map((film) => film.title).join(", ")}
+              </span>
             </li>
           ))}
         </ul>
@@ -143,29 +147,32 @@ function Prompt({
   const { busy, error, run } = useAsyncAction();
 
   /**
-   * Designating a film the owner has never placed: mark it watched, then name the band.
+   * Marking a film the owner has never rated: rate it first, then mark it.
    *
-   * Two calls rather than one, because each says a true thing on its own. "This is what
-   * a 4.0 is" is a claim only somebody who has seen the film can make, so watched comes
-   * first - and if the second call never happens, the film is simply waiting in the
-   * rate-later queue, which is where any watched film rests anyway.
+   * There is no separate designation flow any more - rate a film, mark it, and the
+   * band's pool exists (onboarding-and-import.md). So a film with no rating goes to the
+   * picker, which is where the owner says what band it is; a film already rated is one
+   * tap away from being an anchor.
    */
-  async function designateFresh(film: SearchResult) {
+  async function markFresh(film: SearchResult) {
     await run(async () => {
+      if (film.state === "rated") {
+        await api.markAnchor(film.tmdb_id);
+        onChanged(await api.warmup());
+        return;
+      }
       if (film.state === null || film.state === "backlog") {
         await api.markWatched(film.tmdb_id, "later");
       }
-      const outcome = await api.designate(prompt.band, film.tmdb_id);
-      if (outcome.outcome === "designated") onChanged(await api.warmup());
-      else void navigate(`${placePath(film.tmdb_id)}?back=/warmup`);
+      await navigate(`${placePath(film.tmdb_id)}?back=/warmup`);
     });
   }
 
-  async function designateCandidate(film: FilmCard) {
+  /** A candidate is drawn from the owner's own library, so it is already rated. */
+  async function markCandidate(film: FilmCard) {
     await run(async () => {
-      const outcome = await api.designate(prompt.band, film.tmdb_id);
-      if (outcome.outcome === "designated") onChanged(await api.warmup());
-      else void navigate(`${placePath(film.tmdb_id)}?back=/warmup`);
+      await api.markAnchor(film.tmdb_id);
+      onChanged(await api.warmup());
     });
   }
 
@@ -181,8 +188,9 @@ function Prompt({
         Which film is a definitive {prompt.band.toFixed(1)}?
       </h3>
       <p className="muted">
-        Pick one you know cold. Everything else in this band gets measured against it, so a
-        film you are sure about is worth more than a film you love.
+        Pick one you know cold. It is what the band picker shows you when you rate, so a film
+        you are sure about is worth more than a film you love - and you can mark as many as
+        you like.
       </p>
 
       {error && (
@@ -192,14 +200,14 @@ function Prompt({
       )}
 
       {fill === "imported" ? (
-        <Candidates prompt={prompt} disabled={busy} onPick={designateCandidate} />
+        <Candidates prompt={prompt} disabled={busy} onPick={markCandidate} />
       ) : (
         <FilmPicker
           label={`Find your ${prompt.band.toFixed(1)}`}
           action={`This is my ${prompt.band.toFixed(1)}`}
           browse
           disabled={busy}
-          onPick={designateFresh}
+          onPick={markFresh}
         />
       )}
 
@@ -236,7 +244,7 @@ function Candidates({
   if (prompt.candidates.length === 0) {
     return (
       <p className="muted">
-        Nothing you imported landed in this band. You can set it later from any film's page.
+        Nothing you imported landed in this band. You can mark one later from any film's page.
       </p>
     );
   }

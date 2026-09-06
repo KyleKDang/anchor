@@ -7,6 +7,7 @@ canned metadata: search, open a film, add it, take it back out, mark it watched.
 import pytest
 from sqlalchemy import select, update
 
+import flows
 from anchor.models import AccountFilm, Film, LifecycleState
 from faketmdb import ARRIVAL, FIGHT_CLUB, NOSFERATU, FilmFixture
 from flows import add_to_backlog
@@ -253,3 +254,80 @@ async def test_the_shared_catalog_survives_the_account_that_filled_it(owner, db)
     async with db.sessions() as session:
         assert await session.get(Film, FIGHT_CLUB.tmdb_id) is not None
         assert list(await session.scalars(select(AccountFilm))) == []
+
+
+# --- The film page of a rated film ---
+
+
+async def test_a_rated_film_shows_its_band_its_rank_and_its_neighbours(owner):
+    """The rank is a statement about the band, so the neighbours it names are the band's."""
+    await flows.build_ordering(owner, CATALOG, band=4.0)
+    row = flows.ordering_of(await flows.rated(owner))[4.0]
+
+    middle = await open_film(owner, _fixture(row[1]))
+
+    assert middle["rating"] == 4.0
+    assert middle["rank"] == 2
+    assert middle["band_size"] == 3
+    assert middle["neighbours"]["above"]["tmdb_id"] == row[0]
+    assert middle["neighbours"]["below"]["tmdb_id"] == row[2]
+
+
+async def test_an_end_of_a_row_has_no_neighbour_that_way(owner):
+    """The honest answer is nothing, not the next band's edge, which it never ranked against."""
+    await flows.rate(owner, FIGHT_CLUB, 4.0)
+    await flows.rate(owner, ARRIVAL, 1.0)
+
+    page = await open_film(owner, FIGHT_CLUB)
+
+    assert page["neighbours"] == {"above": None, "below": None}
+
+
+async def test_the_page_carries_the_anchor_toggle_s_current_state(owner):
+    await flows.rate(owner, FIGHT_CLUB, 5.0)
+    assert (await open_film(owner, FIGHT_CLUB))["anchor"] is False
+
+    await flows.mark_anchor(owner, FIGHT_CLUB)
+
+    assert (await open_film(owner, FIGHT_CLUB))["anchor"] is True
+
+
+async def test_the_judgment_history_reads_the_log_newest_first(owner):
+    """Shown as the owner made them, against the band and rank above (ADR 0013)."""
+    await flows.rate(owner, FIGHT_CLUB, 4.0)
+    await flows.re_rate(owner, FIGHT_CLUB, 2.0)
+
+    page = await open_film(owner, FIGHT_CLUB)
+
+    assert [(one["kind"], one["band"]) for one in page["judgments"]] == [
+        ("band_pick", 2.0),
+        ("band_pick", 4.0),
+    ]
+    assert all(one["other"] is None for one in page["judgments"]), "a pick names one film"
+
+
+async def test_a_judgment_the_ordering_moved_past_is_shown_unflagged(owner):
+    """No status, no supersession: the reader compares it with the ordering itself."""
+    await flows.rate(owner, FIGHT_CLUB, 4.0)
+    await flows.re_rate(owner, FIGHT_CLUB, 2.0)
+
+    page = await open_film(owner, FIGHT_CLUB)
+
+    assert page["rating"] == 2.0
+    assert any(one["band"] == 4.0 for one in page["judgments"]), "the old pick still reads"
+    assert all("status" not in one for one in page["judgments"])
+
+
+async def test_an_unrated_film_page_carries_none_of_it(owner):
+    """Absence rather than emptiness: an unwatched film has no rank to have (ADR 0005)."""
+    page = await open_film(owner, FIGHT_CLUB)
+
+    assert page["rank"] is None
+    assert page["band_size"] is None
+    assert page["neighbours"] is None
+    assert page["judgments"] == []
+    assert_nothing_rating_shaped(page, "an untracked film page")
+
+
+def _fixture(tmdb_id):
+    return next(film for film in CATALOG if film.tmdb_id == tmdb_id)

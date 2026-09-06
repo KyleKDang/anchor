@@ -1,38 +1,42 @@
 import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useSearchParams } from "react-router";
 
 import {
   BANDS,
   api,
   messageOf,
-  type BandGroup,
+  type BandRow,
   type FilmCard,
   type Rated as RatedScreen,
   type RatedFilm,
   type RatedFilters,
   type RatedSort,
 } from "../api";
-import { AnchorBadge, AnchorNudge, Band, ProvisionalMark } from "../films/Band";
+import { AnchorBadge, AnchorNudge, Band } from "../films/Band";
 import { Poster } from "../films/Poster";
 import { filmPath, placePath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
- * The Rated screen: the ordering grouped into bands, and the rate-later queue below it.
+ * The Rated screen: the ordering as ten band rows, and the rate-later queue below it.
  *
- * The default view is the ordering itself, best to worst, with the half-star value as
- * each group's header and the band's anchor badged. A run the dividers cannot decide
- * groups under "Rating pending" rather than under a made-up number - the honest state a
- * fresh account lives in until the first anchors erect some structure.
+ * The wall is the ordering read back exactly as it is stored - best band first, the
+ * half-star value as each row's header with the count of that band's anchors, and the
+ * rank stamped on every poster. There is no derivation here and nothing that can be out
+ * of step with what the owner sees (ADR 0013).
  *
- * Every other sort cuts across the ordering, so it drops the grouping and shows a flat
- * list: a band header over a sequence that is not in band order would be a heading over
- * nothing.
+ * Every other sort cuts across the bands, so it drops the rows and shows a flat list: a
+ * band header over a sequence that is not in band order would be a heading over nothing.
+ *
+ * The screen is a pull surface through and through (ADR 0011). No film is marked as
+ * wanting attention and no move is ever suggested.
  */
 export function Rated() {
   const [filters, setFilters] = useState<RatedFilters>({ sort: "position" });
   const [rated, setRated] = useState<RatedScreen | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [params] = useSearchParams();
+  const highlighted = Number(params.get("film")) || null;
 
   const load = useCallback(async () => {
     try {
@@ -47,14 +51,13 @@ export function Rated() {
     void load();
   }, [load]);
 
-  // The readiness lines on Watchlist and Profile link to "/rated#settling", and the strip
-  // they aim at does not exist until this screen's fetch resolves - so the browser has
-  // nothing to scroll to at navigation time and the link would quietly land at the top
-  // instead. Scroll once the strip is actually on the page.
+  // "Adjust on the wall" lands here with the film named, and the poster it points at does
+  // not exist until this screen's fetch resolves - so the browser has nothing to scroll to
+  // at navigation time. Scroll once the wall is actually on the page.
   useEffect(() => {
-    if (rated === null || window.location.hash !== "#settling") return;
-    document.getElementById("settling")?.scrollIntoView({ block: "start" });
-  }, [rated]);
+    if (rated === null || highlighted === null) return;
+    document.getElementById(`film-${highlighted}`)?.scrollIntoView({ block: "center" });
+  }, [rated, highlighted]);
 
   return (
     <>
@@ -67,8 +70,6 @@ export function Rated() {
       {rated !== null && (
         <>
           {rated.anchor_nudge && <AnchorNudge film={firstFilm(rated)} />}
-          <NeedsAttention films={rated.needs_attention} />
-          <SettlingStrip left={rated.settling} />
           <Controls rated={rated} filters={filters} onChange={setFilters} />
 
           <section className="section" aria-labelledby="ordering-heading">
@@ -78,21 +79,22 @@ export function Rated() {
                 <p className="muted">
                   {hasFilters(filters)
                     ? "No rated films match these filters."
-                    : "Nothing placed yet. Mark a film watched and rate it now to start your ordering."}
+                    : "Nothing rated yet. Mark a film watched and rate it now to start your wall."}
                 </p>
               </div>
-            ) : rated.groups !== null ? (
-              rated.groups.map((group, index) => (
-                <BandSection
-                  key={`${group.band ?? "pending"}-${index}`}
-                  group={group}
-                  onChange={() => void load()}
-                />
+            ) : rated.rows !== null ? (
+              rated.rows.map((row) => (
+                <BandSection key={row.band} row={row} highlighted={highlighted} />
               ))
             ) : (
               <ol className="ordering">
                 {rated.films?.map((film) => (
-                  <WallCell key={film.tmdb_id} film={film} showBand />
+                  <WallCell
+                    key={film.tmdb_id}
+                    film={film}
+                    showBand
+                    highlighted={film.tmdb_id === highlighted}
+                  />
                 ))}
               </ol>
             )}
@@ -118,79 +120,6 @@ export function Rated() {
   );
 }
 
-/**
- * The needs-attention strip: the films whose position the owner's own later answers
- * have started to disagree with.
- *
- * This is the loudest drift ever gets (ADR 0011). It sits at the top of one screen,
- * says how many and which, and waits - no count in the nav, no dot, no notification
- * anywhere else in the app. It renders nothing at all when nothing is wrong, which is
- * most of the time, and that is the point: it is presence, not a permanent slot.
- */
-function NeedsAttention({ films }: { films: FilmCard[] }) {
-  if (films.length === 0) return null;
-
-  return (
-    <section className="needs-attention" aria-labelledby="needs-attention-heading">
-      <h2 id="needs-attention-heading" className="needs-attention-heading">
-        {films.length === 1
-          ? "One film may have drifted"
-          : `${films.length} films may have drifted`}
-      </h2>
-      <p className="muted">
-        {films.length === 1
-          ? "Later answers disagree with where it sits. Open it to re-place it or keep it where it is."
-          : "Later answers disagree with where these sit. Open one to re-place it or keep it where it is."}
-      </p>
-      <ul className="needs-attention-films">
-        {films.map((film) => (
-          <li key={film.tmdb_id}>
-            <Link className="chip" to={filmPath(film.tmdb_id)}>
-              {film.title}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </section>
-  );
-}
-
-/**
- * The settling strip: how many films are still on the mark, and the one door into working
- * through them.
- *
- * It sits beside needs-attention because the two are the same shape - a strip atop the
- * ordering, present only when it has something to say - and it is the loudest provisional
- * settling ever gets. This count is its home and its ceiling: no dot, no chaser, and no
- * mention of it on any other screen (ADR 0011). It renders nothing when nothing is
- * provisional, which on a hand-built library is almost always.
- *
- * The id is a link target: the readiness lines on Watchlist and Profile that name
- * comparisons or settling as what is missing point here rather than dead-ending.
- */
-function SettlingStrip({ left }: { left: number }) {
-  if (left === 0) return null;
-
-  return (
-    <section id="settling" className="settling-strip" aria-labelledby="settling-heading">
-      <div className="settling-strip-body">
-        <h2 id="settling-heading" className="settling-strip-heading">
-          {left === 1 ? "One film is still settling" : `${left} films are still settling`}
-        </h2>
-        <p className="muted">
-          {left === 1
-            ? "Its position is a placeholder until your own comparisons pin it."
-            : "Their positions are placeholders until your own comparisons pin them."}{" "}
-          Nothing is waiting on you - this is here when you feel like it.
-        </p>
-      </div>
-      <Link className="button" to="/settling">
-        Settle them
-      </Link>
-    </section>
-  );
-}
-
 const SORTS: { value: RatedSort; label: string }[] = [
   { value: "position", label: "Your ordering" },
   { value: "rated", label: "Recently rated" },
@@ -199,7 +128,7 @@ const SORTS: { value: RatedSort; label: string }[] = [
   { value: "year", label: "Release year" },
 ];
 
-/** The sort, the filters, and the jump-to-band strip that only the ordering can offer. */
+/** The sort, the filters, and the jump-to-band strip that only the wall can offer. */
 function Controls({
   rated,
   filters,
@@ -276,17 +205,17 @@ function Controls({
         <label className="field field-check">
           <input
             type="checkbox"
-            checked={filters.flagged ?? false}
-            onChange={(event) => set({ flagged: event.target.checked })}
+            checked={filters.anchorsOnly ?? false}
+            onChange={(event) => set({ anchorsOnly: event.target.checked })}
           />
-          <span>Needs attention</span>
+          <span>Anchors only</span>
         </label>
       </div>
-      {rated.groups !== null && rated.bands.length > 0 && (
+      {rated.rows !== null && rated.bands.length > 0 && (
         <nav className="jump-to-band" aria-label="Jump to band">
           <span className="muted">Jump to</span>
           {rated.bands.map((band) => (
-            <a key={band} href={`#band-${String(band).replace(".", "-")}`}>
+            <a key={band} href={`#${bandId(band)}`}>
               {band.toFixed(1)}
             </a>
           ))}
@@ -296,7 +225,7 @@ function Controls({
   );
 }
 
-/** Bands run best to worst, so the range reads top-down the way the ordering does. */
+/** Bands run best to worst, so the range reads top-down the way the wall does. */
 function BandSelect({
   value,
   onChange,
@@ -321,135 +250,62 @@ function BandSelect({
   );
 }
 
-/** One band's run of the ordering, under its half-star header. */
-function BandSection({ group, onChange }: { group: BandGroup; onChange: () => void }) {
-  const id = group.band === null ? undefined : `band-${String(group.band).replace(".", "-")}`;
-  const anchored = group.slots.flat().find((film) => film.anchor) ?? null;
+function bandId(band: number): string {
+  return `band-${String(band).replace(".", "-")}`;
+}
 
+/**
+ * One band row, under its half-star header.
+ *
+ * The header carries the count of the band's anchors, which is a fact about the band
+ * rather than about the current view: a filter thins the row without changing what the
+ * band holds (screens-and-flows.md).
+ */
+function BandSection({ row, highlighted }: { row: BandRow; highlighted: number | null }) {
   return (
-    <section className="band-group" id={id} aria-label={header(group.band)}>
+    <section className="band-group" id={bandId(row.band)} aria-label={`${row.band.toFixed(1)} stars`}>
       <header className="band-header">
         <h3>
-          <Band band={group.band} />
+          <Band band={row.band} />
         </h3>
-        {group.band !== null && (
-          <AnchorPicker
-            band={group.band}
-            films={group.slots.flat()}
-            anchored={anchored}
-            onChange={onChange}
-          />
+        {row.anchors > 0 && (
+          <span className="muted">
+            {row.anchors} {row.anchors === 1 ? "anchor" : "anchors"}
+          </span>
         )}
       </header>
       <ol className="ordering">
-        {group.slots.flatMap((slot) =>
-          slot.map((film) => <WallCell key={film.tmdb_id} film={film} tie={slot.length > 1} />),
-        )}
+        {row.films.map((film) => (
+          <WallCell key={film.tmdb_id} film={film} highlighted={film.tmdb_id === highlighted} />
+        ))}
       </ol>
     </section>
   );
 }
 
-function header(band: number | null): string {
-  return band === null ? "Rating pending" : `${band.toFixed(1)} stars`;
-}
-
 /**
- * The band header's anchor management: pick this band's exemplar from its own films.
+ * One cell of the wall: a film under its rank inside its band.
  *
- * Only films already in the band are offered here, so this entry point can never hit the
- * designation mismatch - the film page is where a film is designated into a band it is
- * not currently in, and where the comparisons get to argue.
- */
-function AnchorPicker({
-  band,
-  films,
-  anchored,
-  onChange,
-}: {
-  band: number;
-  films: RatedFilm[];
-  anchored: RatedFilm | null;
-  onChange: () => void;
-}) {
-  const { busy, error, run } = useAsyncAction();
-  const [open, setOpen] = useState(false);
-
-  if (!open) {
-    return (
-      <button type="button" className="link-button" onClick={() => setOpen(true)}>
-        {anchored ? `Anchor: ${anchored.title}` : "Set this band's anchor"}
-      </button>
-    );
-  }
-  return (
-    <div className="anchor-picker">
-      <label className="field">
-        <span className="visually-hidden">{`Anchor for ${band.toFixed(1)}`}</span>
-        <select
-          disabled={busy}
-          value={anchored?.tmdb_id ?? ""}
-          onChange={(event) =>
-            void run(async () => {
-              const chosen = event.target.value;
-              if (chosen === "") await api.retireAnchor(band);
-              else await api.designate(band, Number(chosen));
-              setOpen(false);
-              onChange();
-            })
-          }
-        >
-          <option value="">No anchor</option>
-          {films.map((film) => (
-            <option key={film.tmdb_id} value={film.tmdb_id}>
-              {film.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
-
-/**
- * One cell of the wall: a film under its rank, marked joint where the film is tied.
- *
- * Every film gets a cell of its own, tied or not, so the wall stays a single grid of
- * same-sized posters and the film after a tie group takes the next cell like any other.
- * That means the tie cannot be a box drawn around its members - a box would have to know
- * where the grid breaks its rows, and the column count follows the viewport. So the tie is
- * carried entirely by the stamp: the shared rank, marked shared on every member, and
- * nothing drawn between them (`styles.css`, "Films judged equal keep their own cells").
- *
- * `data-tie` is what the stamp's own styling keys on; the cell needs no other hook.
+ * The rank is the film's place in its band, not its place in the current view - so a
+ * filtered row shows the ranks the films actually hold rather than renumbering them,
+ * which would be showing the owner a position no film occupies.
  */
 function WallCell({
   film,
-  tie = false,
   showBand = false,
+  highlighted = false,
 }: {
   film: RatedFilm;
-  tie?: boolean;
   showBand?: boolean;
+  highlighted?: boolean;
 }) {
   return (
-    <li className="ordering-slot" data-tie={tie ? "true" : undefined}>
-      <span className="ordering-rank">
-        {/* A leaderboard's joint place. The equals sign is the whole mark on screen, and
-            the word behind it is what a screen reader has instead. */}
-        {tie && (
-          <>
-            <span className="visually-hidden">Joint </span>
-            <span aria-hidden="true">=</span>
-          </>
-        )}
-        {film.position}
-      </span>
+    <li
+      className="ordering-slot"
+      id={`film-${film.tmdb_id}`}
+      data-highlighted={highlighted ? "true" : undefined}
+    >
+      <span className="ordering-rank">{film.rank}</span>
       <OrderedFilm film={film} showBand={showBand} />
     </li>
   );
@@ -461,9 +317,9 @@ function WallCell({
  * The poster is the point of the wall - a poster is recognised faster than a title, and
  * at three hundred films the wall is shorter than the list of rows it replaces.
  *
- * The band shows under a film only where the list is flat: inside the ordering's band
- * groups the value is already in the header above, and repeating it on every poster
- * would turn the header into decoration.
+ * The band shows under a film only where the list is flat: inside the wall's band rows
+ * the value is already in the header above, and repeating it on every poster would turn
+ * the header into decoration.
  */
 function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: boolean }) {
   return (
@@ -478,52 +334,8 @@ function OrderedFilm({ film, showBand = false }: { film: RatedFilm; showBand?: b
         <span className="film-year muted">{releaseYear(film.year)}</span>
         {showBand && <Band band={film.band} />}
         {film.anchor && <AnchorBadge band={film.band} />}
-        {film.provisional && <SettlingMark film={film} />}
-        {film.flagged && <span className="chip chip-flagged">Needs attention</span>}
       </div>
     </div>
-  );
-}
-
-/**
- * The "settling" mark, which on the wall is also the door into settling that one film.
- *
- * On an anchor it stays a mark and nothing more. An anchor is re-placed only from its own
- * page, where the warning that landing outside its band retires it can be read before the
- * flow starts (rating-system.md) - and a badge is no place to put a warning.
- */
-function SettlingMark({ film }: { film: RatedFilm }) {
-  const navigate = useNavigate();
-  const { busy, error, run } = useAsyncAction();
-
-  if (film.anchor) return <ProvisionalMark />;
-  // The wall is a grid of same-sized cells with no room for an error line under each, so a
-  // failed ask takes the mark's own place: the owner sees why nothing opened, and the film
-  // page offers the same door with room to explain itself.
-  if (error)
-    return (
-      <span className="error" role="alert">
-        {error}
-      </span>
-    );
-  return (
-    <button
-      type="button"
-      className="provisional-mark settling-door"
-      disabled={busy}
-      title="Still settling: fewer comparisons than usual"
-      // The word on screen is the film's state; the accessible name has to be the act,
-      // because "settling" alone tells a screen reader nothing about what clicking does.
-      aria-label={`Settle ${film.title} now`}
-      onClick={() =>
-        void run(async () => {
-          await api.askToRePlace(film.tmdb_id);
-          await navigate(placePath(film.tmdb_id));
-        })
-      }
-    >
-      settling
-    </button>
   );
 }
 
@@ -550,7 +362,7 @@ function QueuedFilm({ film, onLeft }: { film: FilmCard; onLeft: () => void }) {
       </div>
       <div className="film-row-actions">
         <Link className="button" to={placePath(film.tmdb_id)}>
-          Place it now
+          Rate it now
         </Link>
         {/* Leaving the queue says "I am not rating this one"; it stays watched. */}
         <button
@@ -572,16 +384,16 @@ function QueuedFilm({ film, onLeft }: { film: FilmCard; onLeft: () => void }) {
 }
 
 function isEmpty(rated: RatedScreen): boolean {
-  return (rated.groups?.length ?? rated.films?.length ?? 0) === 0;
+  return (rated.rows?.length ?? rated.films?.length ?? 0) === 0;
 }
 
 function hasFilters(filters: RatedFilters): boolean {
   return Boolean(
-    filters.bandMin || filters.bandMax || filters.genre || filters.decade || filters.flagged,
+    filters.bandMin || filters.bandMax || filters.genre || filters.decade || filters.anchorsOnly,
   );
 }
 
 /** The nudge points at the owner's best film, which is the easiest one to have an opinion about. */
 function firstFilm(rated: RatedScreen): RatedFilm | undefined {
-  return rated.groups?.[0]?.slots[0]?.[0] ?? rated.films?.[0];
+  return rated.rows?.[0]?.films[0] ?? rated.films?.[0];
 }

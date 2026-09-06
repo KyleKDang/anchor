@@ -42,48 +42,6 @@ export interface FilmCard {
 /** Logging a watch is always a choice between rating it now and rating it later. */
 export type Rate = "now" | "later";
 
-/**
- * The four answers a comparison offers; `a` and `b` are the two films as shown.
- *
- * `a` is usually the film being placed, and deliberately not always: a quiet drift check
- * rides in the same shape, about two films the owner is not placing at all. Answers name
- * the pair they were shown rather than an opponent, so this client never has to know
- * which kind of question it just rendered - and so it cannot leak the difference.
- */
-export type Verdict = "a" | "b" | "tied" | "skip";
-
-export interface PlacementQuestion {
-  done: false;
-  kind: "comparison";
-  a: FilmCard;
-  b: FilmCard;
-  answered: number;
-  /** The stars are settled and only the neighbours are open, so bailing out is safe. */
-  band_locked: boolean;
-}
-
-/** One band the landing could belong to, and the canonical film that stands for it. */
-export interface BandOption {
-  band: number;
-  exemplar: FilmCard | null;
-}
-
-/**
- * The landing sits exactly on a divider, so only the owner can say which side.
- *
- * This is the one step of the flow that names ratings, deliberately: the question is
- * about the bands, so hiding them would leave nothing to answer.
- */
-export interface BandQuestion {
-  done: false;
-  kind: "band";
-  film: FilmCard;
-  /** Two adjacent bands with a canonical film each; otherwise it is a plain band pick. */
-  sliver: boolean;
-  options: BandOption[];
-  answered: number;
-}
-
 /** The one answer a criteria card takes. Skip is absent: not answering is the default. */
 export type CriteriaVerdict = "a" | "b" | "tied";
 
@@ -101,55 +59,49 @@ export interface CriteriaCard {
   film_b: FilmCard;
 }
 
-/**
- * One slot of the ordering as the done screen shows it: a few faces and a count.
- *
- * `films` names at most a couple of the slot's members, in the slot's own order, and
- * `total` is how many the row stands for. A slot with `total > 1` is a tie group, which
- * the row says with the wall's joint-rank mark and "and N others" rather than a row per
- * member - the server caps this, so the payload is already the size of the screen.
- */
-export interface NeighbourSlot {
-  films: FilmCard[];
-  total: number;
-}
-
+/** The films immediately above and below a landed film, inside its own band. */
 export interface Neighbours {
-  /** The adjacent slots, null at the top and bottom of the ordering. */
-  above: NeighbourSlot | null;
-  /** The landed film's own slot minus itself, null where it is alone there. */
-  tied_with: NeighbourSlot | null;
-  below: NeighbourSlot | null;
+  above: FilmCard | null;
+  below: FilmCard | null;
 }
 
-export interface PlacementLanded {
-  done: true;
-  kind: "landed";
+/** One band of the picker: its value, and the references the owner picks against. */
+export interface PickerBand {
+  band: number;
+  /** A handful of the band's anchors, most recently marked first. */
+  pool: FilmCard[];
+  /** The whole pool's size, so a row can say how many more it stands for. */
+  pool_total: number;
+}
+
+/** The band picker: the film being rated, and the ten bands to put it in. */
+export interface Picker {
   film: FilmCard;
-  /** 1-based rank of the film's slot, best first. */
-  position: number;
-  total: number;
-  /** Derived from position against the dividers; null while the band structure is thin. */
-  rating: number | null;
-  band_anchor: boolean;
-  /** Trusted less than a fully-compared placement, and settles on its own. */
-  provisional: boolean;
-  /** Position-only and no anchor exists yet: the line explaining the missing stars. */
-  anchor_nudge: boolean;
-  /** A designation-mismatch re-placement landed in its band and completed the intent. */
-  designated: boolean;
-  /** This landing crossed the readiness bar: the one line announcing the ranked tier. */
-  unlocked: boolean;
+  bands: PickerBand[];
+  /** The film's band on a re-rate, marked on the row; null when it is not rated yet. */
+  current_band: number | null;
+  current_rank: number | null;
+}
+
+/** The done screen: where the film landed, and the two ways on from it. */
+export interface Landed {
+  film: FilmCard;
+  band: number;
+  rank: number;
+  /** How many films the band holds, so the rank reads as "3 of 41". */
+  band_size: number;
+  /** The film carries an anchor mark, which a cross-band re-rate has just retired. */
+  anchor: boolean;
   neighbours: Neighbours;
-  /** How many films are still settling, on the done screen of a settle and nowhere else. */
-  settle_another: number | null;
+  /** What this very landing unlocked, and empty on every other one. */
+  unlocked: Unlock[];
+  /** The account has no anchors at all: the one line saying what marking one does. */
+  anchor_nudge: boolean;
   /** The bonus question this landing earned, and usually null. Never blocking. */
   criteria: CriteriaCard | null;
 }
 
-export type PlacementStep = PlacementQuestion | BandQuestion | PlacementLanded;
-
-/** Position is the ordering itself; every other sort drops the band grouping. */
+/** Position is the wall itself; every other sort drops the band rows. */
 export type RatedSort = "position" | "rated" | "watched" | "title" | "year";
 
 export interface RatedFilm {
@@ -158,43 +110,34 @@ export interface RatedFilm {
   year: number | null;
   poster_path: string | null;
   genres: string[];
-  /** 1-based rank of the film's slot, best first. */
-  position: number;
-  /** Derived from position against the dividers; null while its band is undecidable. */
-  band: number | null;
+  /** The film's rating: the band the owner put it in. */
+  band: number;
+  /** Position within the band, 1 the best. Stamped on the poster. */
+  rank: number;
+  /** The owner has marked this film as one they are certain of. */
   anchor: boolean;
-  provisional: boolean;
-  /** An open drift flag the owner can see: this position is doubted. */
-  flagged: boolean;
 }
 
-/** One run of the ordering sharing a band, or one run that has no band yet. */
-export interface BandGroup {
-  band: number | null;
-  /** Tie-groups, in order; the films in one slot are the ones judged equal. */
-  slots: RatedFilm[][];
+/** One band row of the wall: its films in rank order, and what its header says. */
+export interface BandRow {
+  band: number;
+  films: RatedFilm[];
+  /** The count of the band's anchors - the whole band's, not the filtered view's. */
+  anchors: number;
 }
 
 export interface Rated {
   sort: RatedSort;
-  /** The banded ordering, for the position sort; null for every other. */
-  groups: BandGroup[] | null;
+  /** The wall, for the position sort; null for every other. A band with nothing is absent. */
+  rows: BandRow[] | null;
   /** The flat list, for every sort but position; null for that one. */
   films: RatedFilm[] | null;
   bands: number[];
   genres: string[];
   decades: number[];
-  /** No anchor exists yet: the one line explaining where the half-stars have gone. */
+  /** No anchor exists yet: the one line saying what marking one does. */
   anchor_nudge: boolean;
-  /** The compact strip at the top: every film carrying a flag the owner can see. */
-  needs_attention: FilmCard[];
   rate_later: FilmCard[];
-  /** The settling strip's count: films whose position is still a placeholder.
-   *
-   * Anchors are excluded, because the strip's button will not offer one. Zero means the
-   * strip renders nothing at all - presence, not a permanent slot - and this is the only
-   * count of it the app ever shows, bar the way onward from a settle just finished. */
-  settling: number;
 }
 
 export interface RatedFilters {
@@ -203,49 +146,19 @@ export interface RatedFilters {
   bandMax?: number | null;
   genre?: string | null;
   decade?: number | null;
-  flagged?: boolean;
+  anchorsOnly?: boolean;
 }
 
-export interface BandAnchor {
+/** One band's anchor pool, most recently marked first. */
+export interface BandPool {
   band: number;
-  film: FilmCard | null;
+  films: FilmCard[];
 }
 
+/** Every band's pool, best band first. A band with no anchors is still listed. */
 export interface Anchors {
-  anchors: BandAnchor[];
-  nudge: boolean;
+  bands: BandPool[];
 }
-
-/** Designating took, because the film was already where the owner said it was. */
-export interface Designated {
-  outcome: "designated";
-  band: number;
-  film: FilmCard;
-  /** The anchor this one replaced, which stays exactly where it sits in the ordering. */
-  retired: FilmCard | null;
-}
-
-/** The film is not in that band, so comparisons - not the intent - get to decide. */
-export interface ReplacementNeeded {
-  outcome: "re_placement";
-  band: number;
-  film: FilmCard;
-}
-
-/**
- * The film has never been placed, so the comparisons that place it decide the band.
- *
- * The fresh account's whole bootstrap: designating both places the film and erects the
- * first dividers. The intent is still only an intent, and answers that land it elsewhere
- * cancel it.
- */
-export interface PlacementNeeded {
-  outcome: "placement";
-  band: number;
-  film: FilmCard;
-}
-
-export type Designation = Designated | ReplacementNeeded | PlacementNeeded;
 
 /** The ten half-star bands, best first. A fixed vocabulary, never fetched. */
 export const BANDS = [5, 4.5, 4, 3.5, 3, 2.5, 2, 1.5, 1, 0.5];
@@ -264,47 +177,44 @@ export interface FilmDetail {
   vote_average: number;
   vote_count: number;
   state: LifecycleState | null;
+  /** The film's band, on a rated film. Null on every other, and never a prediction. */
   rating: number | null;
-  /** This film is the canonical exemplar of its band. */
+  /** The owner has marked this film an anchor. */
   anchor: boolean;
   /** The rate-later seat; meaningful only while the film is watched-unrated. */
   rate_later: boolean;
-  /** The open drift flag and its resolution options, where the owner has one to see. */
-  drift: DriftFlag | null;
+  /** Where the film sits inside its band, 1 the best. Null on an unrated film. */
+  rank: number | null;
+  /** How many films the band holds, so the rank reads as "3 of 41". */
+  band_size: number | null;
+  /** The films immediately above and below it in its band. Null on an unrated film. */
+  neighbours: Neighbours | null;
   /** The still-feel-the-same question the last rewatch left open. */
   rewatch: RewatchPrompt | null;
-  /** The position is a placeholder, so the page offers to settle it rather than re-place it. */
-  provisional: boolean;
+  /** The film's comparison-log entries, newest first. Empty on an unrated film. */
+  judgments: Judgment[];
 }
 
-/** One judgment that contradicts where the film sits, in the owner's own terms. */
-export interface DriftJudgment {
-  opponent: FilmCard;
-  /** The owner put the opponent above this film, against where the two now sit. */
-  opponent_won: boolean;
-  tied: boolean;
-  answered_at: string;
-}
+/** The log's three row types (rating-system.md, "The comparison log"). */
+export type JudgmentKind = "band_comparison" | "band_pick" | "criteria";
 
 /**
- * An open drift flag the owner can see, and what it stands on.
+ * One of the film's own comparison-log entries, as the page shows it back.
  *
- * Three ways out, one of which is doing nothing: re-place it, keep the position, or not
- * now. Dragging to a slot is deliberately not among them - every move goes through
- * comparisons - and nothing here is urgent, because the film is already benched.
+ * No status and no flag: an entry the ordering has since been moved past is shown
+ * exactly as it was made, and the reader compares it with the band and rank above it.
  */
-export interface DriftFlag {
-  judgments: DriftJudgment[];
-  /** A re-placement is already running for this film, so the page resumes it. */
-  re_placing: boolean;
-  /** Re-placing would risk this film's anchor status, so the offer says so upfront. */
-  anchor_warning: boolean;
-}
-
-/** How the owner settled one implicated opponent when keeping the position. */
-export interface KeepOpponent {
-  opponent_tmdb_id: number;
-  resolution: "noise" | "re_point";
+export interface Judgment {
+  kind: JudgmentKind;
+  /** The film this judgment set the subject against; null on a plain band pick. */
+  other: FilmCard | null;
+  /** Which film won a comparison. Null on a band pick, whose answer is the band. */
+  verdict: "a" | "b" | "tied" | "skip" | null;
+  /** The band a pick chose. Null on every comparison. */
+  band: number | null;
+  /** The quality a criteria answer was about. Null on every other kind. */
+  quality: string | null;
+  created_at: string;
 }
 
 /** The still-feel-the-same offer, open until it is answered and never chased. */
@@ -317,20 +227,11 @@ export type RewatchAnswer = "confirmed" | "changed" | "skip";
 /** What the account's evidence currently supports. There is no time component. */
 export type Readiness = "cold" | "forming" | "ready";
 
-/** What a bar measures. The last two are the two halves of the explicit-comparison share. */
-export type Dimension =
-  | "rated_films"
-  | "bands_spanned"
-  | "settled_share"
-  | "comparisons_per_film";
+/** What a bar measures. Two dimensions, because there are only two (ADR 0013). */
+export type Dimension = "rated_films" | "bands_spanned";
 
 export interface Evidence {
   rated_films: number;
-  explicit_comparisons: number;
-  /** Rated films the owner's own comparisons settled, not a seed import or an early bail. */
-  settled_films: number;
-  settled_share: number;
-  comparisons_per_film: number;
   bands_spanned: number;
 }
 
@@ -466,8 +367,12 @@ export interface Tier {
   vetoed: BacklogFilm[];
 }
 
+/** The two readiness unlocks, which are the only things that ever get a nav dot. */
+export type Unlock = "discovery" | "watchlist";
+
 /** The nav's one-time dots. Reserved for the readiness unlocks, and nothing else ever. */
 export interface Unlocks {
+  discovery: boolean;
   watchlist: boolean;
 }
 
@@ -497,6 +402,8 @@ export interface ImportState {
   pending: number;
   review_pending: number;
   unmatched: number;
+  /** What the import unlocked and the owner has not yet been to see. */
+  unlocked: Unlock[];
 }
 
 /** One film a review row might be. The director is often all that tells two apart. */
@@ -565,7 +472,8 @@ export interface SyncList {
 /** Concretely what re-importing destroys, counted rather than described. */
 export interface ImportWarning {
   rated_films: number;
-  comparisons: number;
+  /** Every row of the comparison log: the picks and the criteria answers alike. */
+  judgments: number;
   anchors: number;
   backlog_films: number;
   watch_events: number;
@@ -579,14 +487,14 @@ export type WarmupFill = "imported" | "fresh";
 /** Where one prompt stands. Skipped and done are both terminal, and both fine. */
 export type PromptState = "todo" | "done" | "skipped";
 
-/** A phase that can be skipped as a whole; a band names one designation prompt. */
-export type WarmupMark = "anchors" | "evidence" | "backlog";
+/** A phase that can be skipped as a whole; a band names one anchor prompt. */
+export type WarmupMark = "anchors" | "rating" | "backlog";
 
 export interface AnchorPrompt {
   band: number;
   state: PromptState;
-  /** The anchor, once one is designated. Its presence is what makes the prompt done. */
-  film: FilmCard | null;
+  /** The band's anchor pool. Any number may be marked, so one makes the prompt done. */
+  marked: FilmCard[];
   /** Ranked suggestions on the import fill; empty on the fresh fill, which searches. */
   candidates: FilmCard[];
 }
@@ -601,10 +509,15 @@ export interface AnchorPhase {
   browse: boolean;
 }
 
-export interface EvidencePhase {
+/**
+ * The fresh fill's middle step: "rate ~5 films you have seen", as normal ratings.
+ *
+ * Absent on the import fill, whose middle step is looking over the wall it just got -
+ * which is edit mode, and arrives with the warmup ticket that follows.
+ */
+export interface RatingPhase {
   state: PromptState;
-  kind: "comparisons" | "placements";
-  answered: number;
+  rated: number;
   /** Advisory: where the phase stops asking, never a bar the owner has to clear. */
   target: number;
 }
@@ -623,30 +536,11 @@ export interface Warmup {
   fork: boolean;
   dismissed: boolean;
   anchors: AnchorPhase;
-  evidence: EvidencePhase;
+  /** The fresh fill's middle step, and null on the import fill, which has two. */
+  rating: RatingPhase | null;
   backlog: BacklogPhase;
   readiness: Readiness;
 }
-
-/** One warmup comparison: two films the import seeded into the same tie-group. */
-export interface WarmupComparison {
-  done: false;
-  a: FilmCard;
-  b: FilmCard;
-  answered: number;
-  target: number;
-  /** The readiness this very answer crossed into, if it crossed one (ADR 0011). */
-  unlocked: Readiness | null;
-}
-
-export interface WarmupEvidenceDone {
-  done: true;
-  answered: number;
-  target: number;
-  unlocked: Readiness | null;
-}
-
-export type WarmupStep = WarmupComparison | WarmupEvidenceDone;
 
 /** The two grids TMDB offers as a list rather than an answer to a question. */
 export type Browse = "popular" | "top_rated";
@@ -690,14 +584,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** The next film a settling sitting should hand over, and how much is left after it. */
-export interface NextFilm {
-  /** Null when nothing is left, which is how a sitting ends: it runs out. */
-  film: FilmCard | null;
-  /** Films still settling, this one included, minus whatever the sitting has passed. */
-  remaining: number;
-}
-
 export const api = {
   me: () => request<Account>("GET", "/api/auth/me"),
   signUp: (credentials: Credentials) => request<Account>("POST", "/api/auth/signup", credentials),
@@ -718,46 +604,15 @@ export const api = {
     request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, { rate }),
   leaveRateLater: (tmdbId: number) =>
     request<void>("DELETE", `/api/films/${tmdbId}/rate-later`),
-  beginPlacement: (tmdbId: number, ballpark?: number) =>
-    request<PlacementStep>(
-      "POST",
-      `/api/placements/${tmdbId}${ballpark === undefined ? "" : `?ballpark=${ballpark}`}`,
-    ),
-  answerPlacement: (tmdbId: number, aTmdbId: number, bTmdbId: number, verdict: Verdict) =>
-    request<PlacementStep>("POST", `/api/placements/${tmdbId}/answers`, {
-      a_tmdb_id: aTmdbId,
-      b_tmdb_id: bTmdbId,
-      verdict,
-    }),
-  answerBand: (tmdbId: number, band: number, exemplarTmdbId: number | null) =>
-    request<PlacementStep>("POST", `/api/placements/${tmdbId}/band`, {
-      band,
-      exemplar_tmdb_id: exemplarTmdbId,
-    }),
-  bailOut: (tmdbId: number) => request<PlacementStep>("POST", `/api/placements/${tmdbId}/bail`),
-  keepComparing: (tmdbId: number) =>
-    request<PlacementStep>("POST", `/api/placements/${tmdbId}/keep-comparing`),
-  /**
-   * Pick the next film of a settling sitting, naming what the sitting has been through.
-   *
-   * The list is the whole of a sitting's state, held by the screen rather than the
-   * server: a sitting is a sitting and not a record, so nothing about it outlives the tab.
-   */
-  nextSettling: (offered: number[]) =>
-    request<NextFilm>("POST", "/api/settling/next", { offered }),
-  /** "Not this one": decline the offered film, taking back the ask that opened it. */
-  passOnSettling: (tmdbId: number) => request<void>("POST", `/api/settling/${tmdbId}/pass`),
+  /** Open the band picker on a watched film, or on a rated one to re-rate it. */
+  picker: (tmdbId: number) => request<Picker>("GET", `/api/placements/${tmdbId}`),
+  /** Tap a band, which is the whole of rating a film. */
+  pickBand: (tmdbId: number, band: number) =>
+    request<Landed>("POST", `/api/placements/${tmdbId}/band`, { band }),
   rated: (filters: RatedFilters = {}) => request<Rated>("GET", `/api/rated${ratedQuery(filters)}`),
   anchors: () => request<Anchors>("GET", "/api/anchors"),
-  designate: (band: number, tmdbId: number) =>
-    request<Designation>("POST", `/api/anchors/${band}`, { tmdb_id: tmdbId }),
-  retireAnchor: (band: number) => request<void>("DELETE", `/api/anchors/${band}`),
-  rePlaceDrift: (tmdbId: number) => request<void>("POST", `/api/drift/${tmdbId}/re-place`),
-  /** The owner asking outright: "settle it now" on a provisional film, "re-place" on a settled one. */
-  askToRePlace: (tmdbId: number) =>
-    request<void>("POST", `/api/placements/${tmdbId}/re-place`),
-  keepPosition: (tmdbId: number, opponents: KeepOpponent[]) =>
-    request<void>("POST", `/api/drift/${tmdbId}/keep`, { opponents }),
+  markAnchor: (tmdbId: number) => request<void>("POST", `/api/anchors/${tmdbId}`),
+  retireAnchor: (tmdbId: number) => request<void>("DELETE", `/api/anchors/${tmdbId}`),
   logRewatch: (tmdbId: number) => request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, {}),
   answerRewatch: (tmdbId: number, answer: RewatchAnswer) =>
     request<void>("POST", `/api/rewatches/${tmdbId}`, { answer }),
@@ -789,6 +644,8 @@ export const api = {
   liftVeto: (tmdbId: number) => request<void>("DELETE", `/api/watchlist/${tmdbId}/veto`),
   notNow: (tmdbId: number) => request<void>("POST", `/api/watchlist/${tmdbId}/not-now`),
   unlocks: () => request<Unlocks>("GET", "/api/unlocks"),
+  /** Arriving at Discovery, which is what clears its dot. */
+  seenDiscovery: () => request<void>("DELETE", "/api/unlocks/discovery"),
 
   importState: () => request<ImportState>("GET", "/api/import"),
   importWarning: () => request<ImportWarning>("GET", "/api/import/warning"),
@@ -810,13 +667,6 @@ export const api = {
   skipWarmup: (mark: WarmupMark, band?: number) =>
     request<Warmup>("POST", "/api/warmup/skip", { mark, band: band ?? null }),
   dismissWarmup: () => request<Warmup>("POST", "/api/warmup/dismiss"),
-  warmupComparison: () => request<WarmupStep>("GET", "/api/warmup/comparison"),
-  answerWarmupComparison: (aTmdbId: number, bTmdbId: number, verdict: Verdict) =>
-    request<WarmupStep>("POST", "/api/warmup/comparison", {
-      a_tmdb_id: aTmdbId,
-      b_tmdb_id: bTmdbId,
-      verdict,
-    }),
 };
 
 /**
@@ -846,7 +696,7 @@ function ratedQuery(filters: RatedFilters): string {
   if (filters.bandMax != null) params.set("band_max", String(filters.bandMax));
   if (filters.genre) params.set("genre", filters.genre);
   if (filters.decade) params.set("decade", String(filters.decade));
-  if (filters.flagged) params.set("flagged", "true");
+  if (filters.anchorsOnly) params.set("anchors_only", "true");
   const search = params.toString();
   return search ? `?${search}` : "";
 }

@@ -6,7 +6,6 @@ import { RequireAccount, RequireVisitor } from "./auth";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
 import { Place } from "./screens/Place";
-import { Settling } from "./screens/Settling";
 import { Import } from "./screens/import/Import";
 import { Review } from "./screens/import/Review";
 import { Login } from "./screens/auth/Login";
@@ -25,12 +24,11 @@ export function App() {
       <Route path="/verify" element={<Verify />} />
       <Route path="/debug/error" element={<DebugError />} />
       <Route element={<RequireAccount />}>
-        {/* Full-screen and outside the frame: mid-placement there is nothing to do
-            but answer, so the navigation would only be a distraction. The entry fork
+        {/* Full-screen and outside the frame: on the picker there is nothing to do
+            but pick, so the navigation would only be a distraction. The entry fork
             is outside for the same reason, one step earlier - the five destinations
             have nothing in them yet, so showing them would be showing five dead ends. */}
         <Route path="/place/:tmdbId" element={<Place />} />
-        <Route path="/settling" element={<Settling />} />
         <Route path="/welcome" element={<Welcome />} />
         <Route element={<Shell />}>
           <Route index element={<Home />} />
@@ -117,10 +115,10 @@ function Shell() {
 /**
  * The one-time unlock dots, and the only nav-level marker in the product.
  *
- * Reserved for the two readiness unlocks and cleared on the first visit, which happens
- * server-side when the screen itself is read - so this only has to re-ask on every
- * navigation and leave the dot off the destination the owner is standing on. Nothing
- * else in Anchor ever gets one: no counts, no unread, no badge that grows.
+ * Reserved for the two readiness unlocks - Discovery at *forming*, Watchlist at *ready*
+ * - and cleared on the first visit to the screen each one points at. This only has to
+ * re-ask on every navigation and leave the dot off the destination the owner is standing
+ * on. Nothing else in Anchor ever gets one: no counts, no unread, no badge that grows.
  */
 function useUnlockDots(): Set<string> {
   const { pathname } = useLocation();
@@ -130,7 +128,12 @@ function useUnlockDots(): Set<string> {
     void (async () => {
       try {
         const unlocks = await api.unlocks();
-        setPending(new Set(unlocks.watchlist ? ["/watchlist"] : []));
+        setPending(
+          new Set([
+            ...(unlocks.discovery ? ["/discovery"] : []),
+            ...(unlocks.watchlist ? ["/watchlist"] : []),
+          ]),
+        );
       } catch {
         // A dot is the quietest thing on the screen; failing to fetch one is not worth
         // a banner, and the next navigation asks again.

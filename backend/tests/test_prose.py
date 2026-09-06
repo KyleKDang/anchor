@@ -1,6 +1,6 @@
 """The prose profile: when Anchor rewrites what it thinks you like, and what you see of it.
 
-These read as what the owner did - place films, designate an anchor, answer a bonus
+These read as what the owner did - rate films, mark an anchor, answer a bonus
 question, open Profile - and assert what it cost and what appeared. The provider is
 scripted at the seam, so the prose itself is whatever the test said it would be; what is
 under test is everything around it: whether a regeneration happened at all, what it was
@@ -23,10 +23,10 @@ from flows import (
     answer_criteria,
     ask_criteria,
     build_ordering,
-    designate,
+    mark_anchor,
     pick_qualities,
-    place,
     profile,
+    rate,
     scale,
 )
 from invariants import assert_versions_monotonic, prose_versions, spend_ledger
@@ -37,8 +37,7 @@ SMALL = pytest.mark.settings(
     readiness_forming_films=3,
     readiness_forming_bands=1,
     prose_placements_trigger=2,
-    prose_drift_trigger=1,
-    prose_staleness_comparisons=8,
+    prose_staleness_judgments=8,
 )
 
 
@@ -59,7 +58,7 @@ async def settled(client, run_jobs, size=5):
 
 async def test_a_hollow_account_costs_nothing(owner, db, run_jobs, provider):
     """The flood-of-signups case: an account that never says anything never bills."""
-    await place(owner, LIBRARY[0], "b")
+    await rate(owner, LIBRARY[0], 4.0)
     await run_jobs()
 
     assert await spend_ledger(db) == []
@@ -69,7 +68,7 @@ async def test_a_hollow_account_costs_nothing(owner, db, run_jobs, provider):
 
 async def test_a_hollow_account_has_no_prose_on_its_profile(owner, run_jobs):
     """Nothing is shown, and nothing promises one is coming: the section is simply absent."""
-    await place(owner, LIBRARY[0], "b")
+    await rate(owner, LIBRARY[0], 4.0)
     await run_jobs()
 
     assert (await profile(owner))["prose"] is None
@@ -127,12 +126,12 @@ async def test_one_regeneration_lands_however_many_were_queued(owner, db, run_jo
 
 
 @SMALL
-async def test_a_single_placement_does_not_rewrite_the_prose(owner, db, run_jobs, provider):
-    """The whole point of accumulated change: one answer is never worth a provider call."""
+async def test_a_single_rating_does_not_rewrite_the_prose(owner, db, run_jobs, provider):
+    """The whole point of accumulated change: one rating is never worth a provider call."""
     account = await settled(owner, run_jobs)
     spent = len(provider.asked_of(llm.PROSE_SYSTEM))
 
-    await place(owner, LIBRARY[5], "b")
+    await rate(owner, LIBRARY[5], 2.0)
     await run_jobs()
 
     assert len(provider.asked_of(llm.PROSE_SYSTEM)) == spent
@@ -140,10 +139,10 @@ async def test_a_single_placement_does_not_rewrite_the_prose(owner, db, run_jobs
 
 
 @SMALL
-async def test_enough_placements_do(owner, db, run_jobs, provider):
+async def test_enough_ratings_do(owner, db, run_jobs, provider):
     account = await settled(owner, run_jobs)
 
-    await build_ordering(owner, LIBRARY[5:7])
+    await build_ordering(owner, LIBRARY[5:7], band=2.0)
     await run_jobs()
 
     versions = await prose_versions(db, account)
@@ -153,11 +152,11 @@ async def test_enough_placements_do(owner, db, run_jobs, provider):
 
 
 @SMALL
-async def test_designating_an_anchor_rewrites_the_prose_at_once(owner, db, run_jobs):
+async def test_marking_an_anchor_rewrites_the_prose_at_once(owner, db, run_jobs):
     """An anchor is the owner saying what a rating means to them; that is not incremental."""
     account = await settled(owner, run_jobs)
 
-    await designate(owner, 5.0, LIBRARY[0])
+    await mark_anchor(owner, LIBRARY[0])
     await run_jobs()
 
     versions = await prose_versions(db, account)
@@ -200,11 +199,11 @@ async def test_criteria_answers_feed_the_regeneration_as_evidence(owner, db, run
     """ADR 0007: a bonus answer is loose evidence about taste, and this is where it lands."""
     await ask_criteria(owner, "often")
     account = await settled(owner, run_jobs)
-    landed, _ = await place(owner, LIBRARY[5], "b")
+    landed = await rate(owner, LIBRARY[5], 2.0)
     assert landed["criteria"], "the bonus card was not offered"
     await answer_criteria(owner, landed["criteria"], "a")
 
-    await build_ordering(owner, LIBRARY[6:8])
+    await build_ordering(owner, LIBRARY[6:8], band=1.0)
     await run_jobs()
 
     assert len(await prose_versions(db, account)) == 2
@@ -218,10 +217,10 @@ async def test_an_unanswered_bonus_card_says_nothing_about_anybody(owner, run_jo
     """A skip is the owner declining to judge, so it is not evidence of anything."""
     await ask_criteria(owner, "often")
     await settled(owner, run_jobs)
-    landed, _ = await place(owner, LIBRARY[5], "b")
+    landed = await rate(owner, LIBRARY[5], 2.0)
     assert landed["criteria"], "the bonus card was not offered"
 
-    await build_ordering(owner, LIBRARY[6:8])
+    await build_ordering(owner, LIBRARY[6:8], band=1.0)
     await run_jobs()
 
     quality = landed["criteria"]["quality"]
@@ -273,9 +272,9 @@ async def test_the_version_a_regeneration_lands_is_what_discovery_will_cache_aga
     """Monotonic per account, so the bump is the cache invalidation (data-model.md)."""
     account = await settled(owner, run_jobs)
 
-    await build_ordering(owner, LIBRARY[5:7])
+    await build_ordering(owner, LIBRARY[5:7], band=2.0)
     await run_jobs()
-    await designate(owner, 5.0, LIBRARY[0])
+    await mark_anchor(owner, LIBRARY[0])
     await run_jobs()
 
     assert_versions_monotonic(await prose_versions(db, account))

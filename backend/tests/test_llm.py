@@ -55,7 +55,7 @@ def evidence():
         criteria=["Screenplay: Film 00 (1980) over Film 04 (1984)"],
         constraints=["They have said they care about: Pacing"],
         rated_films=5,
-        explicit_comparisons=9,
+        judgments=9,
     )
 
 

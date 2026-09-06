@@ -1,246 +1,339 @@
 """The weight-vector trainer, tested directly: the other half of the below-API seam.
 
-What is pinned here is what taste-profile.md fixes about pair extraction - every
-adjacent pair, a per-film budget inside a seeded band, sampled long-range pairs, ties as
-equality targets, explicit answers outweighing implied ones, provisional placements
-down-weighted, sampling seedable - and the one quality bar that matters: held-out
-accuracy clearly beats chance on a taste the test itself invented. The particular
-numbers a fit lands on are never asserted, and neither is a clock: the scale a retrain
-must survive is pinned as an allocation bound.
+What is pinned here is what taste-profile.md fixes about pair extraction - cross-band
+pairs at full weight, within-band pairs weighted by distance so neighbours train as
+near-equals, explicit band comparisons kept only where the ordering still agrees, a
+budget per film, sampling seedable - and the one quality bar that matters: held-out
+accuracy clearly beats chance on a taste the test itself invented. The particular numbers
+a fit lands on are never asserted, and neither is a clock: the scale a retrain must
+survive is pinned as an allocation bound.
 """
 
 import random
 import tracemalloc
-import uuid
-from itertools import combinations
 
 import library as library_module
 from anchor import features, trainer
-from anchor.ordering import Ordering, Slot
+from anchor.ordering import Ordering, Placed
+from anchor.trainer import Answered
 from library import library, taste
 
+BANDS = (5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5)
 
-def ordering(*slots):
+
+def ordering(**rows):
+    """An ordering from ``b5_0=[...]`` style keywords: the band, then its films in rank order."""
     return Ordering(
-        tuple(
-            Slot(id=uuid.uuid4(), position=index, film_ids=tuple(films))
-            for index, films in enumerate(slots)
-        )
+        rows={
+            _band(name): tuple(
+                Placed(film_id=film_id, band=_band(name), rank=rank, anchored=False)
+                for rank, film_id in enumerate(films, start=1)
+            )
+            for name, films in rows.items()
+        }
     )
 
 
-def answered(ordering):
-    """The pairs a real placement flow leaves in the log: every film's own bisection.
-
-    Not the adjacent pairs: a placement narrows by halving, so its answers run from a
-    film halfway across the ordering down to the immediate neighbours. Holding out only
-    neighbours would measure the one comparison no scorer can make - two films the owner
-    themselves could barely separate.
-    """
-    ids = [slot.film_ids[0] for slot in ordering.slots]
-    pairs = set()
-    for index, film in enumerate(ids):
-        lo, hi = 0, len(ids)
-        while lo < hi:
-            mid = (lo + hi) // 2
-            if ids[mid] != film:
-                pairs.add(frozenset({film, ids[mid]}))
-            if index <= mid:
-                hi = mid
-            else:
-                lo = mid + 1
-    return pairs
+def _band(name):
+    return float(name.removeprefix("b").replace("_", "."))
 
 
-def pairs_of(extracted):
-    """Every extracted pair as (a, b, target), which is what the spec speaks about."""
-    return {(pair.a, pair.b, pair.target) for pair in extracted}
+def stack(*bands):
+    """One film per band, best first: the simplest ordering with cross-band pairs in it."""
+    return Ordering(
+        rows={
+            band: (Placed(film_id=film_id, band=band, rank=1, anchored=False),)
+            for band, film_id in zip(BANDS, bands, strict=False)
+        }
+    )
 
 
-NO_SAMPLING = trainer.Sampling(long_range_per_film=0)
-"""Adjacency and ties only, so a test about those is not reading sampled noise."""
-
-EVERY_PAIR = trainer.Sampling(tied_per_film=10**6, adjacent_per_film=10**6)
-"""No budget on a tie-group: every pair a seed import implies, as the worker once saw."""
+def directed(extracted):
+    """Every extracted pair as (better, worse), which is what the spec speaks about."""
+    return {(pair.a, pair.b) for pair in extracted}
 
 
-def test_every_adjacent_pair_is_extracted_better_first():
-    """Adjacency fully captures the order, so it is the one thing never sampled."""
-    extracted = trainer.extract(ordering([1], [2], [3]), seed=1, sampling=NO_SAMPLING)
-
-    assert pairs_of(extracted) == {(1, 2, 1.0), (2, 3, 1.0)}
+def weights_of(extracted):
+    return {(pair.a, pair.b): pair.weight for pair in extracted}
 
 
-def test_a_tie_group_trains_as_an_equality_target():
-    """The owner said these are the same film to them, which is a judgment, not a gap."""
-    extracted = trainer.extract(ordering([1, 2], [3]), seed=1, sampling=NO_SAMPLING)
+NO_LONG_RANGE = trainer.Sampling(long_range_per_film=0)
+"""Adjacent bands and within-band pairs only, so a test is not reading sampled noise."""
 
-    assert (1, 2, trainer.TIED) in pairs_of(extracted)
-
-
-def test_adjacency_reaches_across_a_tie_group():
-    """Both members of a slot are above both members of the next: the order says so."""
-    extracted = trainer.extract(ordering([1, 2], [3, 4]), seed=1, sampling=NO_SAMPLING)
-
-    assert {(1, 3, 1.0), (1, 4, 1.0), (2, 3, 1.0), (2, 4, 1.0)} <= pairs_of(extracted)
+EVERY_PAIR = trainer.Sampling(
+    within_per_film=10**6, adjacent_per_film=10**6, long_range_per_film=10**6
+)
+"""No budget at all: every pair a seeded library implies, as the worker once saw them."""
 
 
-def test_long_range_pairs_teach_magnitude_beyond_the_neighbours():
-    """Adjacency says which way; only a distant pair says by how far."""
-    ranked = ordering(*([n] for n in range(12)))
+# --- Across bands ---
+
+
+def test_a_cross_band_pair_points_from_the_better_band():
+    extracted = trainer.extract(stack(1, 2, 3), seed=1, sampling=NO_LONG_RANGE)
+
+    assert (1, 2) in directed(extracted)
+    assert (2, 3) in directed(extracted)
+    assert (2, 1) not in directed(extracted)
+
+
+def test_every_cross_band_pair_carries_full_weight():
+    """Across bands, order is a judgment (ADR 0013)."""
+    extracted = trainer.extract(stack(1, 2, 3), seed=1, sampling=NO_LONG_RANGE)
+
+    assert all(pair.weight == 1.0 for pair in extracted if not pair.within_band)
+
+
+def test_long_range_pairs_reach_past_the_neighbouring_bands():
+    """Adjacency says which way; only a distant band says by how far."""
+    ranked = ordering(**{f"b{band}".replace(".", "_"): [index] for index, band in enumerate(BANDS)})
 
     extracted = trainer.extract(ranked, seed=1, sampling=trainer.Sampling(long_range_per_film=3))
 
     assert any(abs(pair.a - pair.b) > 1 for pair in extracted)
-    assert all(pair.a < pair.b for pair in extracted if pair.target == 1.0)
+    assert all(pair.a < pair.b for pair in extracted)
 
 
 def test_the_sampling_is_seedable():
-    ranked = ordering(*([n] for n in range(12)))
+    ranked = ordering(b5_0=list(range(12)), b3_0=list(range(12, 24)), b1_0=list(range(24, 36)))
 
-    first = pairs_of(trainer.extract(ranked, seed=4))
-    again = pairs_of(trainer.extract(ranked, seed=4))
-    other = pairs_of(trainer.extract(ranked, seed=99))
+    first = directed(trainer.extract(ranked, seed=4))
+    again = directed(trainer.extract(ranked, seed=4))
+    other = directed(trainer.extract(ranked, seed=99))
 
     assert first == again
     assert first != other
 
 
+# --- Within a band ---
+
+
+def test_within_a_band_neighbours_train_as_near_equals():
+    """One rank apart is, to the engine, very nearly the same film."""
+    row = list(range(100))
+
+    extracted = trainer.extract(ordering(b4_0=row), seed=1, sampling=EVERY_PAIR)
+
+    weights = weights_of(extracted)
+    assert weights[(0, 1)] < 0.05, weights[(0, 1)]
+
+
+def test_within_a_band_the_top_against_the_bottom_is_a_judgment():
+    row = list(range(100))
+
+    extracted = trainer.extract(ordering(b4_0=row), seed=1, sampling=EVERY_PAIR)
+
+    weights = weights_of(extracted)
+    assert weights[(0, 99)] == 1.0
+    assert weights[(0, 50)] > weights[(0, 10)] > weights[(0, 1)]
+
+
+def test_a_within_band_pair_is_marked_as_a_range():
+    extracted = trainer.extract(ordering(b4_0=[1, 2, 3]), seed=1, sampling=EVERY_PAIR)
+
+    assert all(pair.within_band for pair in extracted)
+
+
+def test_within_a_band_the_better_rank_comes_first():
+    extracted = trainer.extract(ordering(b4_0=[1, 2, 3]), seed=1, sampling=EVERY_PAIR)
+
+    assert directed(extracted) == {(1, 2), (1, 3), (2, 3)}
+
+
+# --- Explicit band comparisons ---
+
+
 def test_an_explicit_answer_outweighs_an_implied_pair():
     """The owner judged one of these two; the other the ordering merely implies."""
-    ranked = ordering([1], [2], [3])
+    ranked = stack(1, 2, 3)
 
-    extracted = trainer.extract(ranked, seed=1, explicit={frozenset({1, 2})}, sampling=NO_SAMPLING)
+    extracted = trainer.extract(
+        ranked, seed=1, explicit=[Answered(better=1, worse=2)], sampling=NO_LONG_RANGE
+    )
 
-    weights = {(pair.a, pair.b): pair.weight for pair in extracted}
+    weights = weights_of(extracted)
     assert weights[(1, 2)] > weights[(2, 3)]
+    assert {(pair.a, pair.b) for pair in extracted if pair.explicit} == {(1, 2)}
 
 
-def test_a_provisional_placement_is_down_weighted_until_it_graduates():
-    ranked = ordering([1], [2], [3], [4])
+def test_an_answer_the_ordering_has_moved_past_is_dropped():
+    """A later move wins: the ordering is primary and the log is evidence (ADR 0013)."""
+    ranked = stack(1, 2)
 
-    settled = trainer.extract(ranked, seed=1, sampling=NO_SAMPLING)
-    unsettled = trainer.extract(ranked, seed=1, provisional={3}, sampling=NO_SAMPLING)
+    extracted = trainer.extract(
+        ranked, seed=1, explicit=[Answered(better=2, worse=1)], sampling=NO_LONG_RANGE
+    )
 
-    before = {(pair.a, pair.b): pair.weight for pair in settled}
-    after = {(pair.a, pair.b): pair.weight for pair in unsettled}
-    assert after[(2, 3)] < before[(2, 3)]
-    assert after[(3, 4)] < before[(3, 4)]
-    assert after[(1, 2)] == before[(1, 2)]
-
-
-def test_an_answered_pair_the_sampling_would_have_missed_is_trained_on_anyway():
-    """The owner's own answers are the best evidence there is; none is left to luck."""
-    ranked = ordering(*([n] for n in range(12)))
-
-    extracted = trainer.extract(ranked, seed=1, explicit={frozenset({0, 9})}, sampling=NO_SAMPLING)
-
-    assert (0, 9, 1.0) in pairs_of(extracted)
+    assert not any(pair.explicit for pair in extracted)
+    assert weights_of(extracted)[(1, 2)] == 1.0
 
 
-def test_an_answered_pair_points_the_way_the_ordering_does():
-    """The ordering is the primary state and the log is evidence about it (ADR 0010)."""
-    ranked = ordering([5], [3])
+def test_an_answer_whose_films_share_a_band_still_stands():
+    """Within-band order is a range, not a verdict, so it cannot contradict an answer."""
+    ranked = ordering(b4_0=[1, 2])
 
-    extracted = trainer.extract(ranked, seed=1, explicit={frozenset({3, 5})})
+    extracted = trainer.extract(
+        ranked, seed=1, explicit=[Answered(better=2, worse=1)], sampling=EVERY_PAIR
+    )
 
-    assert pairs_of(extracted) == {(5, 3, 1.0)}
+    assert [pair.explicit for pair in extracted] == [True]
 
 
 def test_an_answered_pair_naming_a_film_no_longer_rated_is_left_out():
     extracted = trainer.extract(
-        ordering([1], [2]), seed=1, explicit={frozenset({1, 404})}, sampling=NO_SAMPLING
+        stack(1, 2), seed=1, explicit=[Answered(better=1, worse=404)], sampling=NO_LONG_RANGE
     )
 
-    assert pairs_of(extracted) == {(1, 2, 1.0)}
+    assert directed(extracted) == {(1, 2)}
+    assert not any(pair.explicit for pair in extracted)
 
 
 def test_an_ordering_too_short_to_have_a_pair_yields_none():
-    assert trainer.extract(ordering([1]), seed=1) == []
+    assert trainer.extract(ordering(b4_0=[1]), seed=1) == []
     assert trainer.extract(ordering(), seed=1) == []
 
 
-def test_a_seeded_band_pairs_each_film_a_budgeted_number_of_times():
-    """A band-sized tie-group is paired per film, never per pair.
+# --- The budget ---
 
-    Two hundred films seeded into one half-star band would otherwise imply twenty
-    thousand tie pairs, and forty thousand more against the band below - all of them
-    saying the same two things. Each film instead draws a budget of slot-mates and of
-    opponents either side, so the pair count follows the library and the ordering is
-    still fully captured: every film ties with some of its band and stands above and
-    below some of its neighbours.
+
+def test_a_big_band_pairs_each_film_a_budgeted_number_of_times():
+    """A band of hundreds costs hundreds of pairs, never the square of itself (#59).
+
+    Two hundred films in one half-star band would otherwise imply twenty thousand
+    within-band pairs and forty thousand more against the band below, all of them saying
+    the same two things. Each film instead draws a budget, so the pair count follows the
+    library while the ordering is still captured: every film stands above some of the
+    band below and below some of the band above.
     """
     upper, lower = list(range(200)), list(range(200, 400))
     budget = trainer.SAMPLING
 
-    extracted = trainer.extract(ordering(upper, lower), seed=1, sampling=NO_SAMPLING)
+    extracted = trainer.extract(ordering(b4_0=upper, b3_5=lower), seed=1, sampling=NO_LONG_RANGE)
 
-    ties = [pair for pair in extracted if pair.target == trainer.TIED]
-    cross = [pair for pair in extracted if pair.target == 1.0]
-    assert len(ties) <= 400 * budget.tied_per_film
+    within = [pair for pair in extracted if pair.within_band]
+    cross = [pair for pair in extracted if not pair.within_band]
+    assert len(within) <= 400 * budget.within_per_film
     assert len(cross) <= 400 * budget.adjacent_per_film
     for film in upper:
-        assert sum(film in (pair.a, pair.b) for pair in ties) >= budget.tied_per_film
         assert sum(pair.a == film for pair in cross) >= budget.adjacent_per_film
     for film in lower:
         assert sum(pair.b == film for pair in cross) >= budget.adjacent_per_film
 
 
-def test_a_tie_group_that_fits_the_budget_still_trains_on_every_pair():
-    """The budget only bites on a seeded band; a tie the owner made by hand is whole."""
+def test_a_band_that_fits_the_budget_trains_on_every_pair_inside_it():
     budget = trainer.SAMPLING
-    upper = list(range(budget.tied_per_film + 1))
-    lower = list(range(100, 100 + budget.adjacent_per_film))
+    row = list(range(budget.within_per_film + 1))
 
-    extracted = trainer.extract(ordering(upper, lower), seed=1, sampling=NO_SAMPLING)
+    extracted = trainer.extract(ordering(b4_0=row), seed=1, sampling=NO_LONG_RANGE)
 
-    ties = {(a, b, trainer.TIED) for slot in (upper, lower) for a, b in combinations(slot, 2)}
-    assert pairs_of(extracted) == ties | {(a, b, 1.0) for a in upper for b in lower}
+    assert directed(extracted) == {(a, b) for index, a in enumerate(row) for b in row[index + 1 :]}
 
 
-LIVE_BANDS = (129, 125, 122, 81, 60, 37, 22, 15, 5, 1)
-"""The tie-group sizes one real 597-film Letterboxd import seeded (#59), best band first."""
+# --- The held-out slice ---
 
 
-def seed_import(ranked):
-    """The ordering a seed import leaves: one provisional tie-group per half-star band."""
-    films = iter(film.tmdb_id for film in ranked)
-    return ordering(*([next(films) for _ in range(size)] for size in LIVE_BANDS))
+def test_the_held_out_slice_is_cross_band_pairs_and_the_owner_s_own_answers():
+    """Within-band pairs are excluded: the ordering calls them a range, not a verdict."""
+    ranked = ordering(b5_0=list(range(20)), b3_0=list(range(20, 40)))
+
+    extracted = trainer.extract(ranked, seed=3, explicit=[Answered(better=0, worse=1)])
+    held_out, _ = trainer.hold_out(extracted, share=0.5, seed=3)
+
+    assert held_out
+    assert all(pair.explicit or not pair.within_band for pair in held_out)
 
 
-def wide_library(size):
-    """A library whose feature space is production-wide: a keyword vocabulary in the
-    thousands, most of it shared by just enough films to earn a column."""
-    pool = tuple(f"keyword {n:04d}" for n in range(1500))
-    return library(size, keyword_pool=pool, keywords_per_film=12)
+def test_holding_out_keeps_the_two_slices_disjoint_and_whole():
+    ranked = ordering(b5_0=list(range(20)), b3_0=list(range(20, 40)))
+    extracted = trainer.extract(ranked, seed=3)
+
+    held_out, training = trainer.hold_out(extracted, share=0.25, seed=3)
+
+    assert held_out and training
+    assert len(held_out) + len(training) == len(extracted)
+    assert not {id(pair) for pair in held_out} & {id(pair) for pair in training}
+
+
+def test_nothing_is_held_out_where_the_ordering_offers_nothing_eligible():
+    """A one-band account has no cross-band pair and no answer: no accuracy, honestly."""
+    extracted = trainer.extract(ordering(b4_0=[1, 2, 3]), seed=3)
+
+    held_out, training = trainer.hold_out(extracted, share=0.5, seed=3)
+
+    assert held_out == []
+    assert training == extracted
+
+
+def test_accuracy_is_unanswerable_where_nothing_was_held_back():
+    rows = {film.tmdb_id: film for film in library(4)}
+    space = features.learn(list(rows.values()))
+
+    weights = trainer.fit(trainer.design([], space, rows))
+    assert trainer.accuracy(weights, trainer.design([], space, rows)) is None
 
 
 # --- Quality ---
 
 
+def banded(ranked):
+    """Spread a taste-ordered library across the ten bands, best band first.
+
+    A taste is a total order and the ordering is ten rows, so the rows are cut out of it
+    in order: the best tenth is the 5.0 row, and so on down. That is what an owner who
+    rated their library honestly would have.
+    """
+    size = max(1, len(ranked) // len(BANDS))
+    rows = {}
+    for index, band in enumerate(BANDS):
+        cut = (
+            ranked[index * size : (index + 1) * size]
+            if index < len(BANDS) - 1
+            else ranked[index * size :]
+        )
+        if cut:
+            rows[band] = tuple(
+                Placed(film_id=film.tmdb_id, band=band, rank=rank, anchored=False)
+                for rank, film in enumerate(cut, start=1)
+            )
+    return Ordering(rows=rows)
+
+
 def test_held_out_accuracy_clearly_beats_chance_on_a_synthetic_taste():
     """The bar the whole scorer exists to clear, on an ordering the test itself invented.
 
-    A hidden per-symbol taste ranks 150 films; the trainer sees only the resulting order,
-    with a fifth of the answers held back. Recovering the held-back ones well above a
-    coin flip is what "the scorer works" means at this seam (evaluation.md).
-
-    The bar is deliberately not a high one. Half the held-out pairs are near-neighbours
-    the synthetic taste itself barely separates, so the ceiling here is nowhere near 1.0;
-    what the pair of tests pins is the gap - this taste lands in the high seventies and
-    the signal-free ordering below it stays in the fifties.
+    A hidden per-symbol taste ranks 150 films into ten bands; the trainer sees only the
+    resulting rows, with a quarter of the eligible pairs held back. Recovering the
+    held-back ones well above a coin flip is what "the scorer works" means at this seam
+    (evaluation.md).
     """
     ranked = taste(library(150))
     rows = {film.tmdb_id: film for film in ranked}
-    line = ordering(*([film.tmdb_id] for film in ranked))
+    line = banded(ranked)
 
-    extracted = trainer.extract(line, seed=3, explicit=answered(line))
-    held_out, training = trainer.hold_out(extracted, share=0.2, seed=3)
+    extracted = trainer.extract(line, seed=3)
+    held_out, training = trainer.hold_out(extracted, share=0.25, seed=3)
     space = features.learn(list(rows.values()))
     weights = trainer.fit(trainer.design(training, space, rows))
 
     accuracy = trainer.accuracy(weights, trainer.design(held_out, space, rows))
     assert accuracy is not None and accuracy > 0.72, accuracy
+
+
+def test_a_taste_with_no_signal_in_it_lands_near_chance():
+    """The metric has to be able to say "this is not working", or it says nothing at all."""
+    films = library(150)
+    shuffled = list(films)
+    random.Random(5).shuffle(shuffled)
+    rows = {film.tmdb_id: film for film in films}
+    line = banded(shuffled)
+
+    extracted = trainer.extract(line, seed=3)
+    held_out, training = trainer.hold_out(extracted, share=0.25, seed=3)
+    space = features.learn(films)
+    weights = trainer.fit(trainer.design(training, space, rows))
+
+    accuracy = trainer.accuracy(weights, trainer.design(held_out, space, rows))
+    assert accuracy is not None and accuracy < 0.68, accuracy
 
 
 def test_a_library_separated_by_one_feature_still_learns_it():
@@ -254,7 +347,7 @@ def test_a_library_separated_by_one_feature_still_learns_it():
     """
     plain = [library_film(9000 + index, "Western" if index < 3 else "Horror") for index in range(6)]
     rows = {film.tmdb_id: film for film in plain}
-    line = ordering(*([film.tmdb_id] for film in plain))
+    line = ordering(b5_0=[9000, 9001, 9002], b2_0=[9003, 9004, 9005])
 
     space = features.learn(plain)
     weights = trainer.fit(trainer.design(trainer.extract(line, seed=1), space, rows))
@@ -269,44 +362,6 @@ def library_film(tmdb_id, genre):
     )
 
 
-def test_a_taste_with_no_signal_in_it_lands_near_chance():
-    """The metric has to be able to say "this is not working", or it says nothing at all."""
-    films = library(150)
-    shuffled = list(films)
-    random.Random(5).shuffle(shuffled)
-    rows = {film.tmdb_id: film for film in films}
-    line = ordering(*([film.tmdb_id] for film in shuffled))
-
-    extracted = trainer.extract(line, seed=3, explicit=answered(line))
-    held_out, training = trainer.hold_out(extracted, share=0.2, seed=3)
-    space = features.learn(films)
-    weights = trainer.fit(trainer.design(training, space, rows))
-
-    accuracy = trainer.accuracy(weights, trainer.design(held_out, space, rows))
-    assert accuracy is not None and accuracy < 0.68, accuracy
-
-
-def test_holding_out_keeps_the_two_slices_disjoint_and_whole():
-    line = ordering(*([n] for n in range(40)))
-    extracted = trainer.extract(line, seed=3, explicit=answered(line))
-
-    held_out, training = trainer.hold_out(extracted, share=0.25, seed=3)
-
-    assert held_out and training
-    assert len(held_out) + len(training) == len(extracted)
-    assert not {id(pair) for pair in held_out} & {id(pair) for pair in training}
-
-
-def test_accuracy_is_unanswerable_where_nothing_directional_was_held_back():
-    """A tie has no direction to get right, so a held-out slice of ties measures nothing."""
-    rows = {film.tmdb_id: film for film in library(4)}
-    ties = [trainer.Pair(a=9000, b=9001, target=trainer.TIED, weight=1.0, explicit=True)]
-    space = features.learn(list(rows.values()))
-
-    weights = trainer.fit(trainer.design(ties, space, rows))
-    assert trainer.accuracy(weights, trainer.design(ties, space, rows)) is None
-
-
 def test_a_film_is_vectorised_once_however_many_pairs_it_appears_in():
     """What keeps a retrain in milliseconds, pinned as a fact rather than as a stopwatch.
 
@@ -318,8 +373,7 @@ def test_a_film_is_vectorised_once_however_many_pairs_it_appears_in():
     """
     ranked = taste(library(60))
     rows = {film.tmdb_id: film for film in ranked}
-    line = ordering(*([film.tmdb_id] for film in ranked))
-    extracted = trainer.extract(line, seed=3, explicit=answered(line))
+    extracted = trainer.extract(banded(ranked), seed=3)
     space = features.learn(list(rows.values()))
     counted = _CountingSpace(space)
 
@@ -348,13 +402,37 @@ class _CountingSpace:
 # --- Scale ---
 
 
+LIVE_BANDS = (129, 125, 122, 81, 60, 37, 22, 15, 5, 1)
+"""The band sizes one real 597-film Letterboxd import seeded (#59), best band first."""
+
+
+def seed_import(ranked):
+    """The ordering a seed import leaves: one full band row per half-star value."""
+    films = iter(ranked)
+    return Ordering(
+        rows={
+            band: tuple(
+                Placed(film_id=next(films).tmdb_id, band=band, rank=rank, anchored=False)
+                for rank in range(1, size + 1)
+            )
+            for band, size in zip(BANDS, LIVE_BANDS, strict=True)
+        }
+    )
+
+
+def wide_library(size):
+    """A library whose feature space is production-wide: a keyword vocabulary in the
+    thousands, most of it shared by just enough films to earn a column."""
+    pool = tuple(f"keyword {n:04d}" for n in range(1500))
+    return library(size, keyword_pool=pool, keywords_per_film=12)
+
+
 def test_a_seed_shaped_library_retrains_without_a_pair_by_feature_matrix():
     """What keeps the retrain inside the worker's memory, pinned as an allocation bound.
 
-    A seed import parks hundreds of films in ten tie-groups, and every within-group and
-    adjacent-group pair is a training row - some eighty thousand of them for one real
-    library, against a feature space in the low thousands. A row-per-pair matrix of that
-    is over a gigabyte, and on the live box it killed the worker (#59).
+    Unbudgeted, a seed import's ten full band rows imply some eighty thousand training
+    rows against a feature space in the low thousands. A row-per-pair matrix of that is
+    over a gigabyte, and on the live box it killed the worker (#59).
 
     The bound is what the fit is allowed to hold: the film-by-feature matrix, twice over
     for working copies, plus a few machine words per pair. Nothing proportional to
@@ -375,3 +453,12 @@ def test_a_seed_shaped_library_retrains_without_a_pair_by_feature_matrix():
 
     film_matrix = len(rows) * len(space) * 8
     assert peak < 2 * film_matrix + 100 * len(extracted), (peak, film_matrix, len(extracted))
+
+
+def test_the_budget_keeps_a_seed_shaped_library_to_a_library_sized_pair_count():
+    """The default sampling is what makes the bound above academic rather than load-bearing."""
+    ranked = taste(wide_library(597))
+
+    extracted = trainer.extract(seed_import(ranked), seed=3)
+
+    assert len(extracted) < 20 * len(ranked), len(extracted)
