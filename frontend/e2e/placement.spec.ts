@@ -61,7 +61,10 @@ test("an owner re-rates a film from its page and the wall follows", async ({ pag
   await pick(page, 5);
   await page.getByRole("link", { name: "Leave it where it is" }).click();
 
-  await page.getByRole("region", { name: "Your ordering" }).getByText("Fight Club").click();
+  await page
+    .getByRole("region", { name: "Your ordering" })
+    .getByRole("link", { name: "Fight Club", exact: true })
+    .click();
   await expect(page.getByRole("heading", { level: 2, name: "Your rating" })).toBeVisible();
   await page.getByRole("link", { name: "Re-rate it" }).click();
 

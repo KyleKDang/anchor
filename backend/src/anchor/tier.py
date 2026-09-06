@@ -422,20 +422,27 @@ async def not_now(db: AsyncSession, account_film: AccountFilm, settings: Setting
 # --- The unlock ---
 
 
-async def note_unlock(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
+async def note_unlock(
+    db: AsyncSession, account_id: uuid.UUID, settings: Settings
+) -> set[Unlock]:
     """Arm whatever readiness bars this account has crossed, and react to the tier's own.
 
-    The dots themselves belong to :mod:`anchor.unlocks`, which every surface that could
-    be the first to notice calls. What is this module's business is the side effect: the
-    crossing is itself a change to what the tier is computed from, and the only one there
-    may be, since the fit and the clock can both stand where the last pre-gate read
-    stamped them with the retrain still queued. Without this the one announced moment
-    opens on an empty screen.
+    Everything that could be the first to notice a crossing goes through here rather than
+    calling :mod:`anchor.unlocks` directly, because arming the dot has a consequence this
+    module owns: the crossing is itself a change to what the tier is computed from, and
+    the only one there may be. A re-rate that carries an account into a third band moves
+    neither the fit - its retrain is still queued - nor the watch clock, so without this
+    the one announced moment would open on an empty screen.
+
+    Returns what crossed *in this call*, so the act that earned an unlock can name it on
+    its own done screen and every later caller says nothing.
     """
-    if Unlock.watchlist in await unlocks.arm(db, account_id, settings):
+    crossed = await unlocks.arm(db, account_id, settings)
+    if Unlock.watchlist in crossed:
         state = await _state(db, account_id)
         state.due = True
         await db.flush()
+    return crossed
 
 
 # --- Reads ---

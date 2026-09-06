@@ -33,7 +33,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from anchor import anchors as anchors_module
 from anchor import criteria, jobs, tags
 from anchor import ordering as ordering_module
-from anchor import unlocks as unlocks_module
+from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.criteria import CriteriaCard
@@ -211,7 +211,10 @@ async def pick(
         await ordering_module.re_rate(db, placement, band=body.band, rank=rank)
 
     await jobs.schedule_retrain(db, queue, account.id)
-    crossed = await unlocks_module.arm(db, account.id, settings)
+    # Through the tier rather than straight at the dots: arming the watchlist's one has a
+    # consequence the tier owns, and a rating is exactly the act that can cross the bar
+    # without moving anything else the tier is computed from.
+    crossed = await tier_module.note_unlock(db, account.id, settings)
     card = await criteria.offer(db, account, tmdb_id, context)
     # The films a card from this rating could have named are the ones the next card will
     # want tags for, so this rating is what buys them - for the next one, never for this

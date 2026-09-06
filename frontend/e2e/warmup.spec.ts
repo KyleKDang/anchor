@@ -49,7 +49,7 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
     .first()
     .click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Fight Club landed");
-  await page.getByRole("link", { name: "Rate this later" }).click();
+  await page.getByRole("link", { name: "Leave it where it is" }).click();
   await expect(page).toHaveURL(/\/warmup$/);
 
   // Back on the prompt, the film it just rated is offered as the band's own candidate,

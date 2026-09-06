@@ -199,9 +199,12 @@ function Prompt({
         </p>
       )}
 
-      {fill === "imported" ? (
-        <Candidates prompt={prompt} disabled={busy} onPick={markCandidate} />
-      ) : (
+      {/* The owner's own films in this band come first wherever there are any: on the
+          import fill that is the whole of the step, and on the fresh fill it is the film
+          they just rated through the picker, which is what they came back to mark.
+          Search stays on the fresh fill because there it is the way in, not a fallback. */}
+      <Candidates prompt={prompt} disabled={busy} onPick={markCandidate} empty={fill !== "fresh"} />
+      {fill === "fresh" && (
         <FilmPicker
           label={`Find your ${prompt.band.toFixed(1)}`}
           action={`This is my ${prompt.band.toFixed(1)}`}
@@ -236,12 +239,20 @@ function Candidates({
   prompt,
   disabled,
   onPick,
+  empty,
 }: {
   prompt: AnchorPrompt;
   disabled: boolean;
   onPick: (film: FilmCard) => Promise<void>;
+  /** Say so when there is nothing to offer, rather than leaving a gap.
+   *
+   * True on the import fill, where an empty band is news: the export put nothing here.
+   * False on the fresh fill, where search is right underneath and an empty library is
+   * the ordinary state rather than something to remark on. */
+  empty: boolean;
 }) {
   if (prompt.candidates.length === 0) {
+    if (!empty) return null;
     return (
       <p className="muted">
         Nothing you imported landed in this band. You can mark one later from any film's page.

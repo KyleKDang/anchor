@@ -1215,6 +1215,7 @@ select {
 }
 
 .place-header {
+  width: min(100%, 34rem);
   text-align: center;
 }
 
@@ -1259,11 +1260,14 @@ select {
    than text: a row is a value and the films that value already means to this owner, and
    a tap on it is the whole of rating a film (ADR 0013). */
 
+/* The film being rated, above the bands. Left-aligned inside the centred header so the
+   poster's edge lines up with the rows below it: the subject and the rows are one column,
+   and a centred block over a left-aligned list reads as two. */
 .picker-subject {
   display: flex;
   align-items: flex-start;
   gap: var(--s4);
-  width: min(100%, 34rem);
+  margin: var(--s3) 0 var(--s2);
   text-align: left;
 }
 
@@ -1278,6 +1282,13 @@ select {
   margin: 0;
   font-size: var(--text-lg);
   line-height: var(--leading-tight);
+}
+
+/* Left, with the subject and the rows: the header's centred title is the screen's name,
+   and everything under it is one column the eye reads straight down. */
+.picker-current {
+  margin: 0 0 var(--s1);
+  text-align: left;
 }
 
 .picker {
@@ -1297,7 +1308,7 @@ select {
   align-items: center;
   gap: var(--s4);
   width: 100%;
-  min-height: 3.75rem;
+  min-height: 4.5rem;
   padding: var(--s2) var(--s4);
   border: var(--hairline);
   border-radius: var(--r-lg);
@@ -1335,13 +1346,15 @@ select {
 .picker-pool {
   display: flex;
   align-items: center;
-  gap: 0.3rem;
-  min-height: 2.75rem;
+  gap: 0.35rem;
+  min-height: 3.5rem;
   overflow: hidden;
 }
 
+/* Big enough to recognise, which is the whole job of the pool: the owner is choosing
+   against these films, so a poster they cannot read is a label wearing a poster's shape. */
 .picker-pool .poster {
-  width: 1.85rem;
+  width: 2.35rem;
   border-radius: var(--r-sm);
   box-shadow: var(--shadow-1);
 }
