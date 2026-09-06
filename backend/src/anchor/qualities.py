@@ -15,7 +15,7 @@ import uuid
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor.models import BUILT_IN_QUALITIES, QualityListEntry, QualityOrigin
+from anchor.models import BUILT_IN_QUALITIES, Account, QualityListEntry, QualityOrigin
 
 NAME_LIMIT = 64
 """The column's width, and so the longest a custom quality may be.
@@ -97,7 +97,9 @@ async def record_suggestions(db: AsyncSession, account_id: uuid.UUID, names: lis
     stands: a quality the newest evidence no longer supports should stop being pre-ticked,
     and a set that only ever grew would end up ticking the entire list.
     """
-    wanted = [name.casefold() for name in names]
+    # Lowered rather than casefolded, because the comparison happens in SQL and has to
+    # mean what SQL's own lower() means; the two part company on a handful of letters.
+    wanted = [name.lower() for name in names]
     mine = QualityListEntry.account_id == account_id
     guessed = func.lower(QualityListEntry.name).in_(wanted)
     await db.execute(update(QualityListEntry).where(mine, ~guessed).values(suggested_at=None))
@@ -111,3 +113,15 @@ async def clear_suggestions(db: AsyncSession, account_id: uuid.UUID) -> None:
         .where(QualityListEntry.account_id == account_id)
         .values(suggested_at=None)
     )
+
+
+async def picker_unanswered(db: AsyncSession, account_id: uuid.UUID) -> bool:
+    """Whether the picker is still worth guessing at: the owner has never answered it.
+
+    Read by the worker, which is where a guess is bought, and by the picker itself. Once
+    the owner has answered there is nothing left to guess, so nothing is spent guessing
+    it again - and the guess can never quietly overwrite the answer, because it stops
+    being made rather than merely being ignored.
+    """
+    answered = await db.scalar(select(Account.qualities_picked_at).where(Account.id == account_id))
+    return answered is None

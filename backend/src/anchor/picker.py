@@ -38,13 +38,7 @@ from anchor import qualities as qualities_module
 from anchor.accounts import CurrentAccount
 from anchor.deps import AppJobs, DbSession
 from anchor.errors import ApiError
-from anchor.models import (
-    Account,
-    ConstraintKind,
-    ProfileConstraint,
-    QualityListEntry,
-    QualityOrigin,
-)
+from anchor.models import ConstraintKind, ProfileConstraint, QualityListEntry, QualityOrigin
 
 router = APIRouter(prefix="/api/profile")
 
@@ -80,9 +74,15 @@ class Selection(BaseModel):
 
 
 class Claim(BaseModel):
-    """A sentence in the prose profile the owner says is wrong about them."""
+    """A claim in the prose profile the owner says is wrong about them.
 
-    claim: str = Field(min_length=1, max_length=1000)
+    The ceiling is loose on purpose: the claim is a paragraph the owner is handing back,
+    and a whole regeneration is capped well under this, so nothing a regeneration can
+    write is refusable here. Refusing a claim because it ran long would be Anchor
+    declining to hear about its own worst paragraph.
+    """
+
+    claim: str = Field(min_length=1, max_length=2000)
 
 
 class Correction(BaseModel):
@@ -292,14 +292,3 @@ async def _live_picks(
         for constraint in rows
         if constraint.quality_id is not None
     }
-
-
-async def unanswered(db: AsyncSession, account_id: uuid.UUID) -> bool:
-    """Whether the picker is still worth guessing at: the owner has never answered it.
-
-    Read by the regeneration job, which is where the guess is bought. Once the owner has
-    answered there is nothing left to guess, so nothing is spent guessing it again - and
-    the guess can never quietly overwrite the answer, because it stops being made.
-    """
-    answered = await db.scalar(select(Account.qualities_picked_at).where(Account.id == account_id))
-    return answered is None

@@ -233,7 +233,7 @@ function ProseSection({
       <h2 id="prose-heading">What Anchor thinks you like</h2>
       <div className="prose">
         {paragraphs.map((paragraph, index) => (
-          <p key={index} className="prose-claim">
+          <p key={index} className={`prose-claim${corrected.has(paragraph) ? " corrected" : ""}`}>
             <span>{paragraph}</span>
             {/* One control per paragraph, because a paragraph is the smallest thing a
                 regeneration actually writes - splitting it finer would hand the engine
@@ -255,12 +255,16 @@ function ProseSection({
           {error}
         </p>
       )}
+      <p className="muted prose-updated">
+        Last updated <time dateTime={prose.generated_at}>{ago(prose.generated_at)}</time>.
+      </p>
       {corrections.length > 0 && (
         <div className="corrections">
           <h3>What you have told Anchor is wrong</h3>
           {/* Kept where they were made, and undoable from here: a correction the owner
               cannot find again is one they cannot take back, and these outlive every
-              rewrite of the text above by design. */}
+              rewrite of the text above by design - which is why they are a list rather
+              than a mark on the paragraph they came from. */}
           <ul>
             {corrections.map((correction) => (
               <li key={correction.id}>
@@ -278,9 +282,6 @@ function ProseSection({
           </ul>
         </div>
       )}
-      <p className="muted prose-updated">
-        Last updated <time dateTime={prose.generated_at}>{ago(prose.generated_at)}</time>.
-      </p>
     </section>
   );
 }
@@ -410,10 +411,16 @@ function QualitiesSection() {
         </p>
       )}
       <div className="quality-save">
+        {/* Pressable when there is something to say, which includes agreeing with the
+            guess exactly as it stands - that is the confirming this whole control exists
+            for, and a Save that only woke up on disagreement would refuse the commonest
+            answer. An empty checklist nobody has touched is the one case with nothing to
+            record, and stays disabled rather than letting a stray click answer "none of
+            these" and silence the guessing for good. */}
         <button
           type="button"
           className="button"
-          disabled={busy || !dirty}
+          disabled={busy || (!dirty && (picker.answered || chosen.size === 0))}
           onClick={() => void save()}
         >
           Save

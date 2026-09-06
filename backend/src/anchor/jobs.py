@@ -170,7 +170,7 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
     anything went wrong, because from their side nothing did.
     """
     from anchor import llm as llm_module
-    from anchor import picker, prose
+    from anchor import prose, qualities
 
     db, seam = database_of(context), llm_of(context)
     account = uuid.UUID(account_id)
@@ -195,7 +195,7 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
         # retry without the prose being rewritten again, and the prose landing is what
         # decides there is something new to guess from. Same account lock, so it waits
         # for this job rather than racing it.
-        if await picker.unanswered(session, account):
+        if await qualities.picker_unanswered(session, account):
             await enqueue(
                 session,
                 context.app,
@@ -223,12 +223,12 @@ async def refresh_quality_suggestions(context: JobContext, account_id: str) -> N
     spent cap or a provider that is down leaves the last one standing and says nothing.
     """
     from anchor import llm as llm_module
-    from anchor import picker, prose, qualities
+    from anchor import prose, qualities
 
     db, seam = database_of(context), llm_of(context)
     account = uuid.UUID(account_id)
     async with db.sessions() as session:
-        if not await picker.unanswered(session, account):
+        if not await qualities.picker_unanswered(session, account):
             return
         evidence = await prose.evidence(session, account)
         listed = [entry.name for entry in await qualities.listing(session, account)]
@@ -240,7 +240,7 @@ async def refresh_quality_suggestions(context: JobContext, account_id: str) -> N
         return
 
     async with db.sessions() as session:
-        if await picker.unanswered(session, account):
+        if await qualities.picker_unanswered(session, account):
             await qualities.record_suggestions(session, account, suggested)
             await session.commit()
 
