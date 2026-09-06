@@ -160,6 +160,13 @@ class Film(Base):
     refilled from TMDB, so it carries no ownership. Only image *paths* are stored -
     the bytes stay on TMDB's CDN (ADR 0003) - and ``fetched_at`` is what the rolling
     re-sync measures staleness against.
+
+    Every column but one is TMDB's answer, verbatim. ``tagged_at`` is the exception and
+    is deliberately not: it is the once-ever marker for the shared quality tags below,
+    and it lives here because a film with no tags is a real answer that must be told
+    apart from a film nobody has asked about yet. The rolling re-sync leaves it alone -
+    a tag is a fact about the film rather than about the metadata, so re-fetching the
+    metadata is not a reason to buy the tags a second time.
     """
 
     __tablename__ = "films"
@@ -178,6 +185,42 @@ class Film(Base):
     vote_count: Mapped[int] = mapped_column(Integer, nullable=False)
     fetched_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
+    )
+    tagged_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the shared quality tags were computed for this film, or NULL for never.
+
+    The whole of "once per film ever": the tagging job reads this before it spends, and
+    a film that came back with no tags at all is stamped just the same, so the answer
+    "this film is not notable for any of them" is bought once rather than every time
+    somebody places it.
+    """
+
+
+class QualityTag(Base):
+    """An account-independent marker that a film is known for a vocabulary quality.
+
+    Shared catalog, not account realm: a tag is a fact about the film rather than about
+    anybody's taste, so it is bought once for everybody, its ledger row carries no
+    account, and deleting an account takes none of it with them (architecture.md).
+
+    ``quality`` is a name from :data:`BUILT_IN_QUALITIES` and nothing else. Tags draw
+    from the closed built-in vocabulary only (taste-profile.md), which is what makes them
+    shareable at all - a custom quality belongs to one account's list, so it could never
+    be a fact about the film, and it reaches a criteria question only through the
+    rotation fallback. The seam already filters a provider's answer to the vocabulary it
+    offered; storing the name rather than a foreign key is what keeps this table free of
+    any account's list.
+    """
+
+    __tablename__ = "quality_tags"
+
+    film_id: Mapped[int] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="CASCADE"), primary_key=True
+    )
+    quality: Mapped[str] = mapped_column(String(64), primary_key=True)
+    """One of :data:`BUILT_IN_QUALITIES`, verbatim."""
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
 
 

@@ -330,6 +330,26 @@ async def film_page(client, film):
     return response.json()
 
 
+# --- Quality tags ---
+
+
+async def given_tags(db, tmdb_id, *qualities):
+    """Say what a film is known for, below the seam: the catalog as a tagging left it.
+
+    The one helper here that does not speak HTTP, because there is no owner-facing way to
+    tag a film and there should not be - a tag is an account-independent fact the engine
+    buys for itself. Tests about *selection* are about what tags do once they exist, and
+    buying them through the provider to find out would make every one of them a test of
+    the job queue as well. The stamp goes on with the rows, exactly as the job writes
+    them, so a film arranged this way is never re-tagged behind the test's back.
+    """
+    from anchor import tags
+
+    async with db.sessions() as session:
+        await tags.record(session, tmdb_id, qualities)
+        await session.commit()
+
+
 # --- The quality picker and profile constraints ---
 
 

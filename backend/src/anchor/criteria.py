@@ -34,12 +34,13 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import ordering as ordering_module
-from anchor import qualities
+from anchor import qualities, tags
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import DbSession
 from anchor.errors import ApiError
 from anchor.models import (
+    BUILT_IN_QUALITIES,
     Account,
     ComparisonContext,
     ComparisonKind,
@@ -146,8 +147,8 @@ async def offer(
 
     if account.criteria_frequency is CriteriaFrequency.off:
         return None
-    matchup = _matchup(_collected(entries, context, since), subject)
-    if matchup is None:
+    candidates = _matchups(_collected(entries, context, since))
+    if not candidates:
         return None
     listed = await qualities.listing(db, account.id)
     if not listed:
@@ -156,6 +157,7 @@ async def offer(
     if not await _due(db, account, made):
         return None
 
+    matchup, quality = await _select(db, candidates, listed, made)
     entry = ComparisonLogEntry(
         account_id=account.id,
         kind=ComparisonKind.criteria,
@@ -163,7 +165,7 @@ async def offer(
         film_a_id=matchup.film_a,
         film_b_id=matchup.film_b,
         verdict=OFFERED,
-        quality_id=_rotated(listed, made).id,
+        quality_id=quality.id,
         context=context,
         status=ComparisonStatus.active,
     )
@@ -189,23 +191,59 @@ def _collected(
     ]
 
 
-def _matchup(entries: list[ComparisonLogEntry], subject: int) -> Matchup | None:
-    """The most recent pair the owner actually judged in this flow, or None if none is.
+def _matchups(entries: list[ComparisonLogEntry]) -> list[Matchup]:
+    """Every pair the owner actually judged in this flow, most recent first.
 
-    Selection is spec'd as "prefer the pair whose films share a quality tag, tie-broken
-    toward the most recent matchup"; no film carries tags yet (#36), so every pair ties
-    and the tie-break decides alone. Skips are not judgments and so are not matchups: the
-    card asks about a pair the owner compared, and a skipped pair they declined to.
+    Skips are not judgments and so are not matchups: the card asks about a pair the owner
+    compared, and a skipped pair is one they declined to. Most recent first because that
+    is the order selection reads them in - the tie-break is toward the freshest memory.
     """
-    for entry in reversed(entries):
-        if entry.film_b_id is None or entry.verdict is ComparisonVerdict.skip:
-            continue
-        return Matchup(entry.film_a_id, entry.film_b_id)
-    return None
+    return [
+        Matchup(entry.film_a_id, entry.film_b_id)
+        for entry in reversed(entries)
+        if entry.film_b_id is not None and entry.verdict is not ComparisonVerdict.skip
+    ]
+
+
+async def _select(
+    db: AsyncSession, candidates: list[Matchup], listed: list[QualityListEntry], made: int
+) -> tuple[Matchup, QualityListEntry]:
+    """Which pair to ask about, and which quality to ask (taste-profile.md).
+
+    *Prefer the pair whose films share a quality tag, tie-broken toward the most recent
+    matchup.* Two films both known for their tension make "which had the better tension?"
+    a question about a real difference, where the same question about a film that is not
+    notable for it is a question the owner has to invent an answer to. ``candidates`` is
+    already most recent first, so the first overlap found is the tie-break's own answer.
+
+    *If no pair overlaps, rotate through the quality list on the last matchup* - which is
+    also what happens when nothing has been tagged yet, when the caps are spent, and when
+    the two films simply have nothing in common. The fallback is the ordinary case, not
+    the error case.
+
+    Tags name built-in vocabulary only, so a shared tag is asked about only if this
+    account still has that quality on its list; the rotation is where a custom quality
+    can be asked at all, and it stays the only route to one.
+    """
+    films = {film for matchup in candidates for film in (matchup.film_a, matchup.film_b)}
+    tagged = await tags.of(db, films)
+    askable = {entry.name: entry for entry in listed}
+    for matchup in candidates:
+        shared = [
+            name
+            for name in BUILT_IN_QUALITIES
+            if name in askable and name in tagged[matchup.film_a] & tagged[matchup.film_b]
+        ]
+        if shared:
+            # Which of several shared tags is not spec'd, so the rotation cursor decides
+            # it too: placing the same pair twice then asks about a different quality
+            # rather than the same one, which is the whole reason the rotation exists.
+            return matchup, askable[shared[made % len(shared)]]
+    return candidates[0], _rotated(listed, made)
 
 
 def _rotated(listed: list[QualityListEntry], made: int) -> QualityListEntry:
-    """The next quality in the rotation: the fallback that runs until quality tags exist.
+    """The next quality in the rotation: the fallback when no pair shares a tag.
 
     Rotation rather than sampling, so the list is worked through evenly - the point is
     breadth of evidence across qualities, and a sampler would ask about Acting four times
