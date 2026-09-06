@@ -4,8 +4,10 @@ import { Link } from "react-router";
 import {
   api,
   messageOf,
+  type Correction,
   type CriteriaFrequency,
   type Dimension,
+  type Picker,
   type Profile as ProfileData,
   type Prose as ProseData,
   type Readiness,
@@ -38,7 +40,14 @@ export function Profile() {
       <h1>Profile</h1>
       <WarmupSection />
       <ReadinessSection profile={profile} error={error} />
-      <ProseSection prose={profile?.prose ?? null} />
+      <ProseSection
+        prose={profile?.prose ?? null}
+        corrections={profile?.corrections ?? []}
+        onCorrections={(corrections) =>
+          setProfile((current) => (current === null ? current : { ...current, corrections }))
+        }
+      />
+      <QualitiesSection />
       <CriteriaSection frequency={profile?.criteria_frequency ?? null} />
       <Letterboxd />
       <AccountSection />
@@ -176,25 +185,254 @@ function ReadinessSection({
  * The paragraphs are split rather than rendered as one block, because a regeneration
  * writes two or three of them and a wall of text is not what the owner was promised.
  */
-function ProseSection({ prose }: { prose: ProseData | null }) {
+function ProseSection({
+  prose,
+  corrections,
+  onCorrections,
+}: {
+  prose: ProseData | null;
+  corrections: Correction[];
+  onCorrections: (corrections: Correction[]) => void;
+}) {
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   if (prose === null) return null;
   const paragraphs = prose.text
     .split(/\n\s*\n/)
     .map((paragraph) => paragraph.trim())
     .filter((paragraph) => paragraph.length > 0);
+  const corrected = new Set(corrections.map((one) => one.claim));
+
+  async function correct(claim: string) {
+    setBusy(claim);
+    setError(null);
+    try {
+      onCorrections([...corrections, await api.correctProse(claim)]);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function lift(correction: Correction) {
+    setBusy(correction.id);
+    setError(null);
+    try {
+      await api.liftCorrection(correction.id);
+      onCorrections(corrections.filter((one) => one.id !== correction.id));
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <section className="section" aria-labelledby="prose-heading">
       <h2 id="prose-heading">What Anchor thinks you like</h2>
       <div className="prose">
         {paragraphs.map((paragraph, index) => (
-          <p key={index}>{paragraph}</p>
+          <p key={index} className="prose-claim">
+            <span>{paragraph}</span>
+            {/* One control per paragraph, because a paragraph is the smallest thing a
+                regeneration actually writes - splitting it finer would hand the engine
+                back a sentence it never composed as a claim of its own. */}
+            <button
+              type="button"
+              className="thumb-down"
+              disabled={busy !== null || corrected.has(paragraph)}
+              onClick={() => void correct(paragraph)}
+              aria-label={`Tell Anchor this is wrong: ${paragraph}`}
+            >
+              {corrected.has(paragraph) ? "Noted" : "Not right"}
+            </button>
+          </p>
         ))}
       </div>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {corrections.length > 0 && (
+        <div className="corrections">
+          <h3>What you have told Anchor is wrong</h3>
+          {/* Kept where they were made, and undoable from here: a correction the owner
+              cannot find again is one they cannot take back, and these outlive every
+              rewrite of the text above by design. */}
+          <ul>
+            {corrections.map((correction) => (
+              <li key={correction.id}>
+                <span className="muted">{correction.claim}</span>
+                <button
+                  type="button"
+                  className="button secondary"
+                  disabled={busy !== null}
+                  onClick={() => void lift(correction)}
+                >
+                  Undo
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <p className="muted prose-updated">
         Last updated <time dateTime={prose.generated_at}>{ago(prose.generated_at)}</time>.
       </p>
     </section>
   );
+}
+
+/**
+ * The quality picker: a checklist Anchor has already filled in, and the owner's job is
+ * to untick what is wrong.
+ *
+ * Confirm-not-author is the whole design (taste-profile.md), so the section leads with
+ * the ticks rather than with a blank form, and says outright that they are a guess while
+ * they still are. Nothing here is required and nothing gates on it: an owner who reads
+ * the list and closes the screen has lost nothing.
+ *
+ * It saves behind a button rather than on every tick, which is where it parts company
+ * with the frequency control below. A multi-select is answered by the whole set left
+ * ticked, so a write per checkbox would send a dozen different answers on the way to the
+ * one the owner meant - and each of them would schedule a regeneration.
+ */
+function QualitiesSection() {
+  const [picker, setPicker] = useState<Picker | null>(null);
+  const [chosen, setChosen] = useState<Set<string>>(new Set());
+  const [custom, setCustom] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    api
+      .qualities()
+      .then((loaded) => {
+        setPicker(loaded);
+        setChosen(ticksOf(loaded));
+      })
+      .catch(() => setPicker(null));
+  }, []);
+
+  function toggle(id: string) {
+    setChosen((current) => {
+      const next = new Set(current);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+    setSaved(false);
+  }
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      const answered = await api.pickQualities([...chosen]);
+      setPicker(answered);
+      setChosen(ticksOf(answered));
+      setSaved(true);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function add(event: FormEvent) {
+    event.preventDefault();
+    if (custom.trim() === "") return;
+    setBusy(true);
+    setError(null);
+    try {
+      const added = await api.addQuality(custom);
+      setPicker(await api.qualities());
+      // Ticked here but not saved: adding a quality is naming one, and whether the owner
+      // cares about it is still the picker's own question to answer.
+      setChosen((current) => new Set([...current, added.id]));
+      setCustom("");
+      setSaved(false);
+    } catch (caught) {
+      setError(messageOf(caught));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (picker === null) return null;
+
+  const guessing = !picker.answered && picker.qualities.some((quality) => quality.suggested);
+  const dirty = !sameSet(chosen, ticksOf(picker));
+
+  return (
+    <section className="section" aria-labelledby="qualities-heading">
+      <h2 id="qualities-heading">What you care about</h2>
+      <p className="muted">
+        {guessing
+          ? "Anchor has guessed these from what you have rated. Untick anything that is wrong, and tick anything it missed."
+          : "Tick the qualities that matter to you. Anchor weighs them when it describes your taste and when it picks what to recommend."}{" "}
+        Entirely optional - Anchor works without it.
+      </p>
+      <fieldset className="qualities">
+        <legend className="visually-hidden">Qualities you care about</legend>
+        {picker.qualities.map((quality) => (
+          <label key={quality.id} className="quality">
+            <input
+              type="checkbox"
+              checked={chosen.has(quality.id)}
+              onChange={() => toggle(quality.id)}
+            />
+            <span>{quality.name}</span>
+          </label>
+        ))}
+      </fieldset>
+      <form className="quality-add" onSubmit={(event) => void add(event)}>
+        <label className="field">
+          <span>Something else you care about</span>
+          <input
+            type="text"
+            name="quality"
+            maxLength={64}
+            placeholder="Worldbuilding"
+            value={custom}
+            onChange={(event) => setCustom(event.target.value)}
+          />
+        </label>
+        <button type="submit" className="button secondary" disabled={busy || custom.trim() === ""}>
+          Add
+        </button>
+      </form>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      <div className="quality-save">
+        <button
+          type="button"
+          className="button"
+          disabled={busy || !dirty}
+          onClick={() => void save()}
+        >
+          Save
+        </button>
+        {saved && !dirty && <span className="muted">Saved.</span>}
+      </div>
+    </section>
+  );
+}
+
+/** What the picker currently shows ticked: the owner's answer, or Anchor's guess. */
+function ticksOf(picker: Picker): Set<string> {
+  return new Set(
+    picker.qualities.filter((quality) => quality.checked).map((quality) => quality.id),
+  );
+}
+
+function sameSet(a: Set<string>, b: Set<string>): boolean {
+  return a.size === b.size && [...a].every((one) => b.has(one));
 }
 
 const UNITS: [Intl.RelativeTimeFormatUnit, number][] = [

@@ -2496,3 +2496,137 @@ select {
     order: 1;
   }
 }
+
+/* The quality picker ------------------------------------------------------------------ */
+
+/* A wrapping grid rather than a column: thirteen one-word checkboxes stacked vertically
+   read as a form to fill in, and the whole point of this control is that it is already
+   filled in and only needs glancing over. */
+.qualities {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr));
+  gap: var(--s1) var(--s2);
+  max-width: 44rem;
+  margin: var(--s4) 0 0;
+  padding: 0;
+  border: 0;
+}
+
+.quality {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: center;
+  column-gap: var(--s2);
+  padding: var(--s2);
+  border-radius: var(--r-md);
+  cursor: pointer;
+}
+
+.quality:hover {
+  background: var(--surface);
+}
+
+.quality input {
+  accent-color: var(--ink);
+}
+
+/* The escape hatch sits below the list and reads as an addition to it, not as the
+   primary way in: most owners will never type here, and a text box given equal weight
+   would suggest the checklist above was not enough. */
+.quality-add {
+  display: flex;
+  align-items: end;
+  gap: var(--s2);
+  max-width: 44rem;
+  margin-top: var(--s4);
+}
+
+.quality-add .field {
+  flex: 1;
+}
+
+.quality-save {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-top: var(--s4);
+}
+
+/* Corrections on the prose ------------------------------------------------------------ */
+
+/* The control rides at the end of the paragraph's own text flow, so it moves with the
+   line rather than sitting in a gutter that only exists when there is something to
+   correct. The prose is there to be read, and a row of buttons down the margin would
+   read as a review form. */
+.thumb-down {
+  margin-left: var(--s2);
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--faint);
+  font: inherit;
+  font-size: var(--text-sm);
+  text-decoration: underline;
+  text-underline-offset: 0.2em;
+  cursor: pointer;
+  transition: opacity 120ms ease;
+}
+
+/* Hidden until the paragraph is under the pointer - but only where there is a pointer.
+   A control revealed by hover is a control that does not exist on a phone, so the
+   hiding is scoped to the devices that can undo it. */
+@media (hover: hover) {
+  .thumb-down {
+    opacity: 0;
+  }
+
+  .prose-claim:hover .thumb-down,
+  .prose-claim:focus-within .thumb-down,
+  .thumb-down:disabled {
+    opacity: 1;
+  }
+}
+
+.thumb-down:disabled {
+  color: var(--faint);
+  text-decoration: none;
+  cursor: default;
+}
+
+.corrections {
+  max-width: 60ch;
+  margin: var(--s4) 0 0;
+  padding-top: var(--s3);
+  border-top: 1px solid var(--border);
+}
+
+.corrections h3 {
+  margin: 0 0 var(--s2);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--muted);
+}
+
+.corrections ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.corrections li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+}
+
+.corrections li + li {
+  border-top: 1px solid var(--border);
+}
+
+.corrections .button {
+  flex: none;
+  padding: var(--s1) var(--s2);
+  font-size: var(--text-sm);
+}

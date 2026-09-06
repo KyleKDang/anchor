@@ -170,7 +170,7 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
     anything went wrong, because from their side nothing did.
     """
     from anchor import llm as llm_module
-    from anchor import prose
+    from anchor import picker, prose
 
     db, seam = database_of(context), llm_of(context)
     account = uuid.UUID(account_id)
@@ -191,7 +191,58 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
 
     async with db.sessions() as session:
         await prose.record(session, account, text=text, trigger=trigger, mark=mark)
+        # Queued rather than called, so the guess is a job of its own: it can fail and
+        # retry without the prose being rewritten again, and the prose landing is what
+        # decides there is something new to guess from. Same account lock, so it waits
+        # for this job rather than racing it.
+        if await picker.unanswered(session, account):
+            await enqueue(
+                session,
+                context.app,
+                refresh_quality_suggestions,
+                lock=str(account),
+                account_id=account_id,
+            )
         await session.commit()
+
+
+async def refresh_quality_suggestions(context: JobContext, account_id: str) -> None:
+    """Re-guess which of the owner's qualities to pre-tick, while the picker is unanswered.
+
+    Bought on the prose profile's trigger rather than one of its own, because it is the
+    same question a regeneration just asked - what does the evidence say this owner
+    likes - and the moment that is worth paying to answer is the moment this is too.
+
+    Once the owner has answered the picker there is nothing left to guess: their answer
+    is the answer, so the guessing stops for good rather than being made and ignored.
+    That is also why the check is re-asked after the call - they may have answered while
+    the provider was thinking, and a guess landing on top of their answer would tick
+    boxes they deliberately left empty.
+
+    Skipped exactly as the prose is. A guess is the most optional thing Anchor buys, so a
+    spent cap or a provider that is down leaves the last one standing and says nothing.
+    """
+    from anchor import llm as llm_module
+    from anchor import picker, prose, qualities
+
+    db, seam = database_of(context), llm_of(context)
+    account = uuid.UUID(account_id)
+    async with db.sessions() as session:
+        if not await picker.unanswered(session, account):
+            return
+        evidence = await prose.evidence(session, account)
+        listed = [entry.name for entry in await qualities.listing(session, account)]
+
+    try:
+        suggested = await seam.suggest_qualities(account, evidence, listed)
+    except llm_module.Skipped as skipped:
+        log.info("quality suggestions for %s not refreshed: %s", account_id, skipped)
+        return
+
+    async with db.sessions() as session:
+        if await picker.unanswered(session, account):
+            await qualities.record_suggestions(session, account, suggested)
+            await session.commit()
 
 
 async def match_import_rows(context: JobContext, import_id: str) -> None:
@@ -406,6 +457,11 @@ def _declare_tasks() -> procrastinate.Blueprint:
     # end goes down. Re-running is safe: the first thing it does is re-ask whether the
     # regeneration is still due, and a version that landed answers that with no.
     tasks.task(name=regenerate_prose.__name__, retry=2, pass_context=True)(regenerate_prose)
+    # Retried for the same reason and safe for the same one: it re-asks whether the picker
+    # is still unanswered before it spends, and a second guess simply replaces the first.
+    tasks.task(name=refresh_quality_suggestions.__name__, retry=2, pass_context=True)(
+        refresh_quality_suggestions
+    )
     # Retried, because the whole job is one long conversation with TMDB and the far end
     # goes down. Every row commits on its own, so a retry resumes rather than repeats.
     tasks.task(name=match_import_rows.__name__, retry=3, pass_context=True)(match_import_rows)

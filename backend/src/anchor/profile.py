@@ -27,11 +27,13 @@ from datetime import datetime
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from anchor import picker as picker_module
 from anchor import prose as prose_module
 from anchor import readiness as readiness_module
 from anchor.accounts import CurrentAccount
 from anchor.deps import AppSettings, DbSession
 from anchor.models import CriteriaFrequency
+from anchor.picker import Correction
 from anchor.readiness import Bar, Dimension, Readiness
 
 router = APIRouter(prefix="/api/profile")
@@ -94,6 +96,13 @@ class Profile(BaseModel):
     prose: Prose | None
     """None until the first regeneration lands; the section renders nothing rather than
     promising one is coming, because a cold account has not earned the spend."""
+    corrections: list[Correction]
+    """The claims the owner has thumbed down and not taken back.
+
+    Beside the prose rather than on a screen of their own, because that is where they
+    were made and where the owner would look for them. Correctable means visible: a
+    correction the owner cannot find again is one they cannot undo.
+    """
 
 
 class CriteriaSetting(BaseModel):
@@ -134,6 +143,7 @@ async def profile(account: CurrentAccount, db: DbSession, settings: AppSettings)
             if live is None
             else Prose(text=live.text, version=live.version, generated_at=live.generated_at)
         ),
+        corrections=await picker_module.corrections(db, account.id),
     )
 
 

@@ -16,6 +16,7 @@ from anchor import (
     jobs,
     letterboxd,
     mail,
+    picker,
     placement,
     profile,
     rated,
@@ -74,6 +75,7 @@ def create_app(
     app.include_router(rewatch.router)
     app.include_router(criteria.router)
     app.include_router(profile.router)
+    app.include_router(picker.router)
     app.include_router(imports.router)
     app.include_router(watchlist.unlocks)
     app.include_router(warmup.router)

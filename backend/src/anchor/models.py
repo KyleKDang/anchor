@@ -63,6 +63,14 @@ class Account(Base):
     )
     """Anchor's one owner preference, so it sits on the account rather than in a settings
     table of its own - a table would be one row per account forever, holding one enum."""
+    qualities_picked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner last answered the quality picker. None means never.
+
+    Not derivable from the constraints: answering the picker with nothing ticked is a
+    real answer, and it writes no rows at all. Without this the account that ticked
+    nothing and the account that never opened the picker would look identical, and Anchor
+    would keep pre-ticking guesses over an answer the owner already gave.
+    """
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -896,6 +904,16 @@ class QualityListEntry(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     """Where the entry sits in the list, and so in the criteria rotation. Seeded entries
     take the vocabulary's own order; a custom entry lands after everything present."""
+    suggested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When Anchor last guessed the owner cares about this. None means it did not.
+
+    Current-only, like the weight vector and for the same reason: the guess is derived
+    from the account as it stands, every refresh rewrites the whole set, and a history of
+    what Anchor used to think would be churn nothing reads.
+
+    A guess is not a constraint. It pre-ticks a checkbox and nothing more, so it never
+    reaches a regeneration as an instruction and stops being made once the owner answers.
+    """
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
