@@ -61,6 +61,21 @@ WIPED = (
     "placements",
     "comparison_log_entries",
     "watch_events",
+    # Discovery, in dependency order: a suggestion stands on a verdict, and both were
+    # judgments about a taste this reset is deleting. The verdicts have to go with the
+    # prose versions above them in particular - they are keyed by version number, and the
+    # count restarts at one, so a surviving verdict would be a judgment about the old
+    # library wearing the new library's key.
+    "suggestions",
+    "verdicts",
+    # The feed's own bookkeeping goes for the same reason the tier's does: it holds the
+    # version the last restock ran for, and Discovery's one-time dot, which has to re-arm
+    # so the new library announces its own unlock rather than crossing the bar in silence.
+    "feed_states",
+    # Dismissals are evidence rather than a stated constraint (ADR 0006) - a pattern read
+    # off a queue the owner was working through - so they belong to the library being
+    # replaced rather than to the owner's standing statements about themselves.
+    "dismissals",
     "import_rows",
     "imports",
     "account_films",

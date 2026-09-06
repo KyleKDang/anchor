@@ -42,7 +42,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import prose, readiness
 from anchor.db import Database
-from anchor.models import Film, LlmOperation, SpendLedgerEntry
+from anchor.models import Film, FitBucket, LlmOperation, SpendLedgerEntry
 from anchor.settings import Settings
 
 log = logging.getLogger(__name__)
@@ -163,6 +163,9 @@ class RankedCandidate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     tmdb_id: int
+    fit: FitBucket
+    """The coarse bucket, which stays internal: it decides whether the film may reach the
+    shelf at all, and a poor fit is cached as a negative and never asked about again."""
     explanation: str
     """Precomputed beside the verdict it explains, because no screen may wait on one."""
 
@@ -204,9 +207,10 @@ RANKING_SCHEMA: dict[str, Any] = {
                 "type": "object",
                 "properties": {
                     "tmdb_id": {"type": "integer"},
+                    "fit": {"type": "string", "enum": [bucket.value for bucket in FitBucket]},
                     "explanation": {"type": "string"},
                 },
-                "required": ["tmdb_id", "explanation"],
+                "required": ["tmdb_id", "fit", "explanation"],
                 "additionalProperties": False,
             },
         }
@@ -234,8 +238,9 @@ they ever drift, the model is what decides, because it is what runs on the answe
 class Candidate:
     """A film being judged for the discovery feed, as the reranker is shown it.
 
-    Discovery arrives with #38; this is the shape its prompt reads, kept beside the
-    operation that consumes it so the operation is complete before its caller exists.
+    Deliberately thin: identity, the facts that place the film, and its plot. The
+    candidate carries nothing about this account - the owner's taste reaches the prompt
+    once, as the prose profile, rather than once per film.
     """
 
     tmdb_id: int
@@ -541,12 +546,17 @@ RERANK_SYSTEM = f"""\
 
 You are given a description of one owner's taste and a list of films they have never \
 tracked. Order the films by how much this particular owner would want to watch them, \
-best first, and give each a one-sentence reason grounded in what their taste actually is.
+best first, and give each a one-sentence reason grounded in what their taste actually is \
+and a coarse verdict on how well it fits them.
 
 Rules:
 - Every film offered appears exactly once. Never add a film that is not on the list.
 - The reason speaks to the owner as "you" and says why this film, for them - not what \
-the film is about. It is shown beside the suggestion, so it must stand on its own.
+the film is about. It is shown beside the suggestion, so it must stand on its own. \
+Ground it in the films their taste is described by: "because you loved X and Y".
+- The verdict is one of strong_fit (they would want this), plausible (worth putting in \
+front of them), or poor_fit (this is not for them). Be willing to say poor_fit: a short \
+list of films they will want beats a long one they will not, and nothing is padded.
 - No ratings, scores, numbers, or predicted stars anywhere."""
 
 TAG_SYSTEM = """\

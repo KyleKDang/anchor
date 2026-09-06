@@ -8,6 +8,7 @@ from anchor import (
     accounts,
     anchors,
     criteria,
+    discovery,
     errors,
     films,
     health,
@@ -71,6 +72,7 @@ def create_app(
     app.include_router(anchors.router)
     app.include_router(rewatch.router)
     app.include_router(criteria.router)
+    app.include_router(discovery.router)
     app.include_router(profile.router)
     app.include_router(picker.router)
     app.include_router(imports.router)

@@ -57,6 +57,21 @@ class FakeLlm:
     raw: list[tuple[str | None, str]] = field(default_factory=list)
     failure: Exception | None = None
     """Raised instead of answering, for the provider-is-down and no-credential paths."""
+    failing_after: int = 0
+    """Dispatches answered normally before the failure starts. Zero fails from the first.
+
+    A run that half succeeds is a real state rather than a contrivance: discovery reranks
+    a shortlist in windows, and a provider going down between two of them is what leaves
+    an account with some films judged and the rest waiting.
+    """
+    failing_operation: str | None = None
+    """The system prompt of the one operation that fails, or None for all of them.
+
+    Named by operation rather than counted across the whole run, because a flow buys
+    several different things and a test that had to know how many would be asserting on
+    job order. "The reranker's windows fail after the first" is the claim; which dispatch
+    number that lands on is not.
+    """
 
     def will_say(self, system: str | None = None, **payload: Any) -> "FakeLlm":
         """Queue one answer, as the JSON the provider would have returned.
@@ -93,8 +108,16 @@ class FakeLlm:
         self.input_tokens, self.output_tokens = input_tokens, output_tokens
         return self
 
-    def will_fail(self, error: Exception) -> "FakeLlm":
+    def will_fail(self, error: Exception, after: int = 0, of: str | None = None) -> "FakeLlm":
+        """Fail from the ``after``-th dispatch on: of one operation, or of everything."""
         self.failure = error
+        self.failing_after = after
+        self.failing_operation = of
+        return self
+
+    def recovers(self) -> "FakeLlm":
+        """The far end comes back up, for the run after the one that was cut short."""
+        self.failure = None
         return self
 
     @property
@@ -125,7 +148,7 @@ class FakeLlm:
     async def complete(
         self, prompt: llm.Prompt, *, model: llm.Model, dispatch: llm.Dispatch
     ) -> llm.Completion:
-        if self.failure is not None:
+        if self.failure is not None and self._failing(prompt):
             raise self.failure
         self.asked.append(Asked(prompt=prompt, model=model, dispatch=dispatch))
         answer = self._answer_to(prompt)
@@ -135,6 +158,14 @@ class FakeLlm:
 
     async def aclose(self) -> None:
         pass
+
+    def _failing(self, prompt: llm.Prompt) -> bool:
+        """Whether this dispatch is one the scripted failure applies to."""
+        if self.failing_operation is not None and prompt.system != self.failing_operation:
+            return False
+        return len(self.asked_of(prompt.system) if self.failing_operation else self.asked) >= (
+            self.failing_after
+        )
 
     def _answer_to(self, prompt: llm.Prompt) -> str:
         """A raw answer if one is meant for this, else the next of this shape, else the default."""

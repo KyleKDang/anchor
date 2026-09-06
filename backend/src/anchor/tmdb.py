@@ -48,7 +48,14 @@ class FilmNotInTmdb(Exception):
 
 @dataclass(frozen=True)
 class SearchHit:
-    """One row of a search response - all TMDB's search endpoint carries."""
+    """One row of any of TMDB's list responses - search, the browse grids, and discovery's
+    three candidate endpoints all return the same movie object.
+
+    The last three fields are what the discovery prefilter reads. They are on the list
+    row rather than fetched per film on purpose: a restock unions a few hundred
+    candidates and keeps sixty, and bundling the two hundred it throws away would be four
+    hundred TMDB calls spent on films nobody will ever see.
+    """
 
     tmdb_id: int
     title: str
@@ -57,6 +64,11 @@ class SearchHit:
     poster_path: str | None
     popularity: float
     """TMDB's own popularity figure: what ranks the import's review candidates."""
+    genre_ids: tuple[int, ...] = ()
+    """Genres as ids: a list row names them numerically, where a detail call spells them out."""
+    original_language: str | None = None
+    vote_average: float = 0.0
+    vote_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -75,6 +87,7 @@ class FilmBundle:
     credits: dict[str, Any]
     vote_average: float
     vote_count: int
+    original_language: str | None
 
 
 class Browse(enum.StrEnum):
@@ -89,12 +102,37 @@ class Browse(enum.StrEnum):
     top_rated = "top_rated"
 
 
+@dataclass(frozen=True)
+class Steer:
+    """What one ``/discover`` slice is pointed at.
+
+    The discovery pipeline builds one of these per top-weighted feature in the owner's
+    fit, so a slice is always a question with a reason behind it - "more films by the
+    director they keep rating up" - rather than a browse of the catalog.
+    """
+
+    genre_id: int | None = None
+    person_id: int | None = None
+    min_votes: int = 0
+    """A floor on the vote count, which is TMDB's own sparseness signal. It keeps a slice
+    from filling with rows nobody has seen; the popularity *damper* is a separate thing
+    and lives in the prefilter, where deep cuts are meant to win."""
+
+
 class Tmdb(Protocol):
     async def search(self, query: str) -> list[SearchHit]: ...
 
     async def browse(self, kind: Browse) -> list[SearchHit]: ...
 
     async def film(self, tmdb_id: int) -> FilmBundle: ...
+
+    async def discover(self, steer: Steer) -> list[SearchHit]: ...
+
+    async def similar(self, tmdb_id: int) -> list[SearchHit]: ...
+
+    async def recommendations(self, tmdb_id: int) -> list[SearchHit]: ...
+
+    async def genre_ids(self) -> dict[str, int]: ...
 
     async def aclose(self) -> None: ...
 
@@ -139,6 +177,7 @@ class TmdbClient:
         self._throttle = Throttle(1.0 / requests_per_second, clock, sleep)
         self._max_attempts = max_attempts
         self._sleep = sleep
+        self._genres: dict[str, int] | None = None
 
     async def search(self, query: str) -> list[SearchHit]:
         payload = await self._get("/search/movie", {"query": query, "include_adult": "false"})
@@ -152,6 +191,36 @@ class TmdbClient:
         """The one bundled call: detail, credits, and keywords in a single request."""
         payload = await self._get(f"/movie/{tmdb_id}", {"append_to_response": APPENDED})
         return _bundle(payload)
+
+    async def discover(self, steer: Steer) -> list[SearchHit]:
+        """One candidate slice of the catalog, steered at a genre, a person, or both."""
+        payload = await self._get("/discover/movie", _steered(steer))
+        return [_hit(result) for result in payload.get("results") or []]
+
+    async def similar(self, tmdb_id: int) -> list[SearchHit]:
+        """TMDB's own "more like this", by shared genres and keywords."""
+        payload = await self._get(f"/movie/{tmdb_id}/similar", {})
+        return [_hit(result) for result in payload.get("results") or []]
+
+    async def recommendations(self, tmdb_id: int) -> list[SearchHit]:
+        """TMDB's behavioural neighbours, which overlap ``similar`` only partly."""
+        payload = await self._get(f"/movie/{tmdb_id}/recommendations", {})
+        return [_hit(result) for result in payload.get("results") or []]
+
+    async def genre_ids(self) -> dict[str, int]:
+        """TMDB's genre vocabulary, name to id, fetched once per process.
+
+        Anchor stores genres by name, because that is what a film's detail call spells
+        out and what the feature space is keyed on; ``/discover`` only accepts ids. The
+        list is a fixed couple of dozen entries that changes about never, so it is worth
+        exactly one call for the life of the process.
+        """
+        if self._genres is None:
+            payload = await self._get("/genre/movie/list", {})
+            self._genres = {
+                str(genre["name"]): int(genre["id"]) for genre in payload.get("genres") or []
+            }
+        return self._genres
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -186,6 +255,18 @@ class UnconfiguredTmdb:
     async def film(self, tmdb_id: int) -> FilmBundle:
         raise TmdbUnavailable(UNCONFIGURED)
 
+    async def discover(self, steer: Steer) -> list[SearchHit]:
+        raise TmdbUnavailable(UNCONFIGURED)
+
+    async def similar(self, tmdb_id: int) -> list[SearchHit]:
+        raise TmdbUnavailable(UNCONFIGURED)
+
+    async def recommendations(self, tmdb_id: int) -> list[SearchHit]:
+        raise TmdbUnavailable(UNCONFIGURED)
+
+    async def genre_ids(self) -> dict[str, int]:
+        raise TmdbUnavailable(UNCONFIGURED)
+
     async def aclose(self) -> None:
         pass
 
@@ -210,6 +291,18 @@ def _retry_after(response: httpx.Response) -> float:
         return DEFAULT_RETRY_AFTER
 
 
+def _steered(steer: Steer) -> dict[str, str]:
+    """One steer as TMDB's discover parameters. Absent steers add no parameter at all."""
+    params = {"include_adult": "false"}
+    if steer.genre_id is not None:
+        params["with_genres"] = str(steer.genre_id)
+    if steer.person_id is not None:
+        params["with_people"] = str(steer.person_id)
+    if steer.min_votes > 0:
+        params["vote_count.gte"] = str(steer.min_votes)
+    return params
+
+
 def _hit(result: dict[str, Any]) -> SearchHit:
     return SearchHit(
         tmdb_id=int(result["id"]),
@@ -218,6 +311,10 @@ def _hit(result: dict[str, Any]) -> SearchHit:
         overview=str(result.get("overview") or ""),
         poster_path=result.get("poster_path"),
         popularity=float(result.get("popularity") or 0.0),
+        genre_ids=tuple(int(genre) for genre in result.get("genre_ids") or ()),
+        original_language=result.get("original_language"),
+        vote_average=float(result.get("vote_average") or 0.0),
+        vote_count=int(result.get("vote_count") or 0),
     )
 
 
@@ -243,6 +340,7 @@ def _bundle(payload: dict[str, Any]) -> FilmBundle:
         },
         vote_average=float(payload.get("vote_average") or 0.0),
         vote_count=int(payload.get("vote_count") or 0),
+        original_language=payload.get("original_language"),
     )
 
 

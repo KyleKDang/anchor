@@ -25,10 +25,13 @@ to accumulate change it will never make.
 """
 
 import uuid
+from collections.abc import Iterable
+from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Response
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -73,6 +76,28 @@ class Selection(BaseModel):
     quality_ids: list[uuid.UUID] = Field(default_factory=list)
 
 
+class Footprint(BaseModel):
+    """A correction's structural footprint: the exclusion it amounts to, if it has one.
+
+    Most corrections are about the shape of the writing and have none. Some are about a
+    fact with edges - "I do not watch horror", "stop suggesting me subtitled films" - and
+    taste-profile.md says those are enforced mechanically in the discovery prefilter
+    rather than merely handed to the next regeneration as a sentence. A prose instruction
+    is a request; a footprint is a rule, and the two are stored together because they are
+    one thing the owner said.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    genre: str | None = Field(default=None, max_length=64)
+    """A TMDB genre name, spelled as the catalog spells it."""
+    language: str | None = Field(default=None, max_length=16)
+    """A TMDB original-language code."""
+
+    def stated(self) -> bool:
+        return self.genre is not None or self.language is not None
+
+
 class Claim(BaseModel):
     """A claim in the prose profile the owner says is wrong about them.
 
@@ -83,6 +108,8 @@ class Claim(BaseModel):
     """
 
     claim: str = Field(min_length=1, max_length=2000)
+    excludes: Footprint | None = None
+    """What the claim rules out mechanically, where it rules anything out at all."""
 
 
 class Correction(BaseModel):
@@ -90,7 +117,47 @@ class Correction(BaseModel):
 
     id: uuid.UUID
     claim: str
+    excludes: Footprint | None
     created_at: datetime
+
+
+@dataclass(frozen=True)
+class Exclusions:
+    """Every mechanical exclusion the account's standing corrections add up to.
+
+    Read by the discovery prefilter, which is the only place in Anchor that enforces a
+    constraint by dropping films rather than by telling a regeneration about it. Empty is
+    the overwhelmingly common answer and costs one query.
+    """
+
+    genres: frozenset[str] = frozenset()
+    languages: frozenset[str] = frozenset()
+
+    def excludes(self, genres: Iterable[str], language: str | None) -> bool:
+        """Whether a candidate falls foul of anything the owner has said."""
+        return bool(self.genres.intersection(genres)) or (
+            language is not None and language in self.languages
+        )
+
+
+async def exclusions(db: AsyncSession, account_id: uuid.UUID) -> Exclusions:
+    """The structural footprint of the constraints still standing.
+
+    Lifted constraints are absent by construction: the owner taking a correction back has
+    to put the films it was excluding back in the running, or "lift" would mean nothing
+    where it matters most.
+    """
+    genres: set[str] = set()
+    languages: set[str] = set()
+    for constraint in await prose_module.active_constraints(db, account_id):
+        footprint = (constraint.content or {}).get("excludes") if constraint.content else None
+        if not isinstance(footprint, dict):
+            continue
+        if isinstance(genre := footprint.get("genre"), str):
+            genres.add(genre)
+        if isinstance(language := footprint.get("language"), str):
+            languages.add(language)
+    return Exclusions(genres=frozenset(genres), languages=frozenset(languages))
 
 
 @router.get("/qualities")
@@ -198,20 +265,31 @@ async def correct(
     The prose version it was read on rides along as provenance. Nothing consumes it - the
     claim alone is what a regeneration is told - but a correction is the owner disagreeing
     with a specific piece of writing, and which one that was is not recoverable later.
+
+    Where the claim has a structural footprint the owner can name one, and it becomes a
+    rule as well as an instruction: the discovery prefilter drops the films it covers
+    outright, rather than trusting the next regeneration to write around them.
     """
     claim = " ".join(body.claim.split())
     if not claim:
         raise ApiError(422, "invalid_claim", "That is not a claim.")
     live = await prose_module.latest(db, account.id)
+    excludes = body.excludes if body.excludes is not None and body.excludes.stated() else None
     constraint = ProfileConstraint(
         account_id=account.id,
         kind=ConstraintKind.prose_correction,
-        content={"claim": claim, "prose_version": live.version if live else None},
+        content={
+            "claim": claim,
+            "prose_version": live.version if live else None,
+            **({"excludes": excludes.model_dump(exclude_none=True)} if excludes else {}),
+        },
     )
     db.add(constraint)
     await jobs.schedule_prose_check(db, jobs_app, account.id)
     await db.commit()
-    return Correction(id=constraint.id, claim=claim, created_at=constraint.created_at)
+    return Correction(
+        id=constraint.id, claim=claim, excludes=excludes, created_at=constraint.created_at
+    )
 
 
 @router.delete("/constraints/{constraint_id}", status_code=204)
@@ -249,11 +327,18 @@ async def corrections(db: AsyncSession, account_id: uuid.UUID) -> list[Correctio
         Correction(
             id=constraint.id,
             claim=str((constraint.content or {}).get("claim", "")),
+            excludes=_footprint(constraint.content or {}),
             created_at=constraint.created_at,
         )
         for constraint in await prose_module.active_constraints(db, account_id)
         if constraint.kind is ConstraintKind.prose_correction
     ]
+
+
+def _footprint(content: dict[str, Any]) -> Footprint | None:
+    """A stored correction's footprint, or None where it is prose-only."""
+    stored = content.get("excludes")
+    return Footprint.model_validate(stored) if isinstance(stored, dict) else None
 
 
 def _shown(entry: QualityListEntry, picked: set[uuid.UUID], *, answered: bool) -> Quality:

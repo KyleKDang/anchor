@@ -323,10 +323,10 @@ async def test_a_ranking_may_only_contain_films_that_were_offered(owner, db, sea
     account = await formed(owner, db)
     provider.will_say(
         ranked=[
-            {"tmdb_id": 2, "explanation": "for you"},
-            {"tmdb_id": 999, "explanation": "invented"},
-            {"tmdb_id": 2, "explanation": "said twice"},
-            {"tmdb_id": 1, "explanation": "also for you"},
+            {"tmdb_id": 2, "fit": "strong_fit", "explanation": "for you"},
+            {"tmdb_id": 999, "fit": "strong_fit", "explanation": "invented"},
+            {"tmdb_id": 2, "fit": "plausible", "explanation": "said twice"},
+            {"tmdb_id": 1, "fit": "plausible", "explanation": "also for you"},
         ]
     )
 

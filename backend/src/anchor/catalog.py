@@ -208,6 +208,7 @@ async def store(db: AsyncSession, bundle: FilmBundle) -> Film:
         "credits": bundle.credits,
         "vote_average": bundle.vote_average,
         "vote_count": bundle.vote_count,
+        "original_language": bundle.original_language,
         "fetched_at": datetime.now(UTC),
     }
     # Upsert rather than read-then-write: two accounts opening the same film page at

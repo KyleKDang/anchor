@@ -595,3 +595,68 @@ async def placement_clocks(db: Database, account_id: uuid.UUID) -> dict[int, tup
             {"id": account_id},
         )
     return {film_id: (placed_at, moved_at) for film_id, placed_at, moved_at in rows}
+
+
+# --- Discovery ---
+
+
+async def verdicts(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every verdict the account holds, oldest version first.
+
+    All versions, deliberately: the design's claim is that a version bump appends rather
+    than replaces, and a reader that only returned the live ones could not tell an
+    append-only cache from one that overwrites itself.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, profile_version, fit, explanation, rank
+                FROM verdicts WHERE account_id = :id
+                ORDER BY profile_version, rank, film_id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def assert_shelf_stands_on_verdicts(db: Database, account_id: uuid.UUID) -> None:
+    """The never-pad rule: every film on the shelf has a verdict, and none is a poor fit.
+
+    Positions are dense from zero as well, because position is the entire public statement
+    the feed makes (ADR 0005) and a gap in it would be the shelf saying something it does
+    not mean.
+    """
+    async with db.sessions() as session:
+        rows = list(
+            await session.execute(
+                text(
+                    """
+                    SELECT s.position, v.fit
+                    FROM suggestions s JOIN verdicts v ON v.id = s.verdict_id
+                    WHERE s.account_id = :id ORDER BY s.position
+                    """
+                ),
+                {"id": account_id},
+            )
+        )
+    assert [row[0] for row in rows] == list(range(len(rows))), rows
+    assert [row[1] for row in rows if row[1] == "poor_fit"] == [], rows
+
+
+async def dismiss(db: Database, account_id: uuid.UUID, film_id: int) -> None:
+    """Suppress a film as the feed's own "not interested" will (#39 owns the endpoint).
+
+    Written directly because the write path is a later ticket and the invariant is this
+    one's: only untracked, undismissed films are ever suggested, whoever created the row.
+    """
+    async with db.sessions() as session:
+        await session.execute(
+            text(
+                "INSERT INTO dismissals (id, account_id, film_id)"
+                " VALUES (gen_random_uuid(), :account, :film)"
+            ),
+            {"account": account_id, "film": film_id},
+        )
+        await session.commit()
