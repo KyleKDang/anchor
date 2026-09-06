@@ -99,8 +99,8 @@ class FilmDetail(BaseModel):
             backdrop_path=film.backdrop_path,
             runtime=film.runtime,
             genres=list(film.genres),
-            directors=_names(film, "directors"),
-            cast=_names(film, "cast"),
+            directors=names(film, "directors"),
+            cast=names(film, "cast"),
             vote_average=film.vote_average,
             vote_count=film.vote_count,
             state=account_film.state if account_film else None,
@@ -165,8 +165,9 @@ class BacklogFilm(BaseModel):
         )
 
 
-def _names(film: Film, role: str) -> list[str]:
-    return [str(person["name"]) for person in film.credits.get(role, [])]
+def names(film: Film, role: str) -> list[str]:
+    """The people credited in one role, by name. ``role`` is "directors" or "cast"."""
+    return [str(person["name"]) for person in film.credits.get(role) or []]
 
 
 # --- The store ---

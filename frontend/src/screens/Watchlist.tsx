@@ -14,6 +14,7 @@ import {
 import { MarkWatched } from "../films/MarkWatched";
 import { Poster } from "../films/Poster";
 import { filmPath, releaseYear } from "../films/tmdb";
+import { plural, shortfall, worstBar } from "../films/unlock";
 import { useAsyncAction } from "../films/useAsyncAction";
 
 const SORTS: { value: BacklogSort; label: string }[] = [
@@ -197,31 +198,21 @@ function Locked({ tier }: { tier: Tier }) {
 }
 
 /**
- * One line: the next thing worth doing about the unlock.
+ * One line: the next thing worth doing about the unlock, in this screen's own words.
  *
- * The film count comes first whenever it is short, ahead of the band spread. Readiness has
- * two dimensions and only two (ADR 0013), and on a young account both read as nearly zero
- * - so the honest, actionable thing to say is how many more films to rate.
- *
- * Both branches say "rate", because rating is now the only thing that moves either bar:
- * there is nothing to settle and no comparison to answer.
+ * Which bar it is about comes from the rule both pre-gate screens share, so the two can
+ * never disagree about what is holding an account back; what each says about it is its
+ * own. Both branches here say "rate", because rating is now the only thing that moves
+ * either bar: there is nothing to settle and no comparison to answer (ADR 0013).
  */
 function remaining(thresholds: Threshold[]): string {
-  const films = thresholds.find((one) => one.dimension === "rated_films");
-  const worst =
-    films !== undefined && share(films) < 1
-      ? films
-      : [...thresholds].sort((a, b) => share(a) - share(b))[0];
+  const worst = worstBar(thresholds);
   if (worst === undefined) return "Keep rating films.";
-  const short = Math.ceil(worst.need - worst.have);
+  const short = shortfall(worst);
   if (worst.dimension === "bands_spanned") {
-    return `Rate films across ${short} more half-star band${short === 1 ? "" : "s"} to unlock it.`;
+    return `Rate films across ${short} more half-star band${plural(short)} to unlock it.`;
   }
-  return `Rate ${short} more film${short === 1 ? "" : "s"} to unlock it.`;
-}
-
-function share(threshold: Threshold): number {
-  return threshold.need === 0 ? 1 : Math.min(1, threshold.have / threshold.need);
+  return `Rate ${short} more film${plural(short)} to unlock it.`;
 }
 
 /**

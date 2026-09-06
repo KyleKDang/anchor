@@ -8,9 +8,10 @@ the bucket that decided the order stays on the server, and only the sentence is 
 *It lights at forming, and never before.* Discovery unlocks a whole readiness state
 earlier than the ranked tier does, because anchor designations are the densest taste
 signal an account emits and a fresh account needs a backlog filler
-(onboarding-and-import.md). Below that the screen explains itself and shows the same
-ambient progress the pre-gate Watchlist does - it does not fabricate a shelf from signal
-that is not there.
+(onboarding-and-import.md). Below that the screen simply explains itself and says what it
+is waiting for - it does not fabricate a shelf from signal that is not there, and it does
+not draw the progress bar either, which surfacing.md gives to the pre-gate Watchlist and
+to nothing else.
 
 *Nothing on this path can spend money or wait on anything.* Arriving may queue a restock,
 which is the visit-gating discovery.md asks for - an owner who never opens the feed
@@ -22,12 +23,11 @@ feed that only shows what it can stand behind has nothing to apologise for.
 from fastapi import APIRouter
 from pydantic import BaseModel
 
+from anchor import catalog, jobs
 from anchor import feed as feed_module
-from anchor import jobs
 from anchor import readiness as readiness_module
 from anchor.accounts import CurrentAccount
 from anchor.deps import AppJobs, AppSettings, DbSession
-from anchor.models import Film
 from anchor.profile import Progress
 from anchor.readiness import Readiness
 
@@ -63,7 +63,7 @@ class Suggestion(BaseModel):
             year=film.release_year,
             poster_path=film.poster_path,
             genres=list(film.genres),
-            directors=_directors(film),
+            directors=catalog.names(film, "directors"),
             overview=film.overview,
             pitch=shelved.verdict.explanation,
         )
@@ -81,7 +81,7 @@ class Feed(BaseModel):
 
 
 @router.get("")
-async def feed(
+async def discovery(
     account: CurrentAccount,
     db: DbSession,
     settings: AppSettings,
@@ -120,7 +120,3 @@ async def feed(
         progress=None,
         films=[Suggestion.of(shelved) for shelved in await feed_module.shelf(db, account.id)],
     )
-
-
-def _directors(film: Film) -> list[str]:
-    return [str(person["name"]) for person in film.credits.get("directors") or []]

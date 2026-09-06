@@ -491,7 +491,10 @@ async def discovery(client, boundary=True, expect=200):
     # rating-shaped key may appear at all (ADR 0005), and the fit bucket that decided the
     # order is internal - a card carries a sentence and a position and nothing else.
     assert_no_rating_keys(feed, "the discovery feed")
-    assert "fit" not in str(feed), f"the discovery feed leaked a fit bucket: {feed}"
+    for card in feed["films"]:
+        # On the keys, not on the text: a pitch is a sentence about a film, and one that
+        # happened to say "outfit" would trip a substring scan for no reason at all.
+        assert "fit" not in card, f"the discovery feed leaked a fit bucket: {card}"
     return feed
 
 

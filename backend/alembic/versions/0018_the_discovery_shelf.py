@@ -143,6 +143,8 @@ def upgrade() -> None:
 def downgrade() -> None:
     op.drop_table("feed_states")
     op.drop_table("suggestions")
+    # The enum after the only table that uses it, and before the rest, so the teardown
+    # reads in the same order as the build rather than doubling back.
     op.drop_table("verdicts")
     FIT_BUCKET.drop(op.get_bind())
     op.drop_table("dismissals")

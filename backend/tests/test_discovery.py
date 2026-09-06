@@ -365,6 +365,55 @@ async def test_a_plausible_film_sits_below_a_strong_one(owner, run_jobs, provide
     assert [film["tmdb_id"] for film in films] == [3001, 3000]
 
 
+@pytest.mark.settings(**{**PIPELINE, "discovery_shortlist": 1}, discovery_rerank_window=10)
+async def test_the_prefilter_leans_against_popularity(owner, run_jobs, provider, tmdb):
+    """Deep cuts dominate: of two films the fit cannot tell apart, the obscure one gets in.
+
+    Asserted through the one shortlist place on offer rather than by reading a score, so
+    what is pinned is the damper's effect and not its arithmetic. The two films carry the
+    same genre and the same director as everything the owner rated, so the only thing left
+    between them is how many people have seen them.
+    """
+    known = FilmFixture(3200, "The Famous One", genres=("Western",), vote_count=500_000)
+    obscure = FilmFixture(3201, "The Forgotten One", genres=("Western",), vote_count=20)
+    tmdb.with_neighbours(RATED[0].tmdb_id, known, obscure)
+    provider.will_say(**ranked(known, obscure))
+    await rating_films(owner, run_jobs)
+
+    assert ids(await visit(owner, run_jobs)) == {obscure.tmdb_id}
+
+
+@pytest.mark.settings(**{**PIPELINE, "discovery_shelf": 4}, discovery_rerank_window=2)
+async def test_a_rank_means_the_same_thing_in_every_window(owner, run_jobs, provider):
+    """Windows are cut from the prefilter's order, so a later window sits below an earlier one.
+
+    A listwise rank is only meaningful inside the list it was made in. If each window's
+    ranks began again at zero, the runner-up of the first window would fall behind the
+    winner of the last and the prefilter's ordering would be thrown away - so the shelf is
+    checked against the windows as they were actually offered, whichever films the
+    prefilter put in each.
+    """
+    provider.will_say(**ranked(*CANDIDATES)).will_say(**ranked(*CANDIDATES))
+    await rating_films(owner, run_jobs)
+
+    films = await visit(owner, run_jobs)
+
+    windows = [_offered(asked.prompt.user) for asked in provider.asked_of(llm.RERANK_SYSTEM)]
+    assert len(windows) == 2, "the test needs two windows to have anything to say"
+    assert [film["tmdb_id"] for film in films] == [
+        # Each window in turn, and inside it the order the scripted answer ranked them.
+        film.tmdb_id
+        for window in windows
+        for film in CANDIDATES
+        if film.tmdb_id in window
+    ]
+
+
+def _offered(prompt):
+    """Which candidates one rerank window was shown, read off the prompt it was shown in."""
+    return {film.tmdb_id for film in CANDIDATES if str(film.tmdb_id) in prompt}
+
+
 # --- The never-pad rule ---
 
 
