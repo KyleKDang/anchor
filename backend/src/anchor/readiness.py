@@ -181,6 +181,18 @@ async def state(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> 
     return classify(await evidence(db, account_id), settings)
 
 
+async def earned_spend(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> bool:
+    """Whether this account has told Anchor enough to be worth spending money on.
+
+    "Zero spend until an account reaches the *forming* bar" (taste-profile.md) said once,
+    because it is asked in two places that cannot be one: the LLM seam gates every
+    account-scoped call, and shared work has no account for the seam to read, so the
+    caller that *causes* shared work gates it instead. Where the bar sits is a decision
+    about spend rather than about either caller, and it belongs here with the bars.
+    """
+    return await state(db, account_id, settings) is not Readiness.cold
+
+
 def classify(evidence: Evidence, settings: Settings) -> Readiness:
     """Which state the evidence supports. Derived on every read, stored nowhere."""
     reachable = bars(evidence, settings)

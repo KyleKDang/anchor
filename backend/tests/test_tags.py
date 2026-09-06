@@ -186,14 +186,23 @@ async def test_a_hollow_account_never_buys_a_tag(owner, db, run_jobs, provider):
 
 
 @EARNED
-async def test_turning_the_questions_off_stops_buying_tags(owner, db, run_jobs, provider):
-    """Their only consumer in v1 is the bonus card, so an owner who has said no costs nothing."""
+async def test_turning_the_questions_off_does_not_leave_the_library_untagged(
+    owner, db, run_jobs, provider
+):
+    """The frequency setting governs the card, not the catalog.
+
+    An owner who has turned the after-a-placement card off has said something about their
+    own screen, not about a film: their tags still serve every other account, and they
+    still serve the film page's question session, which is available whatever the
+    frequency says. Buying them on their setting would leave a library that no later
+    feature could ever tag.
+    """
     await ask_criteria(owner, "off")
 
     await worked(owner, run_jobs)
 
-    assert len(provider.asked_of(llm.TAG_SYSTEM)) == 0
-    assert await tagged_films(db) == []
+    assert await tagged_films(db)
+    await assert_bought_once_per_film(db, provider)
 
 
 # --- The built-in vocabulary, and nothing else ---
@@ -209,6 +218,29 @@ async def test_only_the_built_in_vocabulary_is_ever_stored_as_a_tag(owner, db, r
     stored = await tags_across_the_catalog(db)
     assert stored == {"Tension"}
     assert stored <= set(BUILT_IN_QUALITIES)
+
+
+@EARNED
+async def test_an_answer_nobody_can_read_is_paid_for_once_and_not_again(
+    owner, db, run_jobs, provider
+):
+    """The one shape this could quietly run up a bill in: an unusable answer, re-bought.
+
+    The tokens are spent before the answer is parsed, so a film left untagged by a
+    malformed one would go back in front of the next placement that touches it, and the
+    next. It is stamped instead - known for nothing, which the fallback already copes
+    with - and the prompt bug is reported rather than paid for again.
+    """
+    provider.will_say_exactly("sorry, I would rather not", system=llm.TAG_SYSTEM)
+
+    await worked(owner, run_jobs)
+    bought = len(provider.asked_of(llm.TAG_SYSTEM))
+
+    await place(owner, LIBRARY[SETTLED + 1], "b")
+    await run_jobs()
+
+    assert len(provider.asked_of(llm.TAG_SYSTEM)) > bought, "the next film should still be tagged"
+    await assert_bought_once_per_film(db, provider)
 
 
 @EARNED

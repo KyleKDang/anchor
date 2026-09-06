@@ -358,7 +358,7 @@ async def test_the_rotation_works_through_the_quality_list(owner, db):
 # --- Preferring a pair that shares a quality tag ---
 
 
-async def placed_watching_the_opponents(client, db, film, arrange):
+async def placed_watching_the_opponents(client, film, arrange=None):
     """Place ``film``, and call ``arrange`` with its first opponent once that is known.
 
     Which opponents a bisection picks is the advisory math's business and no test may pin
@@ -377,23 +377,23 @@ async def placed_watching_the_opponents(client, db, film, arrange):
             step = await answer_the_band(client, film, step)
             continue
         opponents.append(step["b"]["tmdb_id"])
-        if len(opponents) == 1:
+        if len(opponents) == 1 and arrange is not None:
             await arrange(opponents[0])
         step = await answer_pair(client, film, step["a"]["tmdb_id"], step["b"]["tmdb_id"], "b")
     return step, opponents
 
 
 async def tag_everything_apart(db, subject, partner, shared="Tension"):
-    """Give ``subject`` and ``partner`` one tag in common, and every other film its own.
+    """Give the two named films one tag in common, and every other film its own.
 
     Distinct tags everywhere else, so exactly one pair in the whole library overlaps and
     a card naming any other pair is the preference failing rather than the arrangement
-    being ambiguous.
+    being ambiguous. Both films are named by tmdb id, the way the flow reports them.
     """
-    await given_tags(db, subject.tmdb_id, shared)
+    await given_tags(db, subject, shared)
     await given_tags(db, partner, shared)
     spare = [name for name in BUILT_IN_QUALITIES if name != shared]
-    others = [film for film in LIBRARY if film.tmdb_id not in {subject.tmdb_id, partner}]
+    others = [film for film in LIBRARY if film.tmdb_id not in {subject, partner}]
     for own, film in zip(spare, others, strict=False):
         await given_tags(db, film.tmdb_id, own)
 
@@ -409,7 +409,7 @@ async def test_the_card_prefers_the_pair_whose_films_share_a_quality_tag(owner, 
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
 
     landed, opponents = await placed_watching_the_opponents(
-        owner, db, FIFTH, lambda first: tag_everything_apart(db, FIFTH, first)
+        owner, FIFTH, lambda first: tag_everything_apart(db, FIFTH.tmdb_id, first)
     )
 
     assert len(opponents) > 1, "a single matchup cannot show a preference between matchups"
@@ -424,7 +424,9 @@ async def test_the_card_asks_about_the_quality_the_pair_shares(owner, db):
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
 
     landed, _ = await placed_watching_the_opponents(
-        owner, db, FIFTH, lambda first: tag_everything_apart(db, FIFTH, first, shared="Ending")
+        owner,
+        FIFTH,
+        lambda first: tag_everything_apart(db, FIFTH.tmdb_id, first, shared="Ending"),
     )
 
     card = landed["criteria"]
@@ -439,15 +441,11 @@ async def test_a_library_with_nothing_in_common_falls_back_to_the_last_matchup(o
     for own, film in zip(BUILT_IN_QUALITIES, LIBRARY, strict=False):
         await given_tags(db, film.tmdb_id, own)
 
-    landed, opponents = await placed_watching_the_opponents(owner, db, FIFTH, lambda first: noop())
+    landed, opponents = await placed_watching_the_opponents(owner, FIFTH)
 
     card = landed["criteria"]
     assert card is not None
     assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {FIFTH.tmdb_id, opponents[-1]}
-
-
-async def noop():
-    """Arrange nothing: the flow is left exactly as the fixtures set it up."""
 
 
 async def test_a_quality_the_owner_invented_is_never_what_a_shared_tag_asks_about(owner, db):
@@ -461,12 +459,37 @@ async def test_a_quality_the_owner_invented_is_never_what_a_shared_tag_asks_abou
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
 
     landed, _ = await placed_watching_the_opponents(
-        owner, db, FIFTH, lambda first: tag_everything_apart(db, FIFTH, first)
+        owner, FIFTH, lambda first: tag_everything_apart(db, FIFTH.tmdb_id, first)
     )
 
     card = landed["criteria"]
     assert card is not None
     assert card["quality"] == "Tension"
+
+
+async def test_a_tag_driven_question_does_not_cost_the_rotation_a_turn(owner, db):
+    """The two routes to a quality do not share a cursor, so the walk keeps no holes.
+
+    A rotation counting offers rather than the questions it chose would be spent by the
+    tag-driven ones: every shared-tag card would skip a list entry without asking it, and
+    the walk would lose exactly the entries at the end of the list - which is where an
+    owner's own custom qualities sit, and the rotation is their only route to a card.
+    """
+    account = await account_id(owner)
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND])
+    # A tagged pair, so the next card is chosen by its tag rather than by the rotation.
+    await placed_watching_the_opponents(
+        owner, THIRD, lambda first: tag_everything_apart(db, THIRD.tmdb_id, first, shared="Ending")
+    )
+    asked = [entry[0] for entry in await criteria_log(db, account)]
+    assert asked[-1] == "Ending", "this test needs the second card to have come from a tag"
+
+    await build_ordering(owner, [FOURTH, FIFTH])
+
+    walked = [entry[0] for entry in await criteria_log(db, account)]
+    assert "Ending" not in walked[2:], "the rotation asked a quality the tag had just used"
+    assert walked[2:] == [name for name in BUILT_IN_QUALITIES if name not in walked[:2]][:2]
 
 
 async def test_the_rotation_reaches_a_quality_the_owner_added(owner, db, tmdb):

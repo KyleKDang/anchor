@@ -25,7 +25,7 @@ offer row exists the same landing repeated returns the same card rather than a n
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Literal
 
 from fastapi import APIRouter
@@ -153,11 +153,10 @@ async def offer(
     listed = await qualities.listing(db, account.id)
     if not listed:
         return None
-    made = await _offers(db, account.id)
-    if not await _due(db, account, made):
+    if not await _due(db, account, await _offers(db, account.id)):
         return None
 
-    matchup, quality = await _select(db, candidates, listed, made)
+    matchup, quality = await _select(db, account.id, candidates, listed)
     entry = ComparisonLogEntry(
         account_id=account.id,
         kind=ComparisonKind.criteria,
@@ -172,6 +171,26 @@ async def offer(
     db.add(entry)
     await db.flush()
     return await _card(db, entry)
+
+
+def askable_films(
+    entries: list[ComparisonLogEntry], context: ComparisonContext, since: datetime | None
+) -> list[int]:
+    """Every film a card from this landing could name, each once.
+
+    Exported for the quality tagging, which buys tags for exactly this set: the films
+    selection will look tags up for next time. It is deliberately the same derivation the
+    card itself uses rather than a similar one - a re-placement resumes from judgments
+    other flows produced, and :func:`_collected` drops them, so a tagging that read the
+    raw ``entries`` would buy tags for films no card here can ever ask about.
+    """
+    return sorted(
+        {
+            film
+            for matchup in _matchups(_collected(entries, context, since))
+            for film in (matchup.film_a, matchup.film_b)
+        }
+    )
 
 
 def _collected(
@@ -206,7 +225,10 @@ def _matchups(entries: list[ComparisonLogEntry]) -> list[Matchup]:
 
 
 async def _select(
-    db: AsyncSession, candidates: list[Matchup], listed: list[QualityListEntry], made: int
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    candidates: list[Matchup],
+    listed: list[QualityListEntry],
 ) -> tuple[Matchup, QualityListEntry]:
     """Which pair to ask about, and which quality to ask (taste-profile.md).
 
@@ -226,30 +248,53 @@ async def _select(
     can be asked at all, and it stays the only route to one.
     """
     films = {film for matchup in candidates for film in (matchup.film_a, matchup.film_b)}
-    tagged = await tags.of(db, films)
+    tagged = await tags.by_film(db, films)
+    asked = await _last_asked(db, account_id)
     askable = {entry.name: entry for entry in listed}
     for matchup in candidates:
         shared = [
-            name
+            askable[name]
             for name in BUILT_IN_QUALITIES
             if name in askable and name in tagged[matchup.film_a] & tagged[matchup.film_b]
         ]
         if shared:
-            # Which of several shared tags is not spec'd, so the rotation cursor decides
-            # it too: placing the same pair twice then asks about a different quality
-            # rather than the same one, which is the whole reason the rotation exists.
-            return matchup, askable[shared[made % len(shared)]]
-    return candidates[0], _rotated(listed, made)
+            # Which of several shared tags to ask about is not spec'd, so it is settled
+            # the same way the fallback is: the one this owner has gone longest without
+            # being asked. Placing the same pair twice then asks about something else.
+            return matchup, _rotated(shared, asked)
+    return candidates[0], _rotated(listed, asked)
 
 
-def _rotated(listed: list[QualityListEntry], made: int) -> QualityListEntry:
-    """The next quality in the rotation: the fallback when no pair shares a tag.
+def _rotated(listed: list[QualityListEntry], asked: dict[uuid.UUID, datetime]) -> QualityListEntry:
+    """The entry this owner has gone longest without being asked, or has never been.
 
     Rotation rather than sampling, so the list is worked through evenly - the point is
     breadth of evidence across qualities, and a sampler would ask about Acting four times
     before it ever mentioned Pacing.
+
+    Read as "longest unasked" rather than as a cursor into the list, because a cursor
+    counting offers would be spent by offers it did not choose: every tag-driven question
+    would consume a rotation slot without asking that slot's quality, and the walk would
+    develop holes exactly where the list is longest - at the end, where an owner's own
+    custom qualities sit, whose only route to a card this is. With nothing tagged the two
+    readings agree, and the walk is the list in its own order.
     """
-    return listed[made % len(listed)]
+    never = datetime.min.replace(tzinfo=UTC)
+    return min(listed, key=lambda entry: asked.get(entry.id, never))
+
+
+async def _last_asked(db: AsyncSession, account_id: uuid.UUID) -> dict[uuid.UUID, datetime]:
+    """When each quality was last put in front of this owner; absent means never."""
+    rows = await db.execute(
+        select(ComparisonLogEntry.quality_id, func.max(ComparisonLogEntry.created_at))
+        .where(
+            ComparisonLogEntry.account_id == account_id,
+            ComparisonLogEntry.kind == ComparisonKind.criteria,
+            ComparisonLogEntry.quality_id.is_not(None),
+        )
+        .group_by(ComparisonLogEntry.quality_id)
+    )
+    return {quality_id: when for quality_id, when in rows}
 
 
 async def _due(db: AsyncSession, account: Account, made: int) -> bool:

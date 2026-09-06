@@ -28,6 +28,7 @@ of the whole bill rather than of its account-scoped part.
 """
 
 import logging
+import uuid
 from collections.abc import Collection, Iterable
 from datetime import UTC, datetime
 
@@ -37,13 +38,13 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import readiness
-from anchor.models import Account, CriteriaFrequency, Film, QualityTag
+from anchor.models import BUILT_IN_QUALITIES, Film, QualityTag
 from anchor.settings import Settings
 
 log = logging.getLogger(__name__)
 
 
-async def of(db: AsyncSession, film_ids: Collection[int]) -> dict[int, frozenset[str]]:
+async def by_film(db: AsyncSession, film_ids: Collection[int]) -> dict[int, frozenset[str]]:
     """Each film's tags, keyed by film id; a film with no tags gets an empty set.
 
     Untagged and tagged-with-nothing read alike here, on purpose: both answer the only
@@ -64,16 +65,23 @@ async def of(db: AsyncSession, film_ids: Collection[int]) -> dict[int, frozenset
 async def schedule(
     db: AsyncSession,
     queue: procrastinate.App,
-    account: Account,
+    account_id: uuid.UUID,
     film_ids: Iterable[int],
     settings: Settings,
 ) -> None:
     """Queue the tagging of any of these films nobody has paid for yet.
 
-    Called from a placement's landing with the films that placement compared, which is
-    exactly the set a criteria question could be asked about. Bounded by the flow rather
-    than by the library, on purpose: tagging everything a six-hundred-row import brought
-    in would buy hundreds of answers to a question nobody is going to ask.
+    Called from a placement's landing with the films a card from that landing could name,
+    which is the set the next one will look tags up for. Bounded by the flow rather than
+    by the library, on purpose: tagging everything a six-hundred-row import brought in
+    would buy hundreds of answers to a question nobody is going to ask.
+
+    The owner's criteria frequency is deliberately not consulted. Their *tags* are not
+    their setting: the setting governs how often a card is offered after a placement, and
+    a tag stays useful to the film page's question session, which is available whatever
+    the frequency says (taste-profile.md) - and useful to every other account, since the
+    catalog is shared. An owner who has turned the cards off has not asked for a library
+    nobody may ever tag.
 
     Enqueued in the caller's transaction, so a landing that rolls back takes its tagging
     with it. Two placements racing on the same film both queue a job; the per-film lock
@@ -81,16 +89,13 @@ async def schedule(
     """
     from anchor import jobs
 
-    if account.criteria_frequency is CriteriaFrequency.off:
-        # The one consumer is switched off, so a tag has nothing here to improve.
-        return
     wanted = await _untagged(db, list(film_ids))
-    # The cheap question first and the readiness counts only if it says yes: a landing on
+    # The cheap question first, and the readiness counts only if it says yes: a landing on
     # a warm catalog is the common case, it finds nothing to buy, and it should not pay
     # for an answer about spend it is not about to make.
     if not wanted:
         return
-    if await readiness.state(db, account.id, settings) is readiness.Readiness.cold:
+    if not await readiness.earned_spend(db, account_id, settings):
         return
     for tmdb_id in wanted:
         await jobs.enqueue(db, queue, jobs.tag_film, lock=lock_for(tmdb_id), tmdb_id=tmdb_id)
@@ -128,6 +133,12 @@ async def pending(db: AsyncSession, tmdb_id: int) -> Film | None:
 async def record(db: AsyncSession, tmdb_id: int, named: Iterable[str]) -> None:
     """Stamp the film tagged and write the tags the answer named, or stamp it alone.
 
+    Filtered to the built-in vocabulary here rather than trusted from the caller, so
+    "tags draw from the built-in vocabulary only" (data-model.md) is a property of the
+    table rather than of whoever last wrote to it. The seam filters a provider's answer
+    too; this is the one that holds for every writer, and it reads the names back in the
+    vocabulary's own order, which also drops duplicates.
+
     ``ON CONFLICT DO NOTHING`` rather than a read first: the primary key is the data
     model's own (film, vocabulary quality), so a duplicate cannot be stored and there is
     nothing left to decide when a re-run produces one.
@@ -135,7 +146,12 @@ async def record(db: AsyncSession, tmdb_id: int, named: Iterable[str]) -> None:
     film = await db.get(Film, tmdb_id)
     if film is None or film.tagged_at is not None:
         return
-    rows = [{"film_id": tmdb_id, "quality": quality} for quality in named]
+    wanted = {quality.strip().casefold() for quality in named}
+    rows = [
+        {"film_id": tmdb_id, "quality": quality}
+        for quality in BUILT_IN_QUALITIES
+        if quality.casefold() in wanted
+    ]
     if rows:
         await db.execute(insert(QualityTag).values(rows).on_conflict_do_nothing())
     film.tagged_at = datetime.now(UTC)

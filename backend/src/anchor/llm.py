@@ -384,12 +384,14 @@ class Llm:
     async def _require_earned(self, session: AsyncSession, account_id: uuid.UUID) -> None:
         """Zero spend until the account has told Anchor enough to be worth describing.
 
-        Enforced here rather than in each caller, because "hollow accounts cost nothing"
-        (ADR 0004) is a property of the spend, and the only place every spend passes
-        through is this one.
+        Enforced here rather than in each account-scoped caller, because "hollow accounts
+        cost nothing" (ADR 0004) is a property of the spend, and this is the one place
+        every account-scoped spend passes through. Shared work is the exception it cannot
+        cover: a quality tag is nobody's, so there is no account here to read, and the
+        caller whose activity asks for one carries the same gate itself. Both call
+        :func:`readiness.earned_spend`, so where the bar sits is stated once.
         """
-        state = await readiness.state(session, account_id, self._settings)
-        if state is readiness.Readiness.cold:
+        if not await readiness.earned_spend(session, account_id, self._settings):
             raise NotEarned(f"account {account_id} is still cold")
 
     async def _require_budget(self, session: AsyncSession, account_id: uuid.UUID | None) -> None:
