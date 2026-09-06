@@ -521,6 +521,29 @@ async def prose_versions(db: Database, account_id: uuid.UUID) -> list[tuple[Any,
         return [tuple(row) for row in rows]
 
 
+async def profile_constraints(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every constraint the account has ever stated, oldest first, lifted ones included.
+
+    Lifted rows are in deliberately: the design's claim is that taking a correction back
+    lifts it rather than deleting it, and a reader that only returned live rows could not
+    tell the difference.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT c.kind, q.name, c.content, c.lifted_at IS NULL
+                FROM profile_constraints c
+                LEFT JOIN quality_list_entries q ON q.id = c.quality_id
+                WHERE c.account_id = :id
+                ORDER BY c.created_at, c.id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
 def assert_versions_monotonic(versions: list[tuple[Any, ...]]) -> None:
     """Version numbers start at one and step by one: the key discovery caches against."""
     numbers = [row[0] for row in versions]

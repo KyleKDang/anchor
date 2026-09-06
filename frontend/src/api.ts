@@ -366,6 +366,13 @@ export interface Prose {
   generated_at: string;
 }
 
+/** A claim in the prose the owner thumbed down, kept as a row rather than as an edit. */
+export interface Correction {
+  id: string;
+  claim: string;
+  created_at: string;
+}
+
 /** The Profile screen's engine section. `stages` omits cold: every account is already there. */
 export interface Profile {
   readiness: Readiness;
@@ -374,6 +381,32 @@ export interface Profile {
   criteria_frequency: CriteriaFrequency;
   /** Null until the first regeneration lands, which an account has to earn. */
   prose: Prose | null;
+  /** What the owner has corrected and not taken back, shown beside the prose it corrects. */
+  corrections: Correction[];
+}
+
+/** Where a quality on the account's list came from. Downstream the two are identical. */
+export type QualityOrigin = "built_in" | "custom";
+
+/**
+ * One row of the quality picker.
+ *
+ * `checked` is what the checkbox shows and the server decides it: the owner's own
+ * selection once they have answered, and Anchor's guess before that. `suggested` is only
+ * there so the screen can say the ticks are a guess rather than a memory.
+ */
+export interface Quality {
+  id: string;
+  name: string;
+  origin: QualityOrigin;
+  checked: boolean;
+  suggested: boolean;
+}
+
+/** The picker. `answered` is false while the ticks are Anchor's guess rather than an answer. */
+export interface Picker {
+  answered: boolean;
+  qualities: Quality[];
 }
 
 export interface BacklogFilm {
@@ -733,6 +766,14 @@ export const api = {
     request<void>("POST", `/api/criteria/${offerId}`, { verdict }),
   setCriteriaFrequency: (frequency: CriteriaFrequency) =>
     request<{ frequency: CriteriaFrequency }>("PUT", "/api/profile/criteria", { frequency }),
+  qualities: () => request<Picker>("GET", "/api/profile/qualities"),
+  /** Answering replaces the whole selection: what is left ticked is the answer. */
+  pickQualities: (qualityIds: string[]) =>
+    request<Picker>("PUT", "/api/profile/qualities", { quality_ids: qualityIds }),
+  addQuality: (name: string) => request<Quality>("POST", "/api/profile/qualities", { name }),
+  correctProse: (claim: string) =>
+    request<Correction>("POST", "/api/profile/constraints", { claim }),
+  liftCorrection: (id: string) => request<void>("DELETE", `/api/profile/constraints/${id}`),
   backlog: (filters: BacklogFilters = {}) =>
     request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),
   /**

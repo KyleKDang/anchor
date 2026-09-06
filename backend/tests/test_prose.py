@@ -16,14 +16,15 @@ import uuid
 
 import pytest
 
+from anchor import llm
 from flows import (
     LIBRARY,
     account_id,
-    add_constraint,
     answer_criteria,
     ask_criteria,
     build_ordering,
     designate,
+    pick_qualities,
     place,
     profile,
     scale,
@@ -119,7 +120,7 @@ async def test_one_regeneration_lands_however_many_were_queued(owner, db, run_jo
     await settled(owner, run_jobs)
 
     assert len(await prose_versions(db, uuid.UUID(await account_id(owner)))) == 1
-    assert provider.dispatched == 1
+    assert len(provider.asked_of(llm.PROSE_SYSTEM)) == 1
 
 
 # --- Never per comparison ---
@@ -129,12 +130,12 @@ async def test_one_regeneration_lands_however_many_were_queued(owner, db, run_jo
 async def test_a_single_placement_does_not_rewrite_the_prose(owner, db, run_jobs, provider):
     """The whole point of accumulated change: one answer is never worth a provider call."""
     account = await settled(owner, run_jobs)
-    spent = provider.dispatched
+    spent = len(provider.asked_of(llm.PROSE_SYSTEM))
 
     await place(owner, LIBRARY[5], "b")
     await run_jobs()
 
-    assert provider.dispatched == spent
+    assert len(provider.asked_of(llm.PROSE_SYSTEM)) == spent
     assert len(await prose_versions(db, account)) == 1
 
 
@@ -164,7 +165,7 @@ async def test_designating_an_anchor_rewrites_the_prose_at_once(owner, db, run_j
 
 
 @SMALL
-async def test_a_picker_selection_rewrites_the_prose_at_once(owner, db, jobs_app, run_jobs):
+async def test_a_picker_selection_rewrites_the_prose_at_once(owner, db, run_jobs):
     """A constraint is a fact the owner stated outright, so the prose owes them a rewrite.
 
     Nothing is placed here on purpose: a constraint edit moves no film, so it cannot lean
@@ -173,7 +174,7 @@ async def test_a_picker_selection_rewrites_the_prose_at_once(owner, db, jobs_app
     """
     account = await settled(owner, run_jobs)
 
-    await add_constraint(db, jobs_app, account, "Pacing")
+    await pick_qualities(owner, ["Pacing"])
     await run_jobs()
 
     assert [row[2] for row in await prose_versions(db, account)] == ["first", "constraints"]
@@ -183,16 +184,15 @@ async def test_a_picker_selection_rewrites_the_prose_at_once(owner, db, jobs_app
 
 
 @SMALL
-async def test_a_regeneration_respects_the_owners_active_constraints(
-    owner, db, jobs_app, run_jobs, provider
-):
+async def test_a_regeneration_respects_the_owners_active_constraints(owner, run_jobs, provider):
     """Structural, so a rewrite can never clobber a correction (taste-profile.md)."""
-    account = await settled(owner, run_jobs)
+    await settled(owner, run_jobs)
 
-    await add_constraint(db, jobs_app, account, "Pacing")
+    await pick_qualities(owner, ["Pacing"])
     await run_jobs()
 
-    assert "They have said they care about: Pacing" in provider.last.prompt.user
+    shown = provider.last_of(llm.PROSE_SYSTEM).prompt.user
+    assert "They have said they care about: Pacing" in shown
 
 
 @SMALL
@@ -209,7 +209,7 @@ async def test_criteria_answers_feed_the_regeneration_as_evidence(owner, db, run
 
     assert len(await prose_versions(db, account)) == 2
     quality = landed["criteria"]["quality"]
-    lines = provider.last.prompt.user.splitlines()
+    lines = provider.last_of(llm.PROSE_SYSTEM).prompt.user.splitlines()
     assert any(line.startswith(f"- {quality}: ") and " over " in line for line in lines), lines
 
 
@@ -225,7 +225,7 @@ async def test_an_unanswered_bonus_card_says_nothing_about_anybody(owner, run_jo
     await run_jobs()
 
     quality = landed["criteria"]["quality"]
-    lines = provider.last.prompt.user.splitlines()
+    lines = provider.last_of(llm.PROSE_SYSTEM).prompt.user.splitlines()
     assert not any(line.startswith(f"- {quality}: ") for line in lines), lines
 
 
