@@ -54,7 +54,7 @@ class FakeLlm:
     output_tokens: int = 200
     asked: list[Asked] = field(default_factory=list)
     answers: dict[str, list[str]] = field(default_factory=dict)
-    raw: list[str] = field(default_factory=list)
+    raw: list[tuple[str | None, str]] = field(default_factory=list)
     failure: Exception | None = None
     """Raised instead of answering, for the provider-is-down and no-credential paths."""
 
@@ -70,12 +70,18 @@ class FakeLlm:
         self.answers.setdefault(shape, []).append(json.dumps(payload))
         return self
 
-    def will_say_exactly(self, text: str) -> "FakeLlm":
+    def will_say_exactly(self, text: str, system: str | None = None) -> "FakeLlm":
         """Queue one raw answer, for the case where it is not valid against the schema.
 
-        Shapeless by definition, so it answers the next dispatch whatever that is.
+        It cannot be queued by shape the way a valid answer is, because the whole point of
+        it is that it does not parse into one. Left unaimed it answers the next dispatch
+        whatever that is, which is all a test driving the seam directly needs. Naming an
+        operation's system prompt aims it at that operation instead, which is what a test
+        driving a *flow* needs: a run that regenerates prose, refreshes the picker's
+        suggestions and tags a film dispatches three times, and an unaimed answer would
+        break whichever went first.
         """
-        self.raw.append(text)
+        self.raw.append((system, text))
         return self
 
     def costs(self, *, input_tokens: int, output_tokens: int) -> "FakeLlm":
@@ -126,9 +132,11 @@ class FakeLlm:
         pass
 
     def _answer_to(self, prompt: llm.Prompt) -> str:
-        """A raw answer if one is queued, else the next of this shape, else the default."""
-        if self.raw:
-            return self.raw.pop(0)
+        """A raw answer if one is meant for this, else the next of this shape, else the default."""
+        for index, (system, text) in enumerate(self.raw):
+            if system is None or system == prompt.system:
+                self.raw.pop(index)
+                return text
         (shape,) = prompt.schema["required"]
         queued = self.answers.get(shape)
         return queued.pop(0) if queued else json.dumps(DEFAULTS[shape])

@@ -266,9 +266,17 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     so a film is never stamped tagged with its tags missing.
 
     A cap, a missing credential or a provider that is down all arrive as ``Skipped``, and
-    the answer to all of them is to leave the film untagged. Nothing degrades visibly:
-    criteria selection falls back to the quality rotation, which is what it did before
-    any film had tags at all.
+    the answer to all of them is to leave the film untagged and try again another day:
+    none of them cost anything, and nothing degrades visibly, because criteria selection
+    falls back to the quality rotation - which is what it did before any film had tags.
+
+    An answer that does not parse is the opposite case and is treated as the opposite
+    way round. The ledger row for it is already written, so leaving the film untagged
+    would put it back in front of the next placement that touches it, and the next, each
+    one paying again for the same unusable answer - the one shape this feature could
+    quietly run up a bill in. So the film is stamped as tagged with nothing, which is the
+    answer the fallback already copes with, and the bug is reported rather than retried:
+    a schema failure is a bug in a prompt (llm.py), and ERROR is what reaches Sentry.
     """
     from anchor import llm as llm_module
     from anchor import tags
@@ -284,6 +292,9 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     except llm_module.Skipped as skipped:
         log.info("film %s not tagged: %s", tmdb_id, skipped)
         return
+    except llm_module.BadAnswer:
+        log.exception("the tagging prompt got an answer it cannot read; film %s", tmdb_id)
+        named = []
 
     async with db.sessions() as session:
         await tags.record(session, tmdb_id, named)
