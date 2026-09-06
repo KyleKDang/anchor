@@ -22,9 +22,8 @@ from faketmdb import FilmFixture
 from flows import (
     add_to_backlog,
     build_ordering,
-    designate,
     log_watches,
-    place,
+    rate,
     tier_ids,
 )
 from invariants import (
@@ -69,10 +68,8 @@ CATALOG = RATED + BACKLOG + RIVALS + SPARE
 
 READY_BARS = {
     "readiness_forming_films": 3,
-    "readiness_forming_bands": 1,
+    "readiness_forming_bands": 2,
     "readiness_ready_films": 6,
-    "readiness_ready_settled_share": 0.5,
-    "readiness_ready_comparisons_per_film": 1.0,
 }
 """Bars a six-film library clears, so a test can reach *ready* without rating fifty films."""
 
@@ -108,8 +105,8 @@ async def make_ready(owner, run_jobs=None):
     Running the jobs trains the fit; a test that only cares about the tier's shape can
     skip it and let every film score alike.
     """
-    await build_ordering(owner, RATED)
-    await designate(owner, 4.0, RATED[0])
+    await build_ordering(owner, WESTERNS, band=4.0)
+    await build_ordering(owner, HORRORS, band=2.0)
     if run_jobs is not None:
         await run_jobs()
 
@@ -173,13 +170,11 @@ async def test_the_pre_gate_screen_says_how_far_off_the_unlock_is(owner):
     assert {bar["dimension"] for bar in empty["progress"]["thresholds"]} == {
         "rated_films",
         "bands_spanned",
-        "settled_share",
-        "comparisons_per_film",
     }
 
 
 async def test_progress_climbs_as_the_evidence_does(owner):
-    await build_ordering(owner, RATED[:3])
+    await build_ordering(owner, WESTERNS, band=4.0)
 
     part_way = (await flows.tier(owner))["progress"]["share"]
 
@@ -200,37 +195,22 @@ async def test_an_override_is_refused_while_the_tier_is_locked(owner):
 
 
 @tuned()
-async def test_the_placement_that_crosses_the_bar_says_so_once(owner):
-    await build_ordering(owner, RATED[:5])
-    await designate(owner, 4.0, RATED[0])
-    assert (await flows.tier(owner))["unlocked"] is False
+async def test_the_rating_that_crosses_the_bar_says_so_once(owner):
+    """One line, on the screen of the act that earned it, and never again.
 
-    landed, _ = await place(owner, RATED[5], "b")
-
-    assert landed["unlocked"] is True
-    resumed = await flows.begin(owner, RATED[5])
-    assert resumed["unlocked"] is False, "resuming a landed placement re-announces nothing"
-
-
-@tuned(readiness_ready_comparisons_per_film=1.5)
-async def test_a_keep_comparing_answer_that_crosses_the_bar_says_so_too(owner):
-    """The line goes on whichever done screen earned it, and keep-comparing has one.
-
-    A keep-comparing answer is a comparison like any other, so it can be the evidence that
-    crosses the bar - and the screen it lands on is a placement-done screen (surfacing.md).
-    The bar here is set just above what the six-film library already has, so the one extra
-    comparison is exactly what carries it over.
+    Discovery is already lit here: five films across two bands cleared *forming* a rating
+    ago, and the pre-gate Watchlist read armed it. So this landing names the one bar it
+    actually crossed, which is the whole point of naming any.
     """
-    await build_ordering(owner, RATED)
-    await designate(owner, 4.0, RATED[0])
+    await build_ordering(owner, WESTERNS, band=4.0)
+    await build_ordering(owner, HORRORS[:2], band=2.0)
     assert (await flows.tier(owner))["unlocked"] is False
 
-    step = await flows.keep_comparing(owner, RATED[3])
-    assert step["kind"] == "comparison"
-    landed = await flows.answer(owner, RATED[3], step["b"]["tmdb_id"], "b")
+    landed = await rate(owner, HORRORS[2], 2.0)
 
-    assert landed["unlocked"] is True
-    assert (await flows.tier(owner))["unlocked"] is True
+    assert landed["unlocked"] == ["watchlist"]
+    again = await rate(owner, BACKLOG[0], 1.0)
+    assert again["unlocked"] == [], "a later landing re-announces nothing"
 
 
 @tuned()
@@ -246,19 +226,42 @@ async def test_the_dot_shows_once_and_clears_on_the_first_visit(owner):
     assert (await flows.unlocks(owner))["watchlist"] is False, "the dot never returns"
 
 
+@tuned()
+async def test_an_account_that_crosses_both_bars_at_once_earns_both_dots(owner):
+    """Which is what any real seed import does (onboarding-and-import.md)."""
+    await make_ready(owner)
+
+    dots = await flows.unlocks(owner)
+
+    assert dots == {"discovery": True, "watchlist": True}
+
+
+@tuned()
+async def test_the_discovery_dot_clears_on_its_own_screen(owner):
+    """Each dot lives on the one surface it points at, and clears there and nowhere else."""
+    await make_ready(owner)
+
+    await flows.tier(owner)
+
+    assert (await flows.unlocks(owner)) == {"discovery": True, "watchlist": False}
+    await flows.seen_discovery(owner)
+    assert (await flows.unlocks(owner)) == {"discovery": False, "watchlist": False}
+
+
 @tuned(**PATIENT)
 async def test_the_tier_is_there_the_moment_it_unlocks(owner):
     """The one announced moment must not open onto an empty screen.
 
-    The pre-gate read stamps the fingerprint the refresh is gated on, and the anchor that
+    The pre-gate read stamps the fingerprint the refresh is gated on, and the rating that
     crosses the bar moves neither the fit - its retrain is still queued - nor the watch
     clock. The unlock itself has to be what makes the next read do its work.
     """
     await fill(owner, BACKLOG[:5])
-    await build_ordering(owner, RATED)
+    await build_ordering(owner, WESTERNS, band=4.0)
+    await build_ordering(owner, HORRORS[:2], band=2.0)
     assert (await flows.tier(owner))["unlocked"] is False
 
-    await designate(owner, 4.0, RATED[0])
+    await rate(owner, HORRORS[2], 2.0)
 
     payload = await flows.tier(owner)
     assert payload["unlocked"] is True

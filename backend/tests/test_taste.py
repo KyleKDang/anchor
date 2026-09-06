@@ -1,8 +1,8 @@
 """The numeric taste profile as the owner's flows produce it: retrain, artifacts, readiness.
 
-These read as what the owner did - place films, designate an anchor, open Profile - and
-assert what that leaves behind: a queued retrain riding the placement's own transaction,
-a regenerated weight vector and exemplar set, one appended metrics row, and a readiness
+These read as what the owner did - rate films, mark an anchor, open Profile - and assert
+what that leaves behind: a queued retrain riding the rating's own transaction, a
+regenerated weight vector and exemplar set, one appended metrics row, and a readiness
 state derived fresh on every read. The fit's quality is not asserted here; that is the
 trainer's own seam (test_trainer.py), because scorer quality is not an API behavior.
 """
@@ -22,16 +22,14 @@ from flows import (
     add_to_backlog,
     backlog,
     build_ordering,
-    designate,
     film_page,
-    mark_watched,
-    place,
+    mark_anchor,
     profile,
-    retire,
+    rate,
+    retire_anchor,
+    scale,
     stage_of,
 )
-from flows import answer as answer_comparison
-from flows import begin as begin_placement
 from invariants import (
     assert_nothing_rating_shaped,
     assert_readiness_not_stored,
@@ -65,39 +63,37 @@ async def queued_retrains(jobs_app):
 # --- The retrain rides the change that made it necessary ---
 
 
-async def test_a_landed_placement_queues_a_retrain(owner, jobs_app):
-    await place(owner, LIBRARY[0], "b")
+async def test_a_rating_queues_a_retrain(owner, jobs_app):
+    await rate(owner, LIBRARY[0], 4.0)
 
     assert len(await queued_retrains(jobs_app)) == 1
 
 
-async def test_a_comparison_that_moves_nothing_queues_nothing(owner, jobs_app):
-    """An answer is evidence. Until it settles the search, the ordering has not moved."""
-    await build_ordering(owner, LIBRARY[:4])
-    before = len(await queued_retrains(jobs_app))
-
-    await mark_watched(owner, LIBRARY[4], "now")
-    opened = await begin_placement(owner, LIBRARY[4])
-    stepped = await answer_comparison(owner, LIBRARY[4], opened["b"]["tmdb_id"], "b")
-
-    assert not stepped["done"], "the premise: this placement has not landed yet"
-    assert len(await queued_retrains(jobs_app)) == before
-
-
-async def test_designating_and_retiring_an_anchor_each_queue_a_retrain(owner, jobs_app):
+async def test_marking_and_retiring_an_anchor_each_queue_a_retrain(owner, jobs_app):
     """Both change the exemplar set, which is half of what a retrain regenerates."""
     await build_ordering(owner, LIBRARY[:4])
     before = len(await queued_retrains(jobs_app))
 
-    await designate(owner, 4.0, LIBRARY[1])
-    await retire(owner, 4.0)
+    await mark_anchor(owner, LIBRARY[1])
+    await retire_anchor(owner, LIBRARY[1])
 
     assert len(await queued_retrains(jobs_app)) == before + 2
 
 
+async def test_a_toggle_that_changes_nothing_queues_nothing(owner, jobs_app):
+    """Marking an already-marked film says nothing new, so nothing is regenerated."""
+    await rate(owner, LIBRARY[0], 4.0)
+    await mark_anchor(owner, LIBRARY[0])
+    before = len(await queued_retrains(jobs_app))
+
+    await mark_anchor(owner, LIBRARY[0])
+
+    assert len(await queued_retrains(jobs_app)) == before
+
+
 async def test_the_retrain_regenerates_the_whole_profile(owner, db, jobs_app, run_jobs):
-    await build_ordering(owner, LIBRARY[:6])
-    await designate(owner, 4.0, LIBRARY[2])
+    await scale(owner, size=6)
+    await mark_anchor(owner, LIBRARY[2])
     account = await owner_id(owner)
     assert await weight_vector(db, account) is None, "the premise: no retrain has run yet"
 
@@ -114,12 +110,13 @@ async def test_the_retrain_regenerates_the_whole_profile(owner, db, jobs_app, ru
 
 
 async def test_the_exemplar_set_is_the_anchors_and_the_ends_of_the_ordering(owner, db, run_jobs):
-    await build_ordering(owner, LIBRARY[:8])
-    await designate(owner, 4.0, LIBRARY[2])
+    await scale(owner, size=8)
+    await mark_anchor(owner, LIBRARY[2])
     await run_jobs()
 
     account = await owner_id(owner)
-    ranked = [slot[0] for slot in await ordering_snapshot(db, account)]
+    wall = await ordering_snapshot(db, account)
+    ranked = [film_id for band in sorted(wall, reverse=True) for film_id in wall[band]]
     rows = await exemplars(db, account)
 
     assert [(role, film) for role, _, _, film in rows if role == "best"] == [
@@ -128,43 +125,55 @@ async def test_the_exemplar_set_is_the_anchors_and_the_ends_of_the_ordering(owne
     assert [(role, film) for role, _, _, film in rows if role == "worst"] == [
         ("worst", film) for film in reversed(ranked[-3:])
     ]
-    assert [(band, film) for role, band, _, film in rows if role == "anchor"] == [
-        (4.0, LIBRARY[2].tmdb_id)
+    assert [film for role, _, _, film in rows if role == "anchor"] == [LIBRARY[2].tmdb_id]
+
+
+async def test_a_large_pool_is_capped_most_recently_marked_first(owner, db, run_jobs):
+    """ "A few per band" (taste-profile.md): a prompt carries a handful, not a hundred."""
+    await build_ordering(owner, LIBRARY[:5], band=4.0)
+    for film in LIBRARY[:5]:
+        await mark_anchor(owner, film)
+    await run_jobs()
+
+    anchored = [
+        film for role, _, _, film in await exemplars(db, await owner_id(owner)) if role == "anchor"
     ]
+
+    assert anchored == [film.tmdb_id for film in reversed(LIBRARY[2:5])]
 
 
 async def test_the_exemplar_set_follows_the_anchors_as_they_change(owner, db, run_jobs):
     """Recomputed mechanically: a retired anchor stops standing for the owner's taste."""
-    await build_ordering(owner, LIBRARY[:6])
-    await designate(owner, 4.0, LIBRARY[2])
+    await scale(owner, size=6)
+    await mark_anchor(owner, LIBRARY[2])
     await run_jobs()
     account = await owner_id(owner)
     assert any(role == "anchor" for role, _, _, _ in await exemplars(db, account))
 
-    await retire(owner, 4.0)
+    await retire_anchor(owner, LIBRARY[2])
     await run_jobs()
 
     assert not any(role == "anchor" for role, _, _, _ in await exemplars(db, account))
 
 
 async def test_the_exemplar_set_follows_the_ordering_as_it_grows(owner, db, run_jobs):
-    await build_ordering(owner, LIBRARY[:6])
+    await scale(owner, size=6)
     await run_jobs()
     account = await owner_id(owner)
     best_before = [film for role, _, _, film in await exemplars(db, account) if role == "best"]
 
     # A film better than everything already rated: the top of the ordering changes hands.
-    await place(owner, LIBRARY[6], "a")
+    await rate(owner, LIBRARY[6], 5.0)
     await run_jobs()
 
     best_after = [film for role, _, _, film in await exemplars(db, account) if role == "best"]
-    assert best_after[0] == LIBRARY[6].tmdb_id
+    assert LIBRARY[6].tmdb_id in best_after
     assert best_after != best_before
 
 
 async def test_a_library_too_short_to_have_two_ends_never_uses_a_film_twice(owner, db, run_jobs):
     """With three films, the middle one is not both the best and the worst of anything."""
-    await build_ordering(owner, LIBRARY[:3])
+    await scale(owner, size=3)
     await run_jobs()
 
     rows = await exemplars(db, await owner_id(owner))
@@ -174,12 +183,12 @@ async def test_a_library_too_short_to_have_two_ends_never_uses_a_film_twice(owne
 
 async def test_the_trained_at_marker_moves_with_every_retrain(owner, db, run_jobs):
     """Current-only means one row overwritten, and a marker that never moves says nothing."""
-    await build_ordering(owner, LIBRARY[:4])
+    await scale(owner, size=4)
     await run_jobs()
     account = await owner_id(owner)
     first = await trained_at(db, account)
 
-    await place(owner, LIBRARY[4], "b")
+    await rate(owner, LIBRARY[4], 2.0)
     await run_jobs()
 
     assert await trained_at(db, account) > first
@@ -189,13 +198,13 @@ async def test_the_trained_at_marker_moves_with_every_retrain(owner, db, run_job
 
 
 async def test_each_retrain_appends_one_metrics_row_and_rewrites_none(owner, db, run_jobs):
-    await build_ordering(owner, LIBRARY[:5])
+    await scale(owner, size=5)
     await run_jobs()
     account = await owner_id(owner)
     before = await taste_metrics(db, account)
-    assert len(before) == 5, "one row per landed placement"
+    assert len(before) == 5, "one row per rating"
 
-    await place(owner, LIBRARY[5], "b")
+    await rate(owner, LIBRARY[5], 2.0)
     await run_jobs()
 
     after = await taste_metrics(db, account)
@@ -207,16 +216,14 @@ async def test_a_metrics_row_carries_the_counts_that_contextualise_its_accuracy(
     owner, db, run_jobs
 ):
     """An accuracy with no denominator beside it is a number nobody can read."""
-    await build_ordering(owner, LIBRARY[:6])
-    await designate(owner, 4.0, LIBRARY[2])
+    await scale(owner, size=6)
     await run_jobs()
 
     latest = (await taste_metrics(db, await owner_id(owner)))[-1]
-    (_, accuracy, held_out, training, rated, comparisons, settled, spanned, _) = latest
+    (_, accuracy, held_out, training, rated, spanned, comparisons, _) = latest
     assert rated == 6
-    assert comparisons > 0
-    assert settled == 6
-    assert spanned == 1
+    assert spanned == 3
+    assert comparisons == 0, "the minimal picker asks none yet"
     assert training > 0
     assert accuracy is None or (0.0 <= accuracy <= 1.0 and held_out > 0)
 
@@ -227,7 +234,7 @@ async def test_the_metrics_row_counts_the_fit_its_accuracy_came_from(owner, db, 
     An accuracy reported beside a count that includes the pairs it was measured on would
     overstate what it was earned from.
     """
-    await build_ordering(owner, LIBRARY[:8])
+    await scale(owner, size=8)
     await run_jobs()
     account = await owner_id(owner)
 
@@ -244,14 +251,7 @@ async def test_a_fresh_account_is_cold_and_says_what_would_change_that(owner):
     payload = await profile(owner)
 
     assert payload["readiness"] == "cold"
-    assert payload["evidence"] == {
-        "rated_films": 0,
-        "explicit_comparisons": 0,
-        "settled_films": 0,
-        "settled_share": 0.0,
-        "comparisons_per_film": 0.0,
-        "bands_spanned": 0,
-    }
+    assert payload["evidence"] == {"rated_films": 0, "bands_spanned": 0}
     forming = stage_of(payload, "forming")
     assert not forming["reached"]
     assert {bar["dimension"] for bar in forming["thresholds"]} == {
@@ -261,12 +261,14 @@ async def test_a_fresh_account_is_cold_and_says_what_would_change_that(owner):
     assert all(bar["have"] < bar["need"] for bar in forming["thresholds"])
 
 
-@pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=1)
+@pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=3)
 async def test_evidence_carries_an_account_into_forming(owner):
-    await build_ordering(owner, LIBRARY[:5])
-    assert (await profile(owner))["readiness"] == "cold", "no band structure yet"
+    """Films *and* bands: a library stacked in one band has no spread to fit against."""
+    await build_ordering(owner, LIBRARY[:5], band=4.0)
+    assert (await profile(owner))["readiness"] == "cold", "five films, but one band"
 
-    await designate(owner, 4.0, LIBRARY[2])
+    await rate(owner, LIBRARY[5], 2.0)
+    await rate(owner, LIBRARY[6], 5.0)
 
     payload = await profile(owner)
     assert payload["readiness"] == "forming"
@@ -274,53 +276,40 @@ async def test_evidence_carries_an_account_into_forming(owner):
     assert not stage_of(payload, "ready")["reached"]
 
 
-@pytest.mark.settings(
-    readiness_forming_films=4,
-    readiness_forming_bands=1,
-    readiness_ready_films=5,
-    readiness_ready_settled_share=0.5,
-    readiness_ready_comparisons_per_film=1.0,
-)
-async def test_a_settled_library_reaches_ready(owner):
-    await build_ordering(owner, LIBRARY[:5])
-    await designate(owner, 4.0, LIBRARY[2])
+@pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=3, readiness_ready_films=6)
+async def test_a_real_library_reaches_ready_without_answering_anything(owner):
+    """No comparison bar exists: the ordering is complete the moment a film is rated."""
+    await scale(owner, size=6)
 
     payload = await profile(owner)
     assert payload["readiness"] == "ready"
     assert all(stage["reached"] for stage in payload["stages"])
-    assert payload["evidence"]["settled_share"] == 1.0
+    assert payload["evidence"] == {"rated_films": 6, "bands_spanned": 3}
 
 
-@pytest.mark.settings(
-    readiness_forming_films=4,
-    readiness_forming_bands=1,
-    readiness_ready_films=5,
-    readiness_ready_settled_share=0.5,
-    readiness_ready_comparisons_per_film=99.0,
-)
-async def test_a_library_the_owner_barely_answered_is_not_ready(owner):
-    """The other half of the spec's bar: implied pairs must not outweigh real answers.
-
-    Every placement here completed, so the settled share is a perfect 100% - and the
-    account is still not ready, because that share says nothing about how much the owner
-    actually judged. The two bars are not interchangeable.
-    """
-    await build_ordering(owner, LIBRARY[:5])
-    await designate(owner, 4.0, LIBRARY[2])
+@pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=3, readiness_ready_films=9)
+async def test_a_library_with_the_spread_but_not_the_size_is_only_forming(owner):
+    await scale(owner, size=6)
 
     payload = await profile(owner)
-    assert payload["evidence"]["settled_share"] == 1.0
     assert payload["readiness"] == "forming"
     bars = {bar["dimension"]: bar for bar in stage_of(payload, "ready")["thresholds"]}
-    assert bars["settled_share"]["have"] >= bars["settled_share"]["need"]
-    assert bars["comparisons_per_film"]["have"] < bars["comparisons_per_film"]["need"]
+    assert bars["bands_spanned"]["have"] >= bars["bands_spanned"]["need"]
+    assert bars["rated_films"]["have"] < bars["rated_films"]["need"]
 
 
-@pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=1)
+async def test_the_comparison_bars_are_gone_from_profile(owner):
+    """ADR 0013 removed the dimension, so the screen cannot show a bar for it."""
+    payload = await profile(owner)
+
+    dimensions = {bar["dimension"] for stage in payload["stages"] for bar in stage["thresholds"]}
+    assert dimensions == {"rated_films", "bands_spanned"}
+
+
+@pytest.mark.settings(readiness_forming_films=4, readiness_forming_bands=3)
 async def test_readiness_moves_with_the_evidence_before_any_job_has_run(owner, db):
     """Derived on read, so the screen never waits on - or reads - the worker's artifacts."""
-    await build_ordering(owner, LIBRARY[:5])
-    await designate(owner, 4.0, LIBRARY[2])
+    await scale(owner, size=5)
 
     assert await weight_vector(db, await owner_id(owner)) is None
     assert (await profile(owner))["readiness"] == "forming"
@@ -331,7 +320,7 @@ async def test_readiness_is_stored_nowhere(db):
 
 
 async def test_one_account_readiness_never_reads_another_evidence(owner, other_owner):
-    await build_ordering(owner, LIBRARY[:5])
+    await scale(owner, size=5)
 
     assert (await profile(other_owner))["evidence"]["rated_films"] == 0
 
@@ -341,7 +330,7 @@ async def test_one_account_readiness_never_reads_another_evidence(owner, other_o
 
 async def test_a_trained_vector_never_reaches_a_film_the_owner_has_not_watched(owner, run_jobs):
     """The vector can score every one of these, and none of that may cross the boundary."""
-    await build_ordering(owner, LIBRARY[:6])
+    await scale(owner, size=6)
     await add_to_backlog(owner, UNSEEN)
     await run_jobs()
 
@@ -355,7 +344,7 @@ async def test_a_trained_vector_never_reaches_a_film_the_owner_has_not_watched(o
 
 async def test_the_stored_vector_scores_a_film_the_owner_has_never_rated(owner, db, run_jobs):
     """Scoring unseen films by construction is why ADR 0004 chose this scorer at all."""
-    await build_ordering(owner, LIBRARY[:6])
+    await scale(owner, size=6)
     await add_to_backlog(owner, UNSEEN)
     await run_jobs()
 

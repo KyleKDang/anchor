@@ -5,24 +5,28 @@ import {
   api,
   messageOf,
   type PromptState,
+  type RatingPhase as RatingPhaseState,
   type Warmup as WarmupState,
   type WarmupMark,
 } from "../../api";
 import { useAsyncAction } from "../../films/useAsyncAction";
 import { Designate } from "./Designate";
-import { Evidence } from "./Evidence";
 import { SeedBacklog } from "./SeedBacklog";
 
 /**
- * The warmup: one skeleton, three phases, filled by whichever way in the owner took.
+ * The warmup: one skeleton, filled by whichever way in the owner took.
+ *
+ * The fresh fill has three phases and the import fill two - its middle step is looking
+ * over the wall it just got, which is edit mode and arrives with its own ticket
+ * (ADR 0013 removed the settling step that used to stand there).
  *
  * Inside the app frame rather than full-screen, deliberately. "Skippable at every point,
  * the app fully usable throughout" is not a promise worth making in prose while the
  * navigation is hidden - leaving the five destinations right there is the proof of it.
  *
- * All three phases stay open at once. They are not gates on each other: the anchors make
- * the evidence phase more useful, but an owner who skips them can still log films, and a
- * flow that hid phase three behind phase one would be claiming otherwise.
+ * Every phase stays open at once. They are not gates on each other: the anchors make the
+ * rating phase more useful, but an owner who skips them can still rate films, and a flow
+ * that hid the last phase behind the first would be claiming otherwise.
  */
 export function Warmup() {
   const navigate = useNavigate();
@@ -60,8 +64,8 @@ export function Warmup() {
       </header>
 
       <Phase
-        heading="1. Set your anchors"
-        blurb="One film per band, as the thing that band means."
+        heading="1. Mark your anchors"
+        blurb="The films you know cold, as the references you rate against."
         state={state.anchors.state}
         mark="anchors"
         onChanged={setState}
@@ -69,25 +73,22 @@ export function Warmup() {
         <Designate phase={state.anchors} fill={state.fill} onChanged={setState} />
       </Phase>
 
-      {/* The one heading the two fills do not share. Everything under it - the body, the
-          count, the button - already says which of the two questions is being asked, and
-          a heading contradicting all three would be the loudest thing on the step. */}
-      <Phase
-        heading={
-          state.evidence.kind === "comparisons"
-            ? "2. Answer a few comparisons"
-            : "2. Log a few films you have seen"
-        }
-        blurb="What the ordering is actually built from."
-        state={state.evidence.state}
-        mark="evidence"
-        onChanged={setState}
-      >
-        <Evidence phase={state.evidence} fill={state.fill} onChanged={setState} />
-      </Phase>
+      {/* Only the fresh fill has a middle step. The import fill's is looking over the
+          wall it just got, which is edit mode - and that arrives with its own ticket. */}
+      {state.rating !== null && (
+        <Phase
+          heading="2. Rate a few films you have seen"
+          blurb="What the ordering is actually built from."
+          state={state.rating.state}
+          mark="rating"
+          onChanged={setState}
+        >
+          <RatingPhase phase={state.rating} />
+        </Phase>
+      )}
 
       <Phase
-        heading="3. Fill your backlog"
+        heading={`${state.rating === null ? 2 : 3}. Fill your backlog`}
         blurb="Something to watch next, usable from minute one."
         state={state.backlog.state}
         mark="backlog"
@@ -98,6 +99,30 @@ export function Warmup() {
 
       <Done state={state} onChanged={setState} />
     </div>
+  );
+}
+
+/**
+ * The fresh fill's middle step: "rate ~5 films you have seen".
+ *
+ * A count and nothing else, because the act itself happens elsewhere - search for a film,
+ * mark it watched, rate it - and a button here would be a third door into a flow that
+ * already has two. The target is advisory: it says when the phase stops asking, never
+ * when the owner is allowed to leave.
+ */
+function RatingPhase({ phase }: { phase: RatingPhaseState }) {
+  return (
+    <>
+      <p className="muted">
+        {phase.rated} of about {phase.target} so far. Find a film on{" "}
+        <Link to="/search">Search</Link>, mark it watched, and rate it.
+      </p>
+      {phase.rated === 0 && (
+        <p className="muted">
+          Every rating is one tap on the band picker - there is nothing to work through.
+        </p>
+      )}
+    </>
   );
 }
 
@@ -179,9 +204,11 @@ function Done({
 }) {
   const navigate = useNavigate();
   const { busy, error, run } = useAsyncAction();
-  const settled = [state.anchors.state, state.evidence.state, state.backlog.state].every(
-    (one) => one !== "todo",
-  );
+  const settled = [
+    state.anchors.state,
+    state.rating?.state ?? "done",
+    state.backlog.state,
+  ].every((one) => one !== "todo");
 
   async function finish() {
     await run(async () => {

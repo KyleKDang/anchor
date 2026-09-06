@@ -183,7 +183,7 @@ async def pick(
         raise ApiError(422, "not_a_band", "A rating is one of the ten half-star values.")
     account_film = await _rateable(db, account, tmdb_id)
     film = await _film(db, tmdb_id)
-    order = await ordering_module.default_order(db, settings.default_order_prior_votes)
+    order = ordering_module.default_order(settings)
     placement = await ordering_module.placement_of(db, account.id, tmdb_id)
     context = ComparisonContext.re_placement if placement else ComparisonContext.placement
 

@@ -1,14 +1,14 @@
-"""The bonus question after a placement, and the quality list behind it.
+"""The bonus question after a rating, and the quality list behind it.
 
-These read as what the owner did: place a film, notice the card, answer it or walk past
+These read as what the owner did: rate a film, notice the card, answer it or walk past
 it, turn it down or off on Profile. The card is a bonus, so most of what is asserted here
-is what it costs when it is ignored - which is nothing, at every level: the placement, the
-ordering, the ratings, and the next screen are all identical either way.
+is what it costs when it is ignored - which is nothing, at every level: the rating, the
+ordering, and the next screen are all identical either way.
 
 The one thing that is never asserted is which pair or quality the advisory selection
-happened to choose beyond what the spec fixes: the pair comes from this flow and the
-quality from this account's list, and inside that the tests pin only the rules the spec
-states (taste-profile.md).
+happened to choose beyond what the spec fixes: the opponent comes down the ladder
+taste-profile.md names and the quality from this account's list, and inside that the
+tests pin only the rules the spec states.
 """
 
 import pytest
@@ -20,24 +20,19 @@ from flows import (
     account_id,
     add_quality,
     answer_criteria,
-    answer_pair,
-    answer_the_band,
     ask_criteria,
-    begin,
     build_ordering,
     given_tags,
-    mark_watched,
-    place,
+    mark_anchor,
     profile,
+    rate,
     rated,
 )
 from invariants import (
     assert_appended_only,
-    assert_bands_well_formed,
     assert_ordering_well_formed,
     comparison_log,
     criteria_log,
-    dividers,
     ordering_snapshot,
     quality_list,
 )
@@ -55,10 +50,9 @@ def stocked(tmdb):
     return tmdb.with_films(*LIBRARY)
 
 
-async def card_from(client, film, verdict="b", **params):
-    """Place a film and hand back the bonus card the done screen carried, if any."""
-    landed, _ = await place(client, film, verdict, **params)
-    return landed["criteria"]
+async def card_from(client, film, band=3.0):
+    """Rate a film and hand back the bonus card the done screen carried, if any."""
+    return (await rate(client, film, band))["criteria"]
 
 
 # --- The quality list ---
@@ -91,13 +85,13 @@ async def test_one_owners_quality_list_is_not_another_s(owner, other_owner, db):
 # --- Being offered the card ---
 
 
-async def test_a_placement_with_nothing_to_compare_against_offers_nothing(owner):
-    """The first film answers no comparisons, so there is no pair to ask about."""
+async def test_a_rating_with_nothing_to_set_it_against_offers_nothing(owner):
+    """The first film has no opponent anywhere on the ladder, so there is no pair."""
     assert await card_from(owner, FIRST) is None
 
 
-async def test_a_placement_offers_the_card_on_the_done_screen(owner, db):
-    await build_ordering(owner, [FIRST])
+async def test_a_rating_offers_the_card_on_the_done_screen(owner, db):
+    await build_ordering(owner, [FIRST], band=3.0)
 
     card = await card_from(owner, SECOND)
 
@@ -108,10 +102,10 @@ async def test_a_placement_offers_the_card_on_the_done_screen(owner, db):
     ]
 
 
-async def test_the_card_asks_about_a_pair_the_owner_just_judged(owner):
-    """ "Which had the better ___?" about films they compared a moment ago, or not at all."""
+async def test_the_card_asks_about_the_film_just_rated_and_one_it_sits_beside(owner):
+    """ "Which had the better ___?" about a film the owner is likely to remember beside it."""
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND])
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
 
     card = await card_from(owner, THIRD)
 
@@ -121,9 +115,24 @@ async def test_the_card_asks_about_a_pair_the_owner_just_judged(owner):
     assert pair - {THIRD.tmdb_id} <= {FIRST.tmdb_id, SECOND.tmdb_id}
 
 
+async def test_the_opponent_is_drawn_from_the_band_s_anchors_first(owner):
+    """The film the owner is most certain about is the one the question is answerable against."""
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    await mark_anchor(owner, SECOND)
+
+    card = await card_from(owner, THIRD)
+
+    assert card is not None
+    assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {
+        THIRD.tmdb_id,
+        SECOND.tmdb_id,
+    }
+
+
 async def test_the_wording_is_a_template_and_the_card_carries_no_free_text(owner):
     """The system never invents a quality or a question: selection is the whole of it."""
-    await build_ordering(owner, [FIRST])
+    await build_ordering(owner, [FIRST], band=3.0)
 
     card = await card_from(owner, SECOND)
 
@@ -132,27 +141,23 @@ async def test_the_wording_is_a_template_and_the_card_carries_no_free_text(owner
     assert card["quality"] in BUILT_IN_QUALITIES
 
 
-async def test_a_placement_never_offers_a_second_card(owner, db):
-    """Zero or one per placement: re-opening the done screen does not mint another."""
-    await build_ordering(owner, [FIRST])
+async def test_a_rating_offers_at_most_one_card(owner, db):
+    """Zero or one per rating: there is exactly one call that can mint one."""
+    await build_ordering(owner, [FIRST], band=3.0)
+
     card = await card_from(owner, SECOND)
+
     assert card is not None
-
-    again = await begin(owner, SECOND)
-
-    assert again["done"] is True
-    assert again["criteria"] is None
     assert len(await criteria_log(db, await account_id(owner))) == 1
 
 
 async def test_answering_never_triggers_another(owner, db):
-    await build_ordering(owner, [FIRST])
+    await build_ordering(owner, [FIRST], band=3.0)
     card = await card_from(owner, SECOND)
     assert card is not None
 
     await answer_criteria(owner, card, "a")
 
-    assert await begin(owner, SECOND) == {**await begin(owner, SECOND), "criteria": None}
     assert len(await criteria_log(db, await account_id(owner))) == 1
 
 
@@ -219,26 +224,23 @@ async def test_the_card_takes_only_the_three_answers_it_offers(owner):
 
 async def test_a_criteria_answer_never_moves_the_ordering(owner, db):
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND])
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
     card = await card_from(owner, THIRD)
     assert card is not None
     account = await account_id(owner)
     before = await ordering_snapshot(db, account)
-    ratings = await rated(owner)
-    boundaries = await dividers(db, account)
+    wall = await rated(owner)
 
     await answer_criteria(owner, card, "a")
 
     assert await ordering_snapshot(db, account) == before
-    assert await dividers(db, account) == boundaries
-    assert await rated(owner) == ratings
+    assert await rated(owner) == wall
     await assert_ordering_well_formed(db, account)
-    await assert_bands_well_formed(db, account)
 
 
 async def test_an_answered_offer_only_ever_fills_in_its_own_verdict(owner, db):
     """The log is append-only bar this: the offer is one record, completed once."""
-    await build_ordering(owner, [FIRST])
+    await build_ordering(owner, [FIRST], band=3.0)
     card = await card_from(owner, SECOND)
     assert card is not None
     account = await account_id(owner)
@@ -249,20 +251,18 @@ async def test_an_answered_offer_only_ever_fills_in_its_own_verdict(owner, db):
     assert_appended_only(before, await comparison_log(db, account), "answering a criteria card")
 
 
-async def test_ignoring_the_card_leaves_the_placement_untouched(owner, db):
+async def test_ignoring_the_card_leaves_the_rating_untouched(owner, db):
     """Answering and ignoring cost the same, so the account looks identical either way."""
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND])
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
     account = await account_id(owner)
 
     card = await card_from(owner, THIRD)
 
     assert card is not None
-    assert await ordering_snapshot(db, account) == [
-        [FIRST.tmdb_id],
-        [SECOND.tmdb_id],
-        [THIRD.tmdb_id],
-    ]
+    assert sorted((await ordering_snapshot(db, account))[3.0]) == sorted(
+        [FIRST.tmdb_id, SECOND.tmdb_id, THIRD.tmdb_id]
+    )
 
 
 # --- How often it asks ---
@@ -288,12 +288,12 @@ async def test_turning_it_off_leaves_no_backlog_to_come_back_to(owner, db):
     assert len(await criteria_log(db, await account_id(owner))) == 1
 
 
-async def test_often_offers_after_every_placement_that_has_a_pair(owner, db):
+async def test_often_offers_after_every_rating_that_has_a_pair(owner, db):
     await ask_criteria(owner, "often")
 
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
 
-    # The first film answered no comparison, so three placements could carry a card.
+    # The first film had nobody to be set against, so three ratings could carry a card.
     assert len(await criteria_log(db, await account_id(owner))) == 3
 
 
@@ -301,7 +301,7 @@ async def test_a_manual_frequency_spaces_the_offers_out(owner, db):
     """Rarely means rarely: the first card lands, and then it goes quiet for a long while."""
     await ask_criteria(owner, "rarely")
 
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH, FIFTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH, FIFTH], band=3.0)
 
     assert len(await criteria_log(db, await account_id(owner))) == 1
 
@@ -323,18 +323,18 @@ async def test_a_frequency_anchor_does_not_offer_is_refused(owner):
 async def test_adaptive_backs_off_when_the_owner_keeps_walking_past_the_card(owner, db):
     """Non-engagement lowers the frequency, which is the whole point of recording ignores."""
     account = await account_id(owner)
-    await build_ordering(owner, [FIRST, SECOND])
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
     assert len(await criteria_log(db, account)) == 1  # offered once, and ignored
 
-    await build_ordering(owner, [THIRD, FOURTH, FIFTH])
+    await build_ordering(owner, [THIRD, FOURTH, FIFTH], band=3.0)
 
     assert len(await criteria_log(db, account)) == 1
 
 
 async def test_adaptive_keeps_asking_an_owner_who_keeps_answering(owner, db):
-    """Engagement raises it: an owner who answers is asked again at the next placement."""
+    """Engagement raises it: an owner who answers is asked again at the next rating."""
     account = await account_id(owner)
-    await build_ordering(owner, [FIRST])
+    await build_ordering(owner, [FIRST], band=3.0)
     first = await card_from(owner, SECOND)
     assert first is not None
     await answer_criteria(owner, first, "a")
@@ -346,10 +346,10 @@ async def test_adaptive_keeps_asking_an_owner_who_keeps_answering(owner, db):
 
 
 async def test_the_rotation_works_through_the_quality_list(owner, db):
-    """With no pair sharing a tag, the fallback is rotation - so the evidence spreads out."""
+    """Until quality tags exist, the fallback is rotation - so the evidence spreads out."""
     await ask_criteria(owner, "often")
 
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
 
     asked = [entry[0] for entry in await criteria_log(db, await account_id(owner))]
     assert asked == list(BUILT_IN_QUALITIES[: len(asked)])
@@ -358,37 +358,12 @@ async def test_the_rotation_works_through_the_quality_list(owner, db):
 # --- Preferring a pair that shares a quality tag ---
 
 
-async def placed_watching_the_opponents(client, film, arrange=None):
-    """Place ``film``, and call ``arrange`` with its first opponent once that is known.
-
-    Which opponents a bisection picks is the advisory math's business and no test may pin
-    it (testing.md), so a test that wants tags arranged around a real matchup has to wait
-    until the flow has shown it one. Arranging after the *first* answer is what makes the
-    arrangement possible at all, and it is also what makes the assertion worth something:
-    the first matchup is the one the tie-break would never have chosen.
-
-    Hands back the done screen and every opponent the flow put up, oldest first.
-    """
-    await mark_watched(client, film, "now")
-    step = await begin(client, film)
-    opponents = []
-    while not step["done"]:
-        if step["kind"] == "band":
-            step = await answer_the_band(client, film, step)
-            continue
-        opponents.append(step["b"]["tmdb_id"])
-        if len(opponents) == 1 and arrange is not None:
-            await arrange(opponents[0])
-        step = await answer_pair(client, film, step["a"]["tmdb_id"], step["b"]["tmdb_id"], "b")
-    return step, opponents
-
-
 async def tag_everything_apart(db, subject, partner, shared="Tension"):
     """Give the two named films one tag in common, and every other film its own.
 
     Distinct tags everywhere else, so exactly one pair in the whole library overlaps and
     a card naming any other pair is the preference failing rather than the arrangement
-    being ambiguous. Both films are named by tmdb id, the way the flow reports them.
+    being ambiguous. Both films are named by tmdb id, the way the card reports them.
     """
     await given_tags(db, subject, shared)
     await given_tags(db, partner, shared)
@@ -401,51 +376,52 @@ async def tag_everything_apart(db, subject, partner, shared="Tension"):
 async def test_the_card_prefers_the_pair_whose_films_share_a_quality_tag(owner, db):
     """Two films known for the same thing make the question about a real difference.
 
-    The shared pair here is deliberately the *first* one the flow showed, which the
-    recency tie-break would have passed over, so what is asserted is the preference
-    itself rather than an accident of ordering.
+    The shared partner here is deliberately *not* the top of the ladder - FIRST is
+    anchored, so it is the film selection would otherwise have reached for - so what is
+    asserted is the preference itself rather than an accident of the ordering.
     """
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
+    await mark_anchor(owner, FIRST)
+    await tag_everything_apart(db, FIFTH.tmdb_id, SECOND.tmdb_id)
 
-    landed, opponents = await placed_watching_the_opponents(
-        owner, FIFTH, lambda first: tag_everything_apart(db, FIFTH.tmdb_id, first)
-    )
+    card = await card_from(owner, FIFTH)
 
-    assert len(opponents) > 1, "a single matchup cannot show a preference between matchups"
-    card = landed["criteria"]
     assert card is not None
-    assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {FIFTH.tmdb_id, opponents[0]}
+    assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {
+        FIFTH.tmdb_id,
+        SECOND.tmdb_id,
+    }
 
 
 async def test_the_card_asks_about_the_quality_the_pair_shares(owner, db):
     """The tag is not just how the pair is chosen; it is what the question is about."""
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
+    await mark_anchor(owner, FIRST)
+    await tag_everything_apart(db, FIFTH.tmdb_id, SECOND.tmdb_id, shared="Ending")
 
-    landed, _ = await placed_watching_the_opponents(
-        owner,
-        FIFTH,
-        lambda first: tag_everything_apart(db, FIFTH.tmdb_id, first, shared="Ending"),
-    )
+    card = await card_from(owner, FIFTH)
 
-    card = landed["criteria"]
     assert card is not None
     assert card["quality"] == "Ending"
 
 
-async def test_a_library_with_nothing_in_common_falls_back_to_the_last_matchup(owner, db):
-    """No overlap anywhere is the ordinary case, not the error case: recency decides."""
+async def test_a_library_with_nothing_in_common_falls_back_to_the_ladder(owner, db):
+    """No overlap anywhere is the ordinary case, not the error case: the ladder decides."""
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
+    await mark_anchor(owner, FIRST)
     for own, film in zip(BUILT_IN_QUALITIES, LIBRARY, strict=False):
         await given_tags(db, film.tmdb_id, own)
 
-    landed, opponents = await placed_watching_the_opponents(owner, FIFTH)
+    card = await card_from(owner, FIFTH)
 
-    card = landed["criteria"]
     assert card is not None
-    assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {FIFTH.tmdb_id, opponents[-1]}
+    assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {
+        FIFTH.tmdb_id,
+        FIRST.tmdb_id,
+    }
 
 
 async def test_a_quality_the_owner_invented_is_never_what_a_shared_tag_asks_about(owner, db):
@@ -456,13 +432,12 @@ async def test_a_quality_the_owner_invented_is_never_what_a_shared_tag_asks_abou
     """
     await add_quality(owner, "Costumes")
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH])
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
+    await mark_anchor(owner, FIRST)
+    await tag_everything_apart(db, FIFTH.tmdb_id, SECOND.tmdb_id)
 
-    landed, _ = await placed_watching_the_opponents(
-        owner, FIFTH, lambda first: tag_everything_apart(db, FIFTH.tmdb_id, first)
-    )
+    card = await card_from(owner, FIFTH)
 
-    card = landed["criteria"]
     assert card is not None
     assert card["quality"] == "Tension"
 
@@ -477,15 +452,14 @@ async def test_a_tag_driven_question_does_not_cost_the_rotation_a_turn(owner, db
     """
     account = await account_id(owner)
     await ask_criteria(owner, "often")
-    await build_ordering(owner, [FIRST, SECOND])
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
     # A tagged pair, so the next card is chosen by its tag rather than by the rotation.
-    await placed_watching_the_opponents(
-        owner, THIRD, lambda first: tag_everything_apart(db, THIRD.tmdb_id, first, shared="Ending")
-    )
+    await tag_everything_apart(db, THIRD.tmdb_id, SECOND.tmdb_id, shared="Ending")
+    await rate(owner, THIRD, 3.0)
     asked = [entry[0] for entry in await criteria_log(db, account)]
     assert asked[-1] == "Ending", "this test needs the second card to have come from a tag"
 
-    await build_ordering(owner, [FOURTH, FIFTH])
+    await build_ordering(owner, [FOURTH, FIFTH], band=3.0)
 
     walked = [entry[0] for entry in await criteria_log(db, account)]
     assert "Ending" not in walked[2:], "the rotation asked a quality the tag had just used"
@@ -505,7 +479,7 @@ async def test_the_rotation_reaches_a_quality_the_owner_added(owner, db, tmdb):
     await add_quality(owner, "Costumes")
     await ask_criteria(owner, "often")
 
-    await build_ordering(owner, [*LIBRARY, *EXTRAS])
+    await build_ordering(owner, [*LIBRARY, *EXTRAS], band=3.0)
 
     asked = [entry[0] for entry in await criteria_log(db, account)]
     assert asked == [*BUILT_IN_QUALITIES, "Costumes"]

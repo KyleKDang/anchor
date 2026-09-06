@@ -102,7 +102,13 @@ class RealmCounts:
     """What a re-import would destroy, counted so the warning can name it concretely."""
 
     rated_films: int
-    comparisons: int
+    judgments: int
+    """Every row of the comparison log: the picks and the criteria answers alike.
+
+    "Answers" is the spec's own word for what the warning enumerates
+    (onboarding-and-import.md), and under the direct ordering a rating is itself a
+    recorded answer - so counting one kind of row would under-state what is about to go.
+    """
     anchors: int
     backlog_films: int
     watch_events: int
@@ -148,11 +154,9 @@ async def _seed_rating(
     and the placement is a placement like any other. Nothing here is provisional and
     nothing waits: the film is rated the moment this returns.
 
-    The default order reads the catalog mean as the catalog currently stands, so a mean
-    that shifts while a long import is still filling the store can permute two adjacent
-    films of one band against what a single sort at the end would have produced. That is
-    accepted: the default order is where a film waits for the owner, never a judgment,
-    and the wall is where it stops waiting.
+    Seeding row by row reproduces the default order for the whole band, because the rule
+    is a fixed key: every row is seated against the films already there by the same
+    comparison that would have sorted them all at once.
     """
     account_film = await _account_film(db, account_id, film.tmdb_id)
     if account_film is not None and account_film.state is LifecycleState.rated:
@@ -180,7 +184,7 @@ async def _seed_rating(
             context=ComparisonContext.seed_import,
         )
     )
-    order = await ordering_module.default_order(db, settings.default_order_prior_votes)
+    order = ordering_module.default_order(settings)
     rank = await ordering_module.default_rank(db, account_id, rating, film, order)
     await ordering_module.land(db, account_film, band=rating, rank=rank)
 
@@ -302,14 +306,11 @@ async def realm_counts(db: AsyncSession, account_id: uuid.UUID) -> RealmCounts:
                 AccountFilm.state == LifecycleState.rated,
             ),
         ),
-        comparisons=await _count(
+        judgments=await _count(
             db,
             select(func.count())
             .select_from(ComparisonLogEntry)
-            .where(
-                ComparisonLogEntry.account_id == account_id,
-                ComparisonLogEntry.kind == ComparisonKind.band_comparison,
-            ),
+            .where(ComparisonLogEntry.account_id == account_id),
         ),
         anchors=await _count(
             db,

@@ -37,13 +37,13 @@ test("an owner imports a Letterboxd export and finds their ratings and watchlist
   await expect(page.getByText("Every row found its film.")).toBeVisible({ timeout: 60_000 });
   await expect(page.getByText("3 ratings, 1 watchlist film, 3 watched films")).toBeVisible();
 
-  // The ordering came out in band order, showing the half-stars the owner already knows.
+  // The wall came out in band rows, showing the half-stars the owner already knows.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
   await expect(page.getByRole("heading", { name: "5.0 stars" })).toBeVisible();
   const ordering = page.getByRole("listitem").filter({ hasText: "Fight Club" });
   await expect(ordering.first()).toBeVisible();
-  // Seeded placements are trusted less than compared ones, and say so.
-  await expect(page.getByText("settling").first()).toBeVisible();
+  // Nothing is provisional: an imported row is rated and final the moment it is matched.
+  await expect(page.getByText("settling")).toHaveCount(0);
 
   // The watchlist row seeded the backlog; the films rated in the same import did not.
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();

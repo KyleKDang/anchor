@@ -129,6 +129,7 @@ async def mark(tmdb_id: int, account: CurrentAccount, db: DbSession, queue: AppJ
         placement.anchored_at = func.now()
         await db.flush()
         await jobs.schedule_retrain(db, queue, account.id)
+    await db.commit()
 
 
 @router.delete("/{tmdb_id}", status_code=204)
@@ -139,6 +140,7 @@ async def retire(tmdb_id: int, account: CurrentAccount, db: DbSession, queue: Ap
         placement.anchored_at = None
         await db.flush()
         await jobs.schedule_retrain(db, queue, account.id)
+    await db.commit()
 
 
 async def _anchorable(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> Placement:

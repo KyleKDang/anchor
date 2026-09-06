@@ -108,9 +108,14 @@ class AnchorPrompt(BaseModel):
     marked: list[FilmCard]
     """The band's anchor pool. Any number may be marked, so the prompt is done at one."""
     candidates: list[FilmCard]
-    """Ranked suggestions for this band, on the import fill. Empty on the fresh fill,
-    where the owner searches instead: a suggestion drawn from an empty library would be
-    a popularity grid wearing the costume of a recommendation."""
+    """The account's own films in this band, best-remembered first.
+
+    Offered on both fills, because these are never suggestions in the recommender sense:
+    they are films this owner has already rated into this band, so there is no popularity
+    grid wearing the costume of a recommendation. On the import fill that is most of the
+    library; on the fresh fill it is whatever the owner has just rated through the picker,
+    which is exactly what they came back to mark.
+    """
 
 
 class AnchorPhase(BaseModel):
@@ -257,11 +262,7 @@ async def _anchor_phase(
     ordering: Ordering,
     pools: dict[float, list[int]],
 ) -> AnchorPhase:
-    ranked = (
-        await _candidates(db, account_id, settings, ordering, pools)
-        if fill is Fill.imported
-        else {}
-    )
+    ranked = await _candidates(db, account_id, settings, ordering, pools)
     cards = await ordering_module.cards(
         db,
         [

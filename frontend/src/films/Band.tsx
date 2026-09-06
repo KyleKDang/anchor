@@ -3,12 +3,11 @@ import { Link } from "react-router";
 import { filmPath } from "./tmdb";
 
 /**
- * Showing a band: half-stars where one has been derived, and the honest gap where none has.
+ * Showing a band: the half-stars the owner chose, which is the whole of a rating.
  *
- * A film's rating is which dividers its position sits between, so a film the band
- * structure has not reached yet has no value at all - not a zero, and not a guess. The
- * absence gets a name here ("Rating pending") rather than an empty space, because an
- * empty space reads as a bug and this is the design working as intended.
+ * The band is stored because the owner picked it (ADR 0013), so there is nothing to
+ * derive and nothing that can be pending. The null case survives only for the surfaces
+ * that show an unrated film, where the honest answer is no rating at all.
  */
 
 /** "★★★★½" for 4.5. The numeric value goes to screen readers, which cannot count stars. */
@@ -17,7 +16,7 @@ export function stars(band: number): string {
 }
 
 export function Band({ band }: { band: number | null }) {
-  if (band === null) return <span className="band band-pending">Rating pending</span>;
+  if (band === null) return <span className="band band-pending">Not rated</span>;
   return (
     <span className="band">
       <span className="band-stars" aria-hidden="true">
@@ -31,39 +30,30 @@ export function Band({ band }: { band: number | null }) {
   );
 }
 
-/** The canonical exemplar of its band: "this film is what a 4.0 is". */
+/** A film the owner has marked as one they are certain of: a definitive 4.0. */
 export function AnchorBadge({ band }: { band: number | null }) {
   return (
-    <span className="anchor-badge" title={`The canonical ${band?.toFixed(1) ?? "band"} exemplar`}>
+    <span className="anchor-badge" title={`One of your definitive ${band?.toFixed(1) ?? ""} films`}>
       Anchor
     </span>
   );
 }
 
-/** Trusted less than a fully-compared placement; it settles on its own, so it is ambient. */
-export function ProvisionalMark() {
-  return (
-    <span className="provisional-mark" title="Still settling: fewer comparisons than usual">
-      settling
-    </span>
-  );
-}
-
 /**
- * The anchor-designation nudge: shown only while no anchor exists anywhere.
+ * The one ambient line about anchors: shown only while none exists anywhere.
  *
- * It lives exactly where the absence of stars is felt and vanishes the moment the first
- * anchor exists, so it explains itself once and then never speaks again.
+ * Presence-based, and it vanishes the moment the first anchor exists (surfacing.md), so
+ * it explains itself once and then never speaks again. Nothing anywhere else asks.
  */
 export function AnchorNudge({ film }: { film?: { tmdb_id: number; title: string } }) {
   return (
     <p className="nudge">
-      Your films are in order, but they have no star ratings yet. Pick a film you know
-      cold and say what band it is - that is what half-stars are measured against.{" "}
+      Marking a film an anchor says you are certain of its rating. Anchors are what the band
+      picker shows you when you rate, so you are choosing against your own references.{" "}
       {film ? (
         <Link to={filmPath(film.tmdb_id)}>Start with {film.title}</Link>
       ) : (
-        <Link to="/rated">Choose an anchor</Link>
+        <Link to="/rated">Mark one from any film's page</Link>
       )}
     </p>
   );

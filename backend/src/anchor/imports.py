@@ -148,12 +148,12 @@ class Bound(BaseModel):
 class ResetWarning(BaseModel):
     """Concretely what a re-import destroys, counted rather than described.
 
-    "This erases 50 ratings, 200 comparisons, 3 anchors" is something the owner can
-    weigh; "this erases your data" is not.
+    "This erases 50 ratings, 200 answers, 3 anchors" is something the owner can weigh;
+    "this erases your data" is not.
     """
 
     rated_films: int
-    comparisons: int
+    judgments: int
     anchors: int
     backlog_films: int
     watch_events: int
@@ -211,7 +211,7 @@ async def state(account: CurrentAccount, db: DbSession) -> ImportState:
 @router.get("/warning")
 async def warning(account: CurrentAccount, db: DbSession, settings: AppSettings) -> ResetWarning:
     """What re-importing would destroy, counted from the account as it stands."""
-    return await _warning(db, account.id, settings.import_reset_confirm_comparisons)
+    return await _warning(db, account.id, settings.import_reset_confirm_judgments)
 
 
 @router.get("/review")
@@ -491,11 +491,11 @@ async def _warning(db: AsyncSession, account_id: uuid.UUID, threshold: int) -> R
     counts = await seeding.realm_counts(db, account_id)
     return ResetWarning(
         rated_films=counts.rated_films,
-        comparisons=counts.comparisons,
+        judgments=counts.judgments,
         anchors=counts.anchors,
         backlog_films=counts.backlog_films,
         watch_events=counts.watch_events,
-        confirmation_required=counts.comparisons > threshold,
+        confirmation_required=counts.judgments > threshold,
         confirmation_phrase=CONFIRMATION_PHRASE,
     )
 
@@ -507,7 +507,7 @@ CONFIRMATION_PHRASE = "erase everything"
 async def _check_confirmed(
     db: AsyncSession, account: Account, settings: AppSettings, confirm: str | None
 ) -> None:
-    required = await _warning(db, account.id, settings.import_reset_confirm_comparisons)
+    required = await _warning(db, account.id, settings.import_reset_confirm_judgments)
     if not required.confirmation_required:
         return
     if (confirm or "").strip().casefold() != CONFIRMATION_PHRASE:

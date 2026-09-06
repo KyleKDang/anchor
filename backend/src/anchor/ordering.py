@@ -35,13 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor.catalog import FilmCard
 from anchor.models import BANDS, AccountFilm, Film, LifecycleState, Placement
-
-FALLBACK_CATALOG_MEAN = 6.5
-"""What the shrinkage pulls toward while the catalog is empty enough to have no mean.
-
-Only reachable on an account rating its first film before any other film is stored,
-where every candidate shrinks toward the same number and the tiebreak decides anyway.
-"""
+from anchor.settings import Settings
 
 
 @dataclass(frozen=True)
@@ -133,6 +127,13 @@ class DefaultOrder:
     """
 
     catalog_mean: float
+    """The typical rating in the catalog, as a fixed prior rather than a live average.
+
+    Fixed on purpose. Anchor's ``films`` table is a sparse mirror of TMDB - only the
+    films somebody has touched - so an average over it is dominated by the very films
+    being seated, which is exactly when the shrinkage has to bite hardest. A prior that
+    moves with its own inputs shrinks nothing.
+    """
     prior_votes: int
     """How many votes of the catalog mean a film's own average has to outweigh."""
 
@@ -171,12 +172,11 @@ class DefaultOrder:
         return 1 + sum(1 for other in band if self.key(other) < key)
 
 
-async def default_order(db: AsyncSession, prior_votes: int) -> DefaultOrder:
-    """The default order as the catalog currently reads: its own mean, and the prior."""
-    mean = await db.scalar(select(func.avg(Film.vote_average)).where(Film.vote_count > 0))
+def default_order(settings: Settings) -> DefaultOrder:
+    """The default order's two constants, read from configuration."""
     return DefaultOrder(
-        catalog_mean=float(mean) if mean is not None else FALLBACK_CATALOG_MEAN,
-        prior_votes=prior_votes,
+        catalog_mean=settings.default_order_catalog_mean,
+        prior_votes=settings.default_order_prior_votes,
     )
 
 

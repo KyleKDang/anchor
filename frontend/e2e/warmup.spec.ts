@@ -9,8 +9,8 @@ import { PASSWORD } from "./owner";
  * The one journey that does not use the shared sign-up helper, because the helper's job
  * is to get past the entry fork and this is the journey that walks through it. It covers
  * the wiring rather than the behaviour, per testing.md: that the fork leads somewhere,
- * that designating from search runs the placement flow and comes back, that the evidence
- * and backlog phases work, and that the app is usable at the end of it.
+ * that marking from search runs the picker and comes back, that the rating and backlog
+ * phases work, and that the app is usable at the end of it.
  */
 test("a fresh owner takes the entry fork, warms up, and comes out with a usable account", async ({
   page,
@@ -38,21 +38,32 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
   await page.getByRole("button", { name: "Browse popular" }).click();
   await expect(page.getByRole("button", { name: "This is my 5.0" }).first()).toBeVisible();
 
-  await designate(page, "Fight Club", "5.0");
-  // Designating a film nobody has placed runs the placement that decides it. The first
-  // film has nothing to compare against, so it lands unasked.
+  // There is no separate designation flow any more: rate a film, mark it, and the band's
+  // pool exists. A film nobody has rated goes to the picker first.
+  await mark(page, "Fight Club", "5.0");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("How was it?");
+  await page
+    .getByRole("list", { name: "Pick a rating" })
+    .getByRole("button")
+    .filter({ hasText: "5.0" })
+    .first()
+    .click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Fight Club landed");
-  await expect(page.getByText("It landed in the band")).toBeVisible();
-  await page.getByRole("button", { name: "Done" }).click();
+  await page.getByRole("link", { name: "Rate this later" }).click();
   await expect(page).toHaveURL(/\/warmup$/);
 
-  // The run moves on to the next band by itself, and one band can be put away alone.
+  // Back on the prompt, the film it just rated is offered as the band's own candidate,
+  // and marking it is the one tap that makes the pool exist.
+  await page.getByRole("button", { name: /Fight Club/ }).click();
   await expect(page.getByRole("heading", { name: /definitive 1\.0/ })).toBeVisible();
+
+  // The run moves on by itself, and one band can be put away alone.
   await page.getByRole("button", { name: "Skip this band" }).click();
   await expect(page.getByRole("heading", { name: /definitive 3\.0/ })).toBeVisible();
 
-  // Phase 2 on this fill is ordinary placements, so it points at Search and counts them.
-  await expect(page.getByText(/0 of about 5 logged/)).toBeVisible();
+  // Phase 2 on this fill is ordinary ratings, and the anchor's own rating is not one of
+  // them: the phase asks for five *more* than phase one already produced.
+  await expect(page.getByText(/0 of about 5 so far/)).toBeVisible();
 
   // Phase 3: the backlog, which is usable from the moment it holds anything.
   await page.getByLabel("Find something to watch").fill("Parasite");
@@ -68,7 +79,7 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
   await page.getByRole("button", { name: /I'm done for now|Take me in/ }).click();
   await expect(page).toHaveURL(/\/rated$/);
   await expect(page.getByRole("link", { name: "Fight Club" })).toBeVisible();
-  // The stars are there because a band has an exemplar, which is what phase one was for.
+  // The stars are the band the owner picked, which is what a rating is.
   await expect(page.getByRole("heading", { name: /5\.0/ })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();
@@ -83,8 +94,8 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
   await expect(page.getByRole("heading", { name: "Letterboxd", exact: true })).toBeVisible();
 });
 
-/** Search for a film inside the current band prompt and make it that band's anchor. */
-async function designate(page: Page, title: string, band: string): Promise<void> {
+/** Search for a film inside the current band prompt and take it into the picker. */
+async function mark(page: Page, title: string, band: string): Promise<void> {
   await page.getByLabel(`Find your ${band}`).fill(title);
   await page
     .getByRole("search")

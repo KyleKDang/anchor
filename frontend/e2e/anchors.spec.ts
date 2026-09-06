@@ -4,46 +4,47 @@ import { signUpOwner } from "./owner";
 
 const ARRIVAL = 329865;
 
-test("an owner designates a band anchor and the Rated screen groups the ordering by band", async ({
+test("an owner marks an anchor and the wall badges it in its band row", async ({
   page,
   request,
 }) => {
   await signUpOwner(page, request, "anchor");
 
-  // A fresh ordering has no band structure at all, so it says so rather than
-  // inventing stars, and the nudge explains where they have gone.
-  // The first film has nothing to compare against, so it lands unasked; the second
-  // takes one comparison, and losing it puts it underneath.
-  await markWatched(page, "Arrival");
-  await page.getByRole("button", { name: "Done" }).click();
-  await markWatched(page, "Fight Club");
-  await page.getByRole("button", { name: "Arrival is better" }).click();
-  await page.getByRole("button", { name: "Done" }).click();
-  await expect(page.getByText("Rating pending").first()).toBeVisible();
+  // Two films in two bands: the wall has its rows from the first rating onward, because
+  // the band is the rating and the owner chose it.
+  await rate(page, "Arrival", 4);
+  await rate(page, "Fight Club", 2.5);
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
+  await expect(page.getByRole("region", { name: "4.0 stars" })).toContainText("Arrival");
+  await expect(page.getByRole("region", { name: "2.5 stars" })).toContainText("Fight Club");
+
+  // No anchors yet, so the one ambient line says what marking one does.
   await expect(page.getByRole("link", { name: /^Start with/ })).toBeVisible();
 
-  // Designating is the one place the owner assigns a band directly, and it is what
-  // erects the first dividers - so the film's stars materialize on the way back.
+  // The toggle lives on the film's own page, and marking changes nothing else.
   await page.goto(`/films/${ARRIVAL}`);
-  await page.getByLabel("Make this my canonical…").selectOption("4");
-  await page.getByRole("button", { name: "Designate" }).click();
+  await page.getByRole("button", { name: "Mark as an anchor" }).click();
   // Scoped to the film, not the page: the nav's wordmark is also the word "Anchor", and
-  // an unscoped match is satisfied by it the instant the page renders - which would let
-  // this walk on to the Rated screen before the designation has landed.
+  // an unscoped match is satisfied by it the instant the page renders.
   await expect(page.getByRole("article").getByText("Anchor", { exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Retire this anchor" })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
   const banded = page.getByRole("region", { name: "4.0 stars" });
   await expect(banded.getByRole("heading", { level: 3 })).toContainText("4.0");
+  await expect(banded).toContainText("1 anchor");
   await expect(banded.getByRole("listitem")).toContainText("Arrival");
   await expect(page.getByRole("link", { name: /^Start with/ })).toHaveCount(0);
 
-  // Everything the dividers cannot yet decide stays honestly unrated.
-  await expect(page.getByRole("region", { name: "Rating pending" })).toContainText("Fight Club");
+  // The anchors-only filter is the one way the wall narrows to them.
+  await page.getByLabel("Anchors only").check();
+  const kept = page.getByRole("region", { name: "Your ordering" }).getByRole("listitem");
+  await expect(kept).toHaveCount(1);
+  await expect(kept.nth(0)).toContainText("Arrival");
 });
 
-/** Search for a film and take the rate-now branch into the placement flow. */
-async function markWatched(page: Page, title: string): Promise<void> {
+/** Search for a film, log the watch, and tap a band on the picker. */
+async function rate(page: Page, title: string, band: number): Promise<void> {
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();
   await page.getByLabel("Find a film").fill(title);
   await page.getByRole("button", { name: "Search" }).click();
@@ -51,5 +52,12 @@ async function markWatched(page: Page, title: string): Promise<void> {
   await expect(row).toBeVisible();
   await row.getByRole("button", { name: "Mark watched" }).click();
   await row.getByRole("button", { name: "Rate now", exact: true }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
+  await page
+    .getByRole("list", { name: "Pick a rating" })
+    .getByRole("button")
+    .filter({ hasText: `${band.toFixed(1)}` })
+    .first()
+    .click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(`${title} landed`);
+  await page.getByRole("link", { name: "Leave it where it is" }).click();
 }
