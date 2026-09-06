@@ -1,6 +1,6 @@
 """Quality tags: what a film is known for, and what buying that answer is allowed to cost.
 
-These read as what the owner did - place films, then place more - and assert what the
+These read as what the owner did - rate films, then rate more - and assert what the
 platform paid for it. Almost everything here is an assertion about money, because that is
 where this feature can go wrong: the tags themselves are a small improvement to one
 optional bonus question, and a tagging that re-bought an answer it already had, or bought
@@ -22,12 +22,12 @@ from flows import (
     add_quality,
     ask_criteria,
     build_ordering,
-    place,
+    rate,
     scale,
 )
 from invariants import account_realm_tables, quality_tags, spend_ledger, tagged_films
 
-# Small bars, so an account reaches *forming* in four placements rather than twenty and a
+# Small bars, so an account reaches *forming* in four ratings rather than twenty and a
 # test about tagging spends its time on tagging. The dimensions are spec; the numbers are
 # tuning, and every test that wants a cold account simply leaves this off.
 EARNED = pytest.mark.settings(readiness_forming_films=3, readiness_forming_bands=1)
@@ -38,20 +38,20 @@ def stocked(tmdb):
     return tmdb.with_films(*LIBRARY)
 
 
-SETTLED = 5
-"""How many films it takes to get an ordering with two anchors in it, which is *forming*."""
+WORN_IN = 5
+"""How many rated films it takes to clear the *forming* bar with these bars."""
 
 
 async def worked(client, run_jobs):
-    """An account past the *forming* bar, with the tagging its next placement earned.
+    """An account past the *forming* bar, with the tagging its next rating earned.
 
-    The placement after the anchors is the one that buys anything, and that is the design
-    rather than an accident of this helper: an account is cold while it is being built,
-    and a cold account never causes spend. Films placed on the way up are tagged later,
-    when the owner's activity brings them back into a comparison.
+    The rating after the bar is the one that buys anything, and that is the design rather
+    than an accident of this helper: an account is cold while it is being built, and a
+    cold account never causes spend. Films rated on the way up are tagged later, when the
+    owner's activity brings them back beside something.
     """
-    await scale(client, size=SETTLED)
-    await place(client, LIBRARY[SETTLED], "b")
+    await scale(client, size=WORN_IN)
+    await rate(client, LIBRARY[WORN_IN], 3.0)
     await run_jobs()
 
 
@@ -80,10 +80,10 @@ async def test_a_film_s_tags_are_bought_once_and_then_read_from_the_catalog(
     """Placing more films re-uses what the catalog holds rather than re-asking for it."""
     await worked(owner, run_jobs)
     tagged = await tagged_films(db)
-    assert tagged, "placements past the forming bar should have tagged something"
+    assert tagged, "ratings past the forming bar should have tagged something"
     await assert_bought_once_per_film(db, provider)
 
-    await place(owner, LIBRARY[SETTLED + 1], "b")
+    await rate(owner, LIBRARY[WORN_IN + 1], 3.0)
     await run_jobs()
 
     assert set(tagged) <= set(await tagged_films(db))
@@ -119,7 +119,7 @@ async def test_a_film_the_provider_finds_nothing_in_is_still_only_asked_about_on
     assert await tags_across_the_catalog(db) == set()
     await assert_bought_once_per_film(db, provider)
 
-    await place(owner, LIBRARY[SETTLED + 1], "b")
+    await rate(owner, LIBRARY[WORN_IN + 1], 3.0)
     await run_jobs()
 
     await assert_bought_once_per_film(db, provider)
@@ -163,7 +163,7 @@ async def test_a_spent_global_cap_stops_tagging_and_nothing_else_notices(
     await ask_criteria(owner, "often")
     await worked(owner, run_jobs)
 
-    landed, _ = await place(owner, LIBRARY[SETTLED + 1], "b")
+    landed = await rate(owner, LIBRARY[WORN_IN + 1], 3.0)
     await run_jobs()
 
     assert provider.dispatched == 0
@@ -191,7 +191,7 @@ async def test_turning_the_questions_off_does_not_leave_the_library_untagged(
 ):
     """The frequency setting governs the card, not the catalog.
 
-    An owner who has turned the after-a-placement card off has said something about their
+    An owner who has turned the after-a-rating card off has said something about their
     own screen, not about a film: their tags still serve every other account, and they
     still serve the film page's question session, which is available whatever the
     frequency says. Buying them on their setting would leave a library that no later
@@ -211,7 +211,7 @@ async def test_turning_the_questions_off_does_not_leave_the_library_untagged(
 @EARNED
 async def test_only_the_built_in_vocabulary_is_ever_stored_as_a_tag(owner, db, run_jobs, provider):
     """A provider that answers something nobody offered is answering about nothing."""
-    provider.will_say(qualities=["Tension", "Costumes", "Vibes"])
+    provider.will_say(llm.TAG_SYSTEM, qualities=["Tension", "Costumes", "Vibes"])
 
     await worked(owner, run_jobs)
 
@@ -227,7 +227,7 @@ async def test_an_answer_nobody_can_read_is_paid_for_once_and_not_again(
     """The one shape this could quietly run up a bill in: an unusable answer, re-bought.
 
     The tokens are spent before the answer is parsed, so a film left untagged by a
-    malformed one would go back in front of the next placement that touches it, and the
+    malformed one would go back in front of the next rating that touches it, and the
     next. It is stamped instead - known for nothing, which the fallback already copes
     with - and the prompt bug is reported rather than paid for again.
     """
@@ -236,7 +236,7 @@ async def test_an_answer_nobody_can_read_is_paid_for_once_and_not_again(
     await worked(owner, run_jobs)
     bought = len(provider.asked_of(llm.TAG_SYSTEM))
 
-    await place(owner, LIBRARY[SETTLED + 1], "b")
+    await rate(owner, LIBRARY[WORN_IN + 1], 3.0)
     await run_jobs()
 
     assert len(provider.asked_of(llm.TAG_SYSTEM)) > bought, "the next film should still be tagged"
@@ -251,7 +251,7 @@ async def test_a_quality_the_owner_invented_is_never_tagged(owner, db, run_jobs,
     a custom quality has to a criteria question - which the rotation test below walks.
     """
     await add_quality(owner, "Costumes")
-    provider.will_say(qualities=["Costumes"])
+    provider.will_say(llm.TAG_SYSTEM, qualities=["Costumes"])
 
     await worked(owner, run_jobs)
 

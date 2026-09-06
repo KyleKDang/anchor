@@ -1,4 +1,4 @@
-"""The migration chain applies and reverses, and 0015 carries an old account over.
+"""The migration chain applies and reverses, and 0017 carries an old account over.
 
 The chain test runs on an empty database, which proves the schema work. The carry-over
 test builds an account in the *old* shape by hand - tie-group slots, dividers, an anchor
@@ -104,11 +104,16 @@ IDS = ("account", "af1", "af2", "af3", "af4", "af5", "af6", "s0", "s1", "s2", "s
 
 @pytest.fixture
 def old_shape_account():
-    """A database at revision 0014 holding one account built the old way."""
+    """A database at the revision before the carry-over, holding one old-shape account.
+
+    Built at 0016 rather than at 0014: the two migrations between only add columns and a
+    table the old shape does not touch, and the carry-over has to be exercised from the
+    revision it will actually run against.
+    """
     name = f"anchor_test_carry_{uuid.uuid4().hex[:8]}"
     _admin(f'CREATE DATABASE "{name}"')
     url = _url_for(name)
-    migrate(url, "0014")
+    migrate(url, "0016")
     ids = {key: uuid.uuid4() for key in IDS}
     with psycopg.connect(url, autocommit=True) as conn:
         for statement in OLD_ACCOUNT.strip().split(";\n"):
@@ -134,7 +139,7 @@ def rows(url, query):
 
 def test_the_carry_over_drops_no_rated_film(old_shape_account):
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     carried = rows(
         url,
@@ -150,7 +155,7 @@ def test_the_carry_over_drops_no_rated_film(old_shape_account):
 def test_a_derivable_band_carries_the_band_the_owner_was_shown(old_shape_account):
     """That is the rating they think the film has; it must not change under them."""
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     bands = dict(
         rows(
@@ -166,7 +171,7 @@ def test_a_derivable_band_carries_the_band_the_owner_was_shown(old_shape_account
 
 def test_a_position_only_film_falls_back_to_its_last_synced_rating(old_shape_account):
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     bands = dict(
         rows(
@@ -181,7 +186,7 @@ def test_a_position_only_film_falls_back_to_its_last_synced_rating(old_shape_acc
 def test_a_seeded_tie_group_with_nothing_said_takes_its_neighbours_band(old_shape_account):
     """The dropping-nothing rule: the ordering already implied where these sat."""
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     bands = dict(
         rows(
@@ -195,7 +200,7 @@ def test_a_seeded_tie_group_with_nothing_said_takes_its_neighbours_band(old_shap
 
 def test_ranks_come_from_the_old_sequence_and_are_dense(old_shape_account):
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     carried = rows(
         url,
@@ -216,7 +221,7 @@ def test_ranks_come_from_the_old_sequence_and_are_dense(old_shape_account):
 
 def test_the_anchor_designation_becomes_a_mark_on_the_placement(old_shape_account):
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     marked = rows(
         url,
@@ -232,7 +237,7 @@ def test_the_anchor_designation_becomes_a_mark_on_the_placement(old_shape_accoun
 def test_the_log_is_re_typed_and_loses_its_status(old_shape_account):
     """Overall becomes a band comparison; sliver and band both become band picks."""
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     kinds = rows(
         url,
@@ -255,7 +260,7 @@ def test_the_log_is_re_typed_and_loses_its_status(old_shape_account):
 
 def test_the_settling_tables_are_gone(old_shape_account):
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     left = rows(
         url,
@@ -272,7 +277,7 @@ def test_the_settling_tables_are_gone(old_shape_account):
 def test_the_watchlist_dot_carries_over_and_discovery_earns_one_too(old_shape_account):
     """An account past ready is past forming, so it has unlocked discovery as well."""
     url, _ = old_shape_account
-    migrate(url, "0015")
+    migrate(url, "0017")
 
     dots = rows(url, "SELECT unlock::text, seen_at IS NULL FROM unlock_marks ORDER BY unlock")
     assert dots == [("discovery", True), ("watchlist", True)]

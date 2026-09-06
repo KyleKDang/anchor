@@ -24,6 +24,9 @@ from flows import (
     build_ordering,
     given_tags,
     mark_anchor,
+    mark_watched,
+    pick,
+    picker,
     profile,
     rate,
     rated,
@@ -358,11 +361,27 @@ async def test_the_rotation_works_through_the_quality_list(owner, db):
 # --- Preferring a pair that shares a quality tag ---
 
 
+async def tagged_then_rated(client, db, subject, partner, shared="Tension", band=3.0):
+    """Arrange the tags around a film the owner is about to rate, then rate it.
+
+    Watched before tagged, because a tag is a row against the shared catalog: a film
+    nobody has touched has no catalog row for it to hang off, and tagging one quietly
+    does nothing. Marking it watched is what puts it there, and it is the step the owner
+    takes before rating anyway.
+
+    Hands back the bonus card the done screen carried, if any.
+    """
+    await mark_watched(client, subject, "now")
+    await tag_everything_apart(db, subject.tmdb_id, partner.tmdb_id, shared=shared)
+    await picker(client, subject)
+    return (await pick(client, subject, band))["criteria"]
+
+
 async def tag_everything_apart(db, subject, partner, shared="Tension"):
     """Give the two named films one tag in common, and every other film its own.
 
-    Distinct tags everywhere else, so exactly one pair in the whole library overlaps and
-    a card naming any other pair is the preference failing rather than the arrangement
+    Distinct tags everywhere else, so exactly one pair the card could name overlaps and a
+    card naming any other pair is the preference failing rather than the arrangement
     being ambiguous. Both films are named by tmdb id, the way the card reports them.
     """
     await given_tags(db, subject, shared)
@@ -383,9 +402,8 @@ async def test_the_card_prefers_the_pair_whose_films_share_a_quality_tag(owner, 
     await ask_criteria(owner, "often")
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
     await mark_anchor(owner, FIRST)
-    await tag_everything_apart(db, FIFTH.tmdb_id, SECOND.tmdb_id)
 
-    card = await card_from(owner, FIFTH)
+    card = await tagged_then_rated(owner, db, FIFTH, SECOND)
 
     assert card is not None
     assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {
@@ -399,9 +417,8 @@ async def test_the_card_asks_about_the_quality_the_pair_shares(owner, db):
     await ask_criteria(owner, "often")
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
     await mark_anchor(owner, FIRST)
-    await tag_everything_apart(db, FIFTH.tmdb_id, SECOND.tmdb_id, shared="Ending")
 
-    card = await card_from(owner, FIFTH)
+    card = await tagged_then_rated(owner, db, FIFTH, SECOND, shared="Ending")
 
     assert card is not None
     assert card["quality"] == "Ending"
@@ -412,10 +429,12 @@ async def test_a_library_with_nothing_in_common_falls_back_to_the_ladder(owner, 
     await ask_criteria(owner, "often")
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
     await mark_anchor(owner, FIRST)
+    await mark_watched(owner, FIFTH, "now")
     for own, film in zip(BUILT_IN_QUALITIES, LIBRARY, strict=False):
         await given_tags(db, film.tmdb_id, own)
 
-    card = await card_from(owner, FIFTH)
+    await picker(owner, FIFTH)
+    card = (await pick(owner, FIFTH, 3.0))["criteria"]
 
     assert card is not None
     assert {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]} == {
@@ -434,9 +453,8 @@ async def test_a_quality_the_owner_invented_is_never_what_a_shared_tag_asks_abou
     await ask_criteria(owner, "often")
     await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
     await mark_anchor(owner, FIRST)
-    await tag_everything_apart(db, FIFTH.tmdb_id, SECOND.tmdb_id)
 
-    card = await card_from(owner, FIFTH)
+    card = await tagged_then_rated(owner, db, FIFTH, SECOND)
 
     assert card is not None
     assert card["quality"] == "Tension"
@@ -454,8 +472,7 @@ async def test_a_tag_driven_question_does_not_cost_the_rotation_a_turn(owner, db
     await ask_criteria(owner, "often")
     await build_ordering(owner, [FIRST, SECOND], band=3.0)
     # A tagged pair, so the next card is chosen by its tag rather than by the rotation.
-    await tag_everything_apart(db, THIRD.tmdb_id, SECOND.tmdb_id, shared="Ending")
-    await rate(owner, THIRD, 3.0)
+    await tagged_then_rated(owner, db, THIRD, SECOND, shared="Ending")
     asked = [entry[0] for entry in await criteria_log(db, account)]
     assert asked[-1] == "Ending", "this test needs the second card to have come from a tag"
 
