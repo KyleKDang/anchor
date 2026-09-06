@@ -35,6 +35,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
 from anchor import jobs, letterboxd, matching, seeding
+from anchor import unlocks as unlocks_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import AppJobs, AppLetterboxd, AppSettings, AppTmdb, DbSession
@@ -49,6 +50,7 @@ from anchor.models import (
     ImportRowKind,
     ImportRowState,
     ImportStatus,
+    Unlock,
 )
 from anchor.ratelimit import limited
 
@@ -86,6 +88,14 @@ class ImportState(BaseModel):
     pending: int
     review_pending: int
     unmatched: int
+    unlocked: list[Unlock]
+    """What the import has unlocked and the owner has not yet been to see.
+
+    The completion screen names these (onboarding-and-import.md): a real export clears
+    both readiness bars the moment matching finishes, and saying so is the whole point of
+    importing. It empties as the owner visits each screen, which is the same clearing the
+    nav dots do - one fact, read two ways, rather than two that can disagree.
+    """
 
 
 class ReviewRow(BaseModel):
@@ -439,9 +449,11 @@ async def _state(db: AsyncSession, account_id: uuid.UUID) -> ImportState:
             pending=0,
             review_pending=0,
             unmatched=0,
+            unlocked=[],
         )
     kinds = await _counted(db, account_id, ImportRow.kind)
     states = await _counted(db, account_id, ImportRow.state)
+    showing = await unlocks_module.pending(db, account_id)
     return ImportState(
         status=record.status.value,
         source_name=record.source_name,
@@ -450,6 +462,7 @@ async def _state(db: AsyncSession, account_id: uuid.UUID) -> ImportState:
         pending=states.get(ImportRowState.pending, 0),
         review_pending=await _distinct_films(db, account_id, ImportRowState.review_pending),
         unmatched=await _distinct_films(db, account_id, ImportRowState.unmatched_open),
+        unlocked=[unlock for unlock in Unlock if unlock in showing],
     )
 
 

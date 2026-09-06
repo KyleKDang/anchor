@@ -19,7 +19,7 @@ from procrastinate.retry import RetryStrategy
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import catalog, matching, seeding
+from anchor import catalog, matching, seeding, unlocks
 from anchor.db import Database
 from anchor.errors import ApiError
 from anchor.models import (
@@ -108,9 +108,9 @@ async def schedule_retrain(
 ) -> None:
     """Queue this account's retrain alongside the change that made it necessary.
 
-    Called from every flow that moves the ordering, a divider, or a designation, and
-    inside that flow's own transaction: a placement that lands with its retrain lost
-    would leave the taste profile quietly describing an ordering that no longer exists.
+    Called from every flow that writes a band, a rank, or an anchor mark, and inside that
+    flow's own transaction: a rating that lands with its retrain lost would leave the
+    taste profile quietly describing an ordering that no longer exists.
     The account lock keeps two retrains from regenerating the same artifacts at once.
     """
     await enqueue(
@@ -343,6 +343,11 @@ async def match_import_rows(context: JobContext, import_id: str) -> None:
         if record is None:
             return  # wiped mid-run: nothing is left to complete, or to retrain over
         record.status = ImportStatus.complete
+        # A seed import of any real size crosses both readiness bars at once
+        # (onboarding-and-import.md), and this is the moment it does: arming here is what
+        # earns the import both dots and lets its completion screen name what just
+        # unlocked. Idempotent, so a retried job arms nothing twice.
+        await unlocks.arm(session, record.account_id, settings)
         await session.commit()
 
     # The trainer is called rather than deferred: this is already the worker, and one

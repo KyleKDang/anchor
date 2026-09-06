@@ -37,7 +37,7 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import readiness as readiness_module
-from anchor import trainer
+from anchor import trainer, unlocks
 from anchor.features import FeatureSpace
 from anchor.models import (
     AccountFilm,
@@ -45,7 +45,7 @@ from anchor.models import (
     LifecycleState,
     TierState,
     TierZone,
-    UnlockState,
+    Unlock,
     WatchEvent,
     WatchStanding,
     WeightVector,
@@ -419,42 +419,22 @@ async def not_now(db: AsyncSession, account_film: AccountFilm, settings: Setting
     await _applied(db, account_film, settings)
 
 
-# --- The unlock dot ---
+# --- The unlock ---
 
 
-async def note_unlock(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> bool:
-    """Arm the one-time dot if this account has just reached ready, and say whether it did.
+async def note_unlock(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
+    """Arm whatever readiness bars this account has crossed, and react to the tier's own.
 
-    True exactly once per account, at the moment the bar is crossed, which is what lets
-    the placement that crossed it say so on its own done screen. Every surface that could
-    be the first to notice calls this - the nav's own read, the Watchlist, a landing - and
-    only the first of them gets the answer.
+    The dots themselves belong to :mod:`anchor.unlocks`, which every surface that could
+    be the first to notice calls. What is this module's business is the side effect: the
+    crossing is itself a change to what the tier is computed from, and the only one there
+    may be, since the fit and the clock can both stand where the last pre-gate read
+    stamped them with the retrain still queued. Without this the one announced moment
+    opens on an empty screen.
     """
-    state = await _state(db, account_id)
-    if state.unlock_state is not UnlockState.locked:
-        return False
-    if await readiness_module.state(db, account_id, settings) is not Readiness.ready:
-        return False
-    state.unlock_state = UnlockState.pending
-    # The crossing is itself a change to what the tier is computed from, and the only one
-    # there may be: the fit and the clock can both stand where the last pre-gate read
-    # stamped them, with the retrain still queued. The next boundary has work to do
-    # whatever the fingerprint says, or the one announced moment opens on an empty screen.
-    state.due = True
-    await db.flush()
-    return True
-
-
-async def pending_unlock(db: AsyncSession, account_id: uuid.UUID) -> bool:
-    """Whether the nav should be showing the dot."""
-    return (await _state(db, account_id)).unlock_state is UnlockState.pending
-
-
-async def clear_unlock(db: AsyncSession, account_id: uuid.UUID) -> None:
-    """First visit to the Watchlist: the dot has done its job and never returns."""
-    state = await _state(db, account_id)
-    if state.unlock_state is UnlockState.pending:
-        state.unlock_state = UnlockState.seen
+    if Unlock.watchlist in await unlocks.arm(db, account_id, settings):
+        state = await _state(db, account_id)
+        state.due = True
         await db.flush()
 
 

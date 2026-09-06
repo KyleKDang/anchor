@@ -32,14 +32,10 @@ from sqlalchemy.orm import aliased
 
 from anchor import readiness
 from anchor.models import (
-    AnchorDesignation,
-    AnchorStatus,
     ComparisonKind,
     ComparisonLogEntry,
-    ComparisonStatus,
     ComparisonVerdict,
     ConstraintKind,
-    DriftFlag,
     Exemplar,
     ExemplarRole,
     Film,
@@ -79,21 +75,20 @@ class Evidence:
     constraints: Sequence[str]
     """What the owner has said about themselves outright. Instructions, not evidence."""
     rated_films: int
-    explicit_comparisons: int
+    judgments: int
 
 
 @dataclass(frozen=True)
 class Watermark:
     """What the account looked like when a version was written.
 
-    Three counters that only go up, and two digests. Anchors and constraints are
-    current-only - designating over one clears the old row - so no count reliably moves
-    when they change, and a digest catches the swap that leaves the count alone.
+    Two counters that only go up, and two digests. Anchors and constraints are
+    current-only - retiring a mark clears it - so no count reliably moves when they
+    change, and a digest catches the swap that leaves the count alone.
     """
 
     placements: int
-    explicit_comparisons: int
-    drift_resolutions: int
+    judgments: int
     anchors: str
     constraints: str
 
@@ -133,11 +128,9 @@ async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Pr
         return ProseTrigger.anchors
     if now.constraints != live.constraints:
         return ProseTrigger.constraints
-    if now.drift_resolutions - live.drift_resolutions >= settings.prose_drift_trigger:
-        return ProseTrigger.drift
     if now.placements - live.placements >= settings.prose_placements_trigger:
         return ProseTrigger.placements
-    if now.explicit_comparisons - live.explicit_comparisons >= settings.prose_staleness_comparisons:
+    if now.judgments - live.judgments >= settings.prose_staleness_judgments:
         return ProseTrigger.staleness
     return None
 
@@ -171,8 +164,7 @@ async def record(
         text=text,
         trigger=trigger,
         placements=mark.placements,
-        explicit_comparisons=mark.explicit_comparisons,
-        drift_resolutions=mark.drift_resolutions,
+        judgments=mark.judgments,
         anchors=mark.anchors,
         constraints=mark.constraints,
     )
@@ -182,19 +174,17 @@ async def record(
 
 async def watermark(db: AsyncSession, account_id: uuid.UUID) -> Watermark:
     """The account as the trigger check reads it, right now."""
-    counted = await readiness.evidence(db, account_id)
     placements = await db.scalar(
         select(func.count()).select_from(Placement).where(Placement.account_id == account_id)
     )
-    resolutions = await db.scalar(
+    judgments = await db.scalar(
         select(func.count())
-        .select_from(DriftFlag)
-        .where(DriftFlag.account_id == account_id, DriftFlag.closed_at.is_not(None))
+        .select_from(ComparisonLogEntry)
+        .where(ComparisonLogEntry.account_id == account_id)
     )
     return Watermark(
         placements=int(placements or 0),
-        explicit_comparisons=counted.explicit_comparisons,
-        drift_resolutions=int(resolutions or 0),
+        judgments=int(judgments or 0),
         anchors=await _anchor_digest(db, account_id),
         constraints=await _constraint_digest(db, account_id),
     )
@@ -220,7 +210,7 @@ async def evidence(db: AsyncSession, account_id: uuid.UUID) -> Evidence:
         criteria=await _criteria_lines(db, account_id),
         constraints=await _constraint_lines(db, account_id),
         rated_films=counted.rated_films,
-        explicit_comparisons=counted.explicit_comparisons,
+        judgments=(await watermark(db, account_id)).judgments,
     )
 
 
@@ -241,19 +231,19 @@ async def active_constraints(db: AsyncSession, account_id: uuid.UUID) -> list[Pr
 
 
 async def _anchor_digest(db: AsyncSession, account_id: uuid.UUID) -> str:
-    """The current anchors as one comparable value: which film stands for which band.
+    """The current anchor marks as one comparable value: which films stand for which band.
 
-    Keyed on the band and the film rather than on the designation row, so retiring an
-    anchor and designating the same film to the same band again - which is a real thing
-    the anchor screen lets an owner do - is correctly no change at all.
+    Keyed on the band and the film rather than on when the mark was made, so retiring a
+    mark and re-marking the same film in the same band - which is a real thing the film
+    page lets an owner do - is correctly no change at all. Sorted, because a set has no
+    order and the digest must not depend on the one the rows came back in.
     """
     rows = await db.execute(
-        select(AnchorDesignation.band, AnchorDesignation.account_film_id).where(
-            AnchorDesignation.account_id == account_id,
-            AnchorDesignation.status == AnchorStatus.current,
+        select(Placement.band, Placement.account_film_id).where(
+            Placement.account_id == account_id, Placement.anchored_at.is_not(None)
         )
     )
-    return _digest(f"{band}:{account_film_id}" for band, account_film_id in rows)
+    return _digest(sorted(f"{band}:{account_film_id}" for band, account_film_id in rows))
 
 
 async def _constraint_digest(db: AsyncSession, account_id: uuid.UUID) -> str:
@@ -311,7 +301,6 @@ async def _criteria_lines(db: AsyncSession, account_id: uuid.UUID) -> list[str]:
         .where(
             ComparisonLogEntry.account_id == account_id,
             ComparisonLogEntry.kind == ComparisonKind.criteria,
-            ComparisonLogEntry.status == ComparisonStatus.active,
             ComparisonLogEntry.verdict != ComparisonVerdict.skip,
         )
         .order_by(ComparisonLogEntry.created_at.desc(), ComparisonLogEntry.id)

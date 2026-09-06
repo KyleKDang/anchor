@@ -1,15 +1,18 @@
-"""The Rated screen: the ordering grouped into bands, and the rate-later queue below it.
+"""The Rated screen: the ordering as ten band rows, and the rate-later queue below it.
 
-The default view is the ordering best to worst, grouped by the band each slot derives
-into, with the half-star value as the group header and the band's anchor badged. A run
-of slots the dividers cannot yet decide groups under no band at all - the honest
-"rating pending" state a fresh account lives in until designations erect the first
-dividers, rather than a zero or a guess.
+The default view is the wall - best band first, the half-star value as each row's header
+with the count of that band's anchors, and the rank stamped on every poster. It is the
+ordering read back exactly as it is stored, because the ordering is band rows: there is
+no derivation here and nothing that can be out of step with what the owner sees.
 
 Every other sort is a flat list, deliberately: recently-rated or by title cuts across
-the ordering, and a band header over a sequence that is not in band order would be a
-heading over nothing. Filters apply to both, and their menus are computed over the whole
-rated set so narrowing never empties the menu that did the narrowing.
+the bands, and a band header over a sequence that is not in band order would be a heading
+over nothing. Filters apply to both, and their menus are computed over the whole rated
+set so narrowing never empties the menu that did the narrowing.
+
+The screen is a pull surface through and through (surfacing.md). No film is marked as
+wanting attention and no move is suggested; what the owner sees is their ordering, and
+the way to change it is to move a film.
 """
 
 import uuid
@@ -22,25 +25,16 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import bands, drift
 from anchor import ordering as ordering_module
-from anchor import settling as settling_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import DbSession
-from anchor.models import (
-    AccountFilm,
-    Film,
-    LifecycleState,
-    Placement,
-    PlacementTrust,
-    WatchEvent,
-)
+from anchor.models import AccountFilm, Film, LifecycleState, Placement, WatchEvent
 
 router = APIRouter(prefix="/api/rated")
 
 RatedSort = Literal["position", "rated", "watched", "title", "year"]
-"""Position is the ordering itself; every other sort drops the band grouping."""
+"""Position is the ordering itself; every other sort drops the band rows."""
 
 DECADE_SPAN = 10
 
@@ -53,32 +47,32 @@ class RatedFilm(BaseModel):
     year: int | None
     poster_path: str | None
     genres: list[str]
-    position: int
-    """1-based rank of the film's slot, best first."""
-    band: float | None
-    """Derived from position against the dividers; None while its band is undecidable."""
+    band: float
+    rank: int
+    """Position within the band, 1 the best. Stamped on the poster."""
     anchor: bool
-    """This film is the canonical exemplar of its band."""
-    provisional: bool
-    """The ambient settling marker: trusted less until its evidence catches up."""
-    flagged: bool
-    """An open drift flag the owner can see: this position is doubted and being asked about."""
+    """The owner has marked this film as one they are certain of."""
 
 
-class BandGroup(BaseModel):
-    """One run of the ordering sharing a band, or one run that has no band yet."""
+class BandRow(BaseModel):
+    """One band of the wall: its films in rank order, and what its header says."""
 
-    band: float | None
-    slots: list[list[RatedFilm]]
-    """Tie-groups, in order; the films in one slot are the ones judged equal."""
+    band: float
+    films: list[RatedFilm]
+    anchors: int
+    """The count of the band's anchors, carried on the header (screens-and-flows.md).
+
+    Counted over the whole band rather than over the filtered films, because the header
+    is a fact about the band and a filter is a way of looking at it.
+    """
 
 
 class Rated(BaseModel):
-    """The screen. Exactly one of ``groups`` and ``films`` is filled, per the sort."""
+    """The screen. Exactly one of ``rows`` and ``films`` is filled, per the sort."""
 
     sort: RatedSort
-    groups: list[BandGroup] | None
-    """The banded ordering, for the position sort."""
+    rows: list[BandRow] | None
+    """The wall, for the position sort. A band holding nothing is left out."""
     films: list[RatedFilm] | None
     """The flat list, for every other sort."""
     bands: list[float]
@@ -86,26 +80,9 @@ class Rated(BaseModel):
     decades: list[int]
     """Every value the whole rated set offers, so a filter never empties its own menu."""
     anchor_nudge: bool
-    """No anchor exists yet: the one line explaining where the half-stars have gone."""
-    needs_attention: list[FilmCard]
-    """The compact strip at the top: every film carrying a flag the owner can see.
-
-    Listed whole rather than counted, and never filtered, because it is what the screen
-    is *for* when it is not empty - and it stays a strip on one screen rather than
-    becoming a notification anywhere else (ADR 0011).
-    """
+    """The account has no anchors at all: the one line saying what marking one does."""
     rate_later: list[FilmCard]
-    """Watched-unrated films seated in the queue, awaiting an optional placement."""
-    settling: int
-    """The settling strip's count: films whose position is still a placeholder.
-
-    Anchors are excluded, because the strip's button will not offer one (an anchor is
-    re-placed from its own page, with the warning that goes with it). Zero means the
-    strip renders nothing at all: presence, not a permanent slot.
-
-    This is the only count of it the app ever shows, bar the way onward on the done
-    screen of a settle the owner just finished (ADR 0011).
-    """
+    """Watched-unrated films seated in the queue, awaiting an optional rating."""
 
 
 @router.get("")
@@ -117,85 +94,56 @@ async def rated(
     band_max: Annotated[float | None, Query(ge=0.5, le=5.0)] = None,
     genre: Annotated[str | None, Query(max_length=100)] = None,
     decade: Annotated[int | None, Query(ge=1000, le=9990)] = None,
-    flagged: bool = False,
+    anchors_only: bool = False,
 ) -> Rated:
     ordering = await ordering_module.load(db, account.id)
-    boundaries = await bands.load(db, account.id)
-    derived = ordering_module.bands_of(ordering, boundaries)
-    anchors = await anchors_module.current(db, account.id)
     films = await _films(db, ordering.all_film_ids())
-    provisional = await _provisional(db, account.id)
-    # Only surfaced flags: a quiet one is a suspicion the engine is still checking, and
-    # putting it on a filter menu would be the loud phase arriving through a side door.
-    surfaced = set(await drift.surfaced(db, account.id))
+    counts = await anchors_module.counts(db, account.id)
 
     rows = [
-        (
-            index,
-            _row(film_id, index, films[film_id], derived[film_id], anchors, provisional, surfaced),
-        )
-        for index, slot in enumerate(ordering.slots)
-        for film_id in slot.film_ids
-        if film_id in films
+        _row(placed, films[placed.film_id])
+        for band in ordering.bands()
+        for placed in ordering.row(band)
+        if placed.film_id in films
     ]
     kept = [
         row
         for row in rows
-        if _passes(row[1], films[row[1].tmdb_id], band_min, band_max, genre, decade, flagged)
+        if _passes(row, films[row.tmdb_id], band_min, band_max, genre, decade, anchors_only)
     ]
 
     seated = await _rate_later_queue(db, account.id)
+    cards = await ordering_module.cards(db, seated)
     return Rated(
         sort=sort,
-        groups=_group(kept) if sort == "position" else None,
+        rows=_wall(kept, counts) if sort == "position" else None,
         films=None if sort == "position" else await _flatten(db, account.id, kept, sort),
-        bands=sorted({row[1].band for row in rows if row[1].band is not None}, reverse=True),
-        genres=sorted({name for row in rows for name in films[row[1].tmdb_id].genres}),
+        bands=sorted({row.band for row in rows}, reverse=True),
+        genres=sorted({name for row in rows for name in films[row.tmdb_id].genres}),
         decades=sorted(
             {
                 year - year % DECADE_SPAN
                 for row in rows
-                if (year := films[row[1].tmdb_id].release_year) is not None
+                if (year := films[row.tmdb_id].release_year) is not None
             },
             reverse=True,
         ),
-        anchor_nudge=not anchors,
-        needs_attention=_queue(await ordering_module.cards(db, list(surfaced)), list(surfaced)),
-        rate_later=_queue(await ordering_module.cards(db, seated), seated),
-        settling=await settling_module.remaining(db, account.id),
+        anchor_nudge=not counts,
+        rate_later=[cards[film_id] for film_id in seated if film_id in cards],
     )
 
 
-Row = tuple[int, RatedFilm]
-"""A film with the index of the slot it sits in, before any sorting is applied."""
-
-
-def _row(
-    film_id: int,
-    index: int,
-    stored: Film,
-    band: float | None,
-    anchors: dict[float, int],
-    provisional: set[int],
-    surfaced: set[int],
-) -> RatedFilm:
+def _row(placed: ordering_module.Placed, stored: Film) -> RatedFilm:
     return RatedFilm(
-        tmdb_id=film_id,
+        tmdb_id=placed.film_id,
         title=stored.title,
         year=stored.release_year,
         poster_path=stored.poster_path,
         genres=stored.genres,
-        position=index + 1,
-        band=band,
-        anchor=band is not None and anchors.get(band) == film_id,
-        provisional=film_id in provisional,
-        flagged=film_id in surfaced,
+        band=placed.band,
+        rank=placed.rank,
+        anchor=placed.anchored,
     )
-
-
-def _queue(cards: dict[int, FilmCard], seated: list[int]) -> list[FilmCard]:
-    """The rate-later queue in the order it was read, not the order the cards came back."""
-    return [cards[film_id] for film_id in seated if film_id in cards]
 
 
 def _passes(
@@ -205,18 +153,14 @@ def _passes(
     band_max: float | None,
     genre: str | None,
     decade: int | None,
-    flagged: bool,
+    anchors_only: bool,
 ) -> bool:
-    """A band filter excludes films with no band: they have none to fall in the range."""
-    if flagged and not film.flagged:
+    if anchors_only and not film.anchor:
         return False
-    if band_min is not None or band_max is not None:
-        if film.band is None:
-            return False
-        if band_min is not None and film.band < band_min:
-            return False
-        if band_max is not None and film.band > band_max:
-            return False
+    if band_min is not None and film.band < band_min:
+        return False
+    if band_max is not None and film.band > band_max:
+        return False
     if genre is not None and genre not in stored.genres:
         return False
     if decade is not None:
@@ -226,29 +170,26 @@ def _passes(
     return True
 
 
-def _group(rows: list[Row]) -> list[BandGroup]:
-    """Walk the ordering top to bottom, opening a group each time the band changes.
+def _wall(rows: list[RatedFilm], counts: dict[float, int]) -> list[BandRow]:
+    """The films grouped into their bands, best band first, ranks left as they stand.
 
-    A run the dividers cannot decide comes back under ``band=None``, which is the
-    position-only state said out loud rather than papered over with a value.
+    A filter thins a row without renumbering it: the rank on a poster is the film's
+    place in its band, and a filtered view that renumbered would be showing the owner a
+    position no film actually holds.
     """
-    groups: list[BandGroup] = []
-    slot: int | None = None
-    for index, film in rows:
-        if not groups or groups[-1].band != film.band:
-            groups.append(BandGroup(band=film.band, slots=[]))
-            slot = None
-        if index != slot:
-            groups[-1].slots.append([])
-            slot = index
-        groups[-1].slots[-1].append(film)
-    return groups
+    grouped: dict[float, list[RatedFilm]] = {}
+    for row in rows:
+        grouped.setdefault(row.band, []).append(row)
+    return [
+        BandRow(band=band, films=grouped[band], anchors=counts.get(band, 0))
+        for band in sorted(grouped, reverse=True)
+    ]
 
 
 async def _flatten(
     db: AsyncSession,
     account_id: uuid.UUID,
-    rows: list[Row],
+    rows: list[RatedFilm],
     sort: RatedSort,
 ) -> list[RatedFilm]:
     """Every sort but position, tie-broken on title so a listing never reshuffles."""
@@ -260,7 +201,7 @@ async def _flatten(
         "title": lambda film: (film.title,),
         "year": lambda film: (-(film.year or 0), film.title),
     }
-    return sorted((row[1] for row in rows), key=keys[sort])
+    return sorted(rows, key=keys[sort])
 
 
 # --- Reads ---
@@ -271,16 +212,6 @@ async def _films(db: AsyncSession, film_ids: list[int]) -> dict[int, Film]:
         return {}
     rows = await db.scalars(select(Film).where(Film.tmdb_id.in_(film_ids)))
     return {film.tmdb_id: film for film in rows}
-
-
-async def _provisional(db: AsyncSession, account_id: uuid.UUID) -> set[int]:
-    """Films whose placement is trusted less than a fully-compared one."""
-    rows = await db.scalars(
-        _placements_of(select(AccountFilm.film_id), account_id).where(
-            Placement.trust == PlacementTrust.provisional
-        )
-    )
-    return set(rows)
 
 
 async def _placed_at(db: AsyncSession, account_id: uuid.UUID) -> dict[int, float]:
