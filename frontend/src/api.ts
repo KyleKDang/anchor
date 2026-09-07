@@ -334,11 +334,38 @@ export interface Prose {
   generated_at: string;
 }
 
+/**
+ * What a correction rules out mechanically, where it rules anything out at all.
+ *
+ * Most corrections are about the shape of the writing and carry none. The ones that are
+ * about a fact with edges - "stop suggesting me horror" - become a rule the discovery
+ * prefilter enforces by dropping films, rather than an instruction the next regeneration
+ * is asked to write around.
+ */
+export interface Footprint {
+  genre: string | null;
+  language: string | null;
+}
+
 /** A claim in the prose the owner thumbed down, kept as a row rather than as an edit. */
 export interface Correction {
   id: string;
   claim: string;
+  /** Null on the common correction, which is about the writing and rules nothing out. */
+  excludes: Footprint | null;
   created_at: string;
+}
+
+/** One language a footprint may name: the code that is stored, and the name shown. */
+export interface FootprintLanguage {
+  code: string;
+  name: string;
+}
+
+/** Everything a footprint is allowed to name, so it is chosen rather than typed. */
+export interface Vocabulary {
+  genres: string[];
+  languages: FootprintLanguage[];
 }
 
 /** The Profile screen's engine section. `stages` omits cold: every account is already there. */
@@ -745,8 +772,17 @@ export const api = {
   pickQualities: (qualityIds: string[]) =>
     request<Picker>("PUT", "/api/profile/qualities", { quality_ids: qualityIds }),
   addQuality: (name: string) => request<Quality>("POST", "/api/profile/qualities", { name }),
-  correctProse: (claim: string) =>
-    request<Correction>("POST", "/api/profile/constraints", { claim }),
+  /** The catalog's own genres and languages, for the correction form to offer. */
+  footprintVocabulary: () => request<Vocabulary>("GET", "/api/profile/footprint"),
+  /**
+   * Thumb a claim down. `excludes` is the footprint where the owner named one, and the
+   * server refuses anything outside the vocabulary above, so the two cannot drift apart.
+   */
+  correctProse: (claim: string, excludes: Footprint | null = null) =>
+    request<Correction>("POST", "/api/profile/constraints", {
+      claim,
+      ...(excludes === null ? {} : { excludes }),
+    }),
   liftCorrection: (id: string) => request<void>("DELETE", `/api/profile/constraints/${id}`),
   backlog: (filters: BacklogFilters = {}) =>
     request<Backlog>("GET", `/api/watchlist/backlog${backlogQuery(filters)}`),

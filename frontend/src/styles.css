@@ -2691,6 +2691,42 @@ button.anchor-badge {
   color: var(--faint);
 }
 
+/* The footprint offer, hanging off the paragraph it belongs to rather than floating free:
+   an indent and a rule down the left say "this is about that one" without a box, which at
+   this width would read as a modal interrupting the prose. */
+.rules-out-form {
+  max-width: 60ch;
+  margin: var(--s2) 0 var(--s4) var(--s3);
+  padding-left: var(--s3);
+  border-left: 2px solid var(--border-strong);
+}
+
+.rules-out-form > p {
+  margin: 0 0 var(--s3);
+}
+
+.rules-out-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s2);
+  margin-bottom: var(--s3);
+}
+
+.rules-out-save {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+/* A rule reads as a fact about the account, not as something to press, so it takes the
+   chip's shape at the muted weight the claim beside it already has. */
+.rules-out {
+  margin-left: var(--s2);
+  padding: 0.15rem 0.5rem;
+  font-size: var(--text-xs);
+  color: var(--muted);
+}
+
 .corrections {
   max-width: 60ch;
   margin: var(--s4) 0 0;

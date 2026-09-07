@@ -274,6 +274,17 @@ async def thumb_down(client, claim, excludes=None, expect=200):
     return response.json() if expect == 200 else None
 
 
+async def footprint_vocabulary(client, expect=200):
+    """What a correction may name as its footprint: the catalog's own genres and languages.
+
+    Offered rather than typed, so the owner cannot rule out a genre no film carries - and
+    read at the same seam the correction is written at, because the two have to agree.
+    """
+    response = await client.get("/api/profile/footprint")
+    assert response.status_code == expect, response.text
+    return response.json() if expect == 200 else None
+
+
 async def lift_correction(client, constraint_id, expect=204):
     """Take a correction back. The row is lifted, never deleted."""
     response = await client.delete(f"/api/profile/constraints/{constraint_id}")

@@ -28,6 +28,7 @@ from flows import (
     ask_criteria,
     build_ordering,
     corrections,
+    footprint_vocabulary,
     lift_correction,
     pick_qualities,
     profile,
@@ -406,3 +407,65 @@ async def test_the_picker_and_the_corrections_are_the_same_kind_of_fact(owner, d
     kinds = [row[0] for row in await profile_constraints(db, account)]
     assert kinds == ["quality_pick", "prose_correction"]
     assert (await profile(owner))["corrections"], "the correction is not on the screen"
+
+
+# --- What a correction rules out ---
+
+
+@SMALL
+async def test_a_correction_can_name_what_it_rules_out(owner, db, run_jobs):
+    """The footprint is stored with the claim, because they are one thing the owner said."""
+    account = await worn_in(owner, run_jobs)
+
+    await thumb_down(owner, "You would enjoy a horror film.", excludes={"genre": "Horror"})
+
+    (constraint,) = await profile_constraints(db, account)
+    assert constraint[2]["excludes"] == {"genre": "Horror"}
+
+
+@SMALL
+async def test_naming_nothing_is_still_a_complete_correction(owner, db, run_jobs):
+    """The common case, and the one the affordance must not tax: no footprint is stored."""
+    account = await worn_in(owner, run_jobs)
+
+    await thumb_down(owner, "You love a big finish.")
+
+    (constraint,) = await profile_constraints(db, account)
+    assert "excludes" not in constraint[2]
+    assert (await corrections(owner))[0]["excludes"] is None
+
+
+@SMALL
+async def test_the_standing_corrections_show_what_each_one_rules_out(owner, run_jobs):
+    """A rule the owner cannot see is one they cannot undo."""
+    await worn_in(owner, run_jobs)
+    await thumb_down(owner, "You are happy reading subtitles.", excludes={"language": "it"})
+
+    (standing,) = await corrections(owner)
+
+    assert standing["excludes"] == {"genre": None, "language": "it"}
+
+
+async def test_the_footprint_is_offered_from_the_catalogs_own_vocabulary(owner):
+    """Offered, not typed: the genres are the ones TMDB itself spells out."""
+    offered = await footprint_vocabulary(owner)
+
+    assert "Horror" in offered["genres"]
+    assert offered["genres"] == sorted(offered["genres"])
+    assert {"code": "it", "name": "Italian"} in offered["languages"]
+
+
+async def test_a_genre_no_film_carries_cannot_be_ruled_out(owner):
+    """Free text would let a footprint name a genre the catalog has never heard of."""
+    await thumb_down(
+        owner, "You would enjoy a mumblecore.", excludes={"genre": "Mumblecore"}, expect=422
+    )
+
+    assert await corrections(owner) == []
+
+
+async def test_a_language_no_film_carries_cannot_be_ruled_out(owner):
+    """The other half of the same guarantee, on the same vocabulary."""
+    await thumb_down(owner, "You read subtitles.", excludes={"language": "zz"}, expect=422)
+
+    assert await corrections(owner) == []

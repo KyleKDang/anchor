@@ -44,6 +44,22 @@ space into an id for a discover slice and back again, and a fake with ids of its
 would let that round trip be wrong in a way no test could see.
 """
 
+LANGUAGES = {
+    "en": "English",
+    "fr": "French",
+    "it": "Italian",
+    "ja": "Japanese",
+    "ko": "Korean",
+    "es": "Spanish",
+}
+"""TMDB's language vocabulary, cut to the codes the fixtures actually use.
+
+Cut rather than complete, unlike the genres: the real list runs to a couple of hundred
+entries and nothing round-trips through it - a code is offered and matched, never turned
+into a request parameter - so a fake carrying all of them would only make the offer
+harder to read in a failure message.
+"""
+
 _NOT_WORD = re.compile(r"[^0-9a-z]+")
 
 
@@ -219,6 +235,16 @@ class FakeTmdb:
             return httpx.Response(
                 200,
                 json={"genres": [{"id": id, "name": name} for name, id in GENRE_IDS.items()]},
+            )
+        if path == "/configuration/languages":
+            # A bare array, as TMDB's configuration endpoints answer: the shape is why
+            # the client fetches this one without coercing the payload to an object.
+            return httpx.Response(
+                200,
+                json=[
+                    {"iso_639_1": code, "english_name": name, "name": name}
+                    for code, name in LANGUAGES.items()
+                ],
             )
         if path == "/discover/movie":
             return httpx.Response(

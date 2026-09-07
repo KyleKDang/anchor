@@ -134,6 +134,8 @@ class Tmdb(Protocol):
 
     async def genre_ids(self) -> dict[str, int]: ...
 
+    async def languages(self) -> dict[str, str]: ...
+
     async def aclose(self) -> None: ...
 
 
@@ -178,6 +180,7 @@ class TmdbClient:
         self._max_attempts = max_attempts
         self._sleep = sleep
         self._genres: dict[str, int] | None = None
+        self._languages: dict[str, str] | None = None
 
     async def search(self, query: str) -> list[SearchHit]:
         payload = await self._get("/search/movie", {"query": query, "include_adult": "false"})
@@ -222,10 +225,34 @@ class TmdbClient:
             }
         return self._genres
 
+    async def languages(self) -> dict[str, str]:
+        """TMDB's language vocabulary, code to English name, fetched once per process.
+
+        The companion to :meth:`genre_ids`, and cached on the same reasoning: a film's
+        ``original_language`` is a bare ISO code, and the only place that has ever needed
+        to spell it out is an owner being offered a language to rule out. The names are
+        TMDB's own, so a code Anchor offers is one the catalog can actually answer with.
+        """
+        if self._languages is None:
+            listed = await self._fetch("/configuration/languages", {})
+            self._languages = {
+                str(language["iso_639_1"]): str(
+                    language.get("english_name") or language["iso_639_1"]
+                )
+                for language in listed
+            }
+        return self._languages
+
     async def aclose(self) -> None:
         await self._client.aclose()
 
     async def _get(self, path: str, params: dict[str, str]) -> dict[str, Any]:
+        return dict(await self._fetch(path, params))
+
+    async def _fetch(self, path: str, params: dict[str, str]) -> Any:
+        """One request, throttled and retried. Most endpoints answer with an object; the
+        configuration ones answer with a bare array, so the shape is the caller's to say.
+        """
         for attempt in range(1, self._max_attempts + 1):
             await self._throttle.take()
             try:
@@ -239,7 +266,7 @@ class TmdbClient:
                 continue
             if response.is_error:
                 raise TmdbUnavailable(f"TMDB answered {response.status_code} for {path}")
-            return dict(response.json())
+            return response.json()
         raise TmdbUnavailable(f"TMDB kept throttling {path} after {self._max_attempts} attempts")
 
 
@@ -265,6 +292,9 @@ class UnconfiguredTmdb:
         raise TmdbUnavailable(UNCONFIGURED)
 
     async def genre_ids(self) -> dict[str, int]:
+        raise TmdbUnavailable(UNCONFIGURED)
+
+    async def languages(self) -> dict[str, str]:
         raise TmdbUnavailable(UNCONFIGURED)
 
     async def aclose(self) -> None:
