@@ -336,11 +336,9 @@ async def move(db: AsyncSession, placement: Placement, *, band: float, rank: int
     if within:
         if rank == placement.rank:
             return False
-        if rank < placement.rank:
-            await _shift(db, placement, from_rank=rank, to_rank=placement.rank - 1, by=+1)
-        else:
-            await _shift(db, placement, from_rank=placement.rank + 1, to_rank=rank, by=-1)
-        placement.rank = rank
+        # The rank a film holds once landed is the insertion rank against the band with
+        # the film taken out, so the re-rate's shift is this move's shift as well.
+        await shift(db, placement, rank=rank)
     else:
         await _carry(db, placement, band=band, rank=rank)
     placement.moved_at = func.now()
@@ -384,23 +382,6 @@ async def _carry(db: AsyncSession, placement: Placement, *, band: float, rank: i
     placement.band = band
     placement.rank = rank
     placement.anchored_at = None
-
-
-async def _shift(
-    db: AsyncSession, placement: Placement, *, from_rank: int, to_rank: int, by: int
-) -> None:
-    """Move every other film of the band holding a rank in [from_rank, to_rank] by ``by``."""
-    await db.execute(
-        update(Placement)
-        .where(
-            Placement.account_id == placement.account_id,
-            Placement.band == placement.band,
-            Placement.id != placement.id,
-            Placement.rank >= from_rank,
-            Placement.rank <= to_rank,
-        )
-        .values(rank=Placement.rank + by)
-    )
 
 
 async def _band_size(db: AsyncSession, account_id: uuid.UUID, band: float) -> int:
