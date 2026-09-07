@@ -7,6 +7,7 @@ broke instead of three assertions later.
 """
 
 from faketmdb import FilmFixture
+from invariants import assert_no_rating_keys
 
 LIBRARY = tuple(
     FilmFixture(1000 + n, f"Film {n:02d}", release_date=f"{1980 + n}-01-01") for n in range(12)
@@ -201,9 +202,17 @@ async def add_quality(client, name, expect=200):
     return response.json() if expect == 200 else None
 
 
-async def thumb_down(client, claim, expect=200):
-    """Correct the prose profile: the claim is wrong about them, and stays recorded as such."""
-    response = await client.post("/api/profile/constraints", json={"claim": claim})
+async def thumb_down(client, claim, excludes=None, expect=200):
+    """Correct the prose profile: the claim is wrong about them, and stays recorded as such.
+
+    ``excludes`` names the structural footprint where the claim has one - a genre or a
+    language the owner has ruled out - which the discovery prefilter then enforces by
+    dropping films rather than by asking a regeneration to write around them.
+    """
+    body = {"claim": claim}
+    if excludes is not None:
+        body["excludes"] = excludes
+    response = await client.post("/api/profile/constraints", json=body)
     assert response.status_code == expect, response.text
     return response.json() if expect == 200 else None
 
@@ -501,20 +510,3 @@ async def discovery(client, boundary=True, expect=200):
 async def shelf(client, boundary=True):
     """Just the films on the shelf, in the order the screen shows them."""
     return (await discovery(client, boundary=boundary))["films"]
-
-
-async def unlock_dots(client):
-    """The nav's dots, as every screen reads them."""
-    response = await client.get("/api/unlocks")
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-async def correct(client, claim, excludes=None, expect=200):
-    """Thumb down a claim in the prose profile, optionally naming what it rules out."""
-    body = {"claim": claim}
-    if excludes is not None:
-        body["excludes"] = excludes
-    response = await client.post("/api/profile/constraints", json=body)
-    assert response.status_code == expect, response.text
-    return response.json()

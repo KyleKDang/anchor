@@ -372,10 +372,9 @@ export type Unlock = "discovery" | "watchlist";
 
 /** The nav's one-time dots. Reserved for the readiness unlocks, and nothing else ever. */
 export interface Unlocks {
-  discovery: boolean;
-  watchlist: boolean;
   /** Discovery unlocks a whole readiness state earlier, so this is the first to fire. */
   discovery: boolean;
+  watchlist: boolean;
 }
 
 /**

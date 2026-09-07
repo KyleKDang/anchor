@@ -24,7 +24,16 @@ import pytest
 
 from anchor import llm
 from faketmdb import FilmFixture
-from flows import account_id, build_ordering, correct, designate, discovery, shelf, unlock_dots
+from flows import (
+    account_id,
+    build_ordering,
+    discovery,
+    mark_anchor,
+    seen_discovery,
+    shelf,
+    thumb_down,
+    unlocks,
+)
 from invariants import (
     assert_shelf_stands_on_verdicts,
     dismiss,
@@ -120,12 +129,13 @@ def ids(films):
 async def rating_films(client, run_jobs):
     """An account at *forming* with its first prose written: the state discovery needs.
 
-    Westerns above horror, and an anchor at each end, which is what gives the fit a shape
-    and the exemplar set something to seed the neighbour calls with.
+    Westerns high and horror low, with an anchor at each end, which is what gives the fit
+    a shape and the exemplar set something to seed the neighbour calls with.
     """
-    await build_ordering(client, RATED)
-    await designate(client, 4.0, RATED[0])
-    await designate(client, 2.0, RATED[4])
+    await build_ordering(client, RATED[:3], band=4.0)
+    await build_ordering(client, RATED[3:], band=2.0)
+    await mark_anchor(client, RATED[0])
+    await mark_anchor(client, RATED[4])
     await run_jobs()
     return uuid.UUID(await account_id(client))
 
@@ -167,14 +177,20 @@ async def test_a_cold_account_never_reaches_a_provider(owner, run_jobs, db, prov
 
 
 async def test_the_dot_arms_at_forming_and_clears_on_the_first_visit(owner, run_jobs):
-    """The one-time dot: the only nav-level marker the feed ever gets (surfacing.md)."""
-    assert (await unlock_dots(owner))["discovery"] is False
+    """The one-time dot: the only nav-level marker the feed ever gets (surfacing.md).
+
+    Armed by readiness crossing *forming* and cleared by the arrival the screen states,
+    both of which belong to ``unlocks`` rather than to the feed. What this ticket adds is
+    that there is now something to arrive at.
+    """
+    assert (await unlocks(owner))["discovery"] is False
 
     await rating_films(owner, run_jobs)
-    assert (await unlock_dots(owner))["discovery"] is True
+    assert (await unlocks(owner))["discovery"] is True
 
     await discovery(owner)
-    assert (await unlock_dots(owner))["discovery"] is False
+    await seen_discovery(owner)
+    assert (await unlocks(owner))["discovery"] is False
 
 
 # --- Sourcing and the prefilter ---
@@ -252,7 +268,7 @@ async def test_a_ruled_out_genre_is_enforced_mechanically(owner, run_jobs, provi
     """A constraint with a structural footprint drops films rather than asking nicely."""
     tmdb.with_neighbours(RATED[0].tmdb_id, *CANDIDATES, SCARY)
     await rating_films(owner, run_jobs)
-    await correct(owner, "You would enjoy a horror film.", excludes={"genre": "Horror"})
+    await thumb_down(owner, "You would enjoy a horror film.", excludes={"genre": "Horror"})
     provider.will_say(**ranked(SCARY, *CANDIDATES))
 
     films = await visit(owner, run_jobs)
@@ -265,7 +281,7 @@ async def test_a_ruled_out_language_is_enforced_mechanically(owner, run_jobs, pr
     """The other structural footprint taste-profile.md names, on the same lever."""
     tmdb.with_neighbours(RATED[0].tmdb_id, *CANDIDATES, SUBTITLED)
     await rating_films(owner, run_jobs)
-    await correct(owner, "You are happy reading subtitles.", excludes={"language": "it"})
+    await thumb_down(owner, "You are happy reading subtitles.", excludes={"language": "it"})
     provider.will_say(**ranked(SUBTITLED, *CANDIDATES))
 
     films = await visit(owner, run_jobs)
@@ -278,7 +294,7 @@ async def test_a_prose_only_correction_excludes_nothing(owner, run_jobs, provide
     """Most corrections are about the writing, and a rule is only made where one is named."""
     tmdb.with_neighbours(RATED[0].tmdb_id, *CANDIDATES, SCARY)
     await rating_films(owner, run_jobs)
-    await correct(owner, "You do not only watch westerns.")
+    await thumb_down(owner, "You do not only watch westerns.")
     provider.will_say(**ranked(SCARY, *CANDIDATES))
 
     assert SCARY.tmdb_id in ids(await visit(owner, run_jobs))
@@ -480,7 +496,7 @@ async def test_a_version_bump_appends_verdicts_rather_than_replacing_them(
     assert len(await prose_versions(db, account)) == 1
 
     provider.will_say(**ranked(CANDIDATES[1], CANDIDATES[0]))
-    await build_ordering(owner, MORE)
+    await build_ordering(owner, MORE, band=5.0)
     await run_jobs()
 
     assert len(await prose_versions(db, account)) == 2
@@ -503,7 +519,7 @@ async def test_a_stale_verdict_stays_usable_when_the_provider_is_gone(
     assert before == {3000, 3001}
 
     provider.will_fail(llm.ProviderUnavailable("down"), of=llm.RERANK_SYSTEM)
-    await build_ordering(owner, MORE)
+    await build_ordering(owner, MORE, band=5.0)
     await run_jobs()
     after = ids(await visit(owner, run_jobs))
 
@@ -531,7 +547,7 @@ async def test_reloading_after_an_action_queues_no_work(owner, run_jobs, provide
     """
     tmdb.with_films(*MORE)
     account = await rating_films(owner, run_jobs)
-    await build_ordering(owner, MORE)
+    await build_ordering(owner, MORE, band=5.0)
     await run_jobs()
     assert len(await prose_versions(db, account)) == 2
     bought = len(provider.asked_of(llm.RERANK_SYSTEM))
