@@ -277,11 +277,7 @@ async def re_rate(db: AsyncSession, placement: Placement, *, band: float, rank: 
     placement.placed_at = func.now()
     if band == placement.band:
         return
-    await _close_rank(db, placement.account_id, placement.band, placement.rank)
-    await _open_rank(db, placement.account_id, band, rank)
-    placement.band = band
-    placement.rank = rank
-    placement.anchored_at = None
+    await _carry(db, placement, band=band, rank=rank)
     await db.flush()
 
 
@@ -328,13 +324,16 @@ async def move(db: AsyncSession, placement: Placement, *, band: float, rank: int
 
     Returns whether anything moved. Dropping a film where it already sits is not a move:
     nothing is stamped and nothing retrains, so a slip of the pointer costs nothing.
+
+    Raises :class:`RankOffTheEnd` for a rank the band cannot hold.
     """
-    if band not in BANDS:
-        raise ValueError(f"not a half-star band: {band}")
-    if band == placement.band:
-        row_size = await _band_size(db, placement.account_id, band)
-        if not 1 <= rank <= row_size:
-            raise ValueError(f"rank {rank} is off the end of a band of {row_size}")
+    assert band in BANDS, f"not a half-star band: {band}"
+    within = band == placement.band
+    row_size = await _band_size(db, placement.account_id, band)
+    last = row_size if within else row_size + 1
+    if not 1 <= rank <= last:
+        raise RankOffTheEnd(f"rank {rank} is off the end of a band of {row_size}")
+    if within:
         if rank == placement.rank:
             return False
         if rank < placement.rank:
@@ -343,17 +342,14 @@ async def move(db: AsyncSession, placement: Placement, *, band: float, rank: int
             await _shift(db, placement, from_rank=placement.rank + 1, to_rank=rank, by=-1)
         placement.rank = rank
     else:
-        row_size = await _band_size(db, placement.account_id, band)
-        if not 1 <= rank <= row_size + 1:
-            raise ValueError(f"rank {rank} is off the end of a band of {row_size}")
-        await _close_rank(db, placement.account_id, placement.band, placement.rank)
-        await _open_rank(db, placement.account_id, band, rank)
-        placement.band = band
-        placement.rank = rank
-        placement.anchored_at = None
+        await _carry(db, placement, band=band, rank=rank)
     placement.moved_at = func.now()
     await db.flush()
     return True
+
+
+class RankOffTheEnd(ValueError):
+    """A rank no film of the band can hold: below 1, or past the row's end."""
 
 
 async def unrate(db: AsyncSession, placement: Placement) -> None:
@@ -374,6 +370,20 @@ async def _open_rank(db: AsyncSession, account_id: uuid.UUID, band: float, rank:
         )
         .values(rank=Placement.rank + 1)
     )
+
+
+async def _carry(db: AsyncSession, placement: Placement, *, band: float, rank: int) -> None:
+    """Take a film out of its band and seat it in another, retiring the anchor mark.
+
+    Shared by a re-rate and a move because they are the same write once the band
+    changes: the old row closes up, the new row opens a slot, and the mark goes, since a
+    reference that moved is no longer certain (rating-system.md).
+    """
+    await _close_rank(db, placement.account_id, placement.band, placement.rank)
+    await _open_rank(db, placement.account_id, band, rank)
+    placement.band = band
+    placement.rank = rank
+    placement.anchored_at = None
 
 
 async def _shift(

@@ -75,8 +75,6 @@ class BandRow(BaseModel):
     Counted over the whole band rather than over the filtered films, because the header
     is a fact about the band and a filter is a way of looking at it.
     """
-    size: int
-    """How many films the whole band holds: the last rank a move to its end can take."""
 
 
 class Rated(BaseModel):
@@ -91,6 +89,13 @@ class Rated(BaseModel):
     genres: list[str]
     decades: list[int]
     """Every value the whole rated set offers, so a filter never empties its own menu."""
+    sizes: dict[float, int]
+    """How many films each band holds, filter or no filter.
+
+    A move to a band's end takes its last rank, and a band a filter has emptied is still
+    a band with films in it - so the editor reads the sizes here, off the whole set,
+    rather than counting what it can see.
+    """
     anchor_nudge: bool
     """The account has no anchors at all: the one line saying what marking one does."""
     rate_later: list[FilmCard]
@@ -128,11 +133,7 @@ async def rated(
     cards = await ordering_module.cards(db, seated)
     return Rated(
         sort=sort,
-        rows=(
-            _wall(kept, counts, {band: len(ordering.row(band)) for band in ordering.bands()})
-            if sort == "position"
-            else None
-        ),
+        rows=_wall(kept, counts) if sort == "position" else None,
         films=None if sort == "position" else await _flatten(db, account.id, kept, sort),
         bands=sorted({row.band for row in rows}, reverse=True),
         genres=sorted({name for row in rows for name in films[row.tmdb_id].genres}),
@@ -144,6 +145,7 @@ async def rated(
             },
             reverse=True,
         ),
+        sizes={band: len(ordering.row(band)) for band in ordering.bands()},
         anchor_nudge=not counts,
         rate_later=[cards[film_id] for film_id in seated if film_id in cards],
     )
@@ -189,7 +191,7 @@ async def move(
     crossed_bands = body.band != placement.band
     try:
         changed = await ordering_module.move(db, placement, band=body.band, rank=body.rank)
-    except ValueError as error:
+    except ordering_module.RankOffTheEnd as error:
         raise ApiError(422, "rank_off_the_end", str(error)) from error
     if changed:
         await jobs.schedule_retrain(db, queue, account.id)
@@ -243,9 +245,7 @@ def _passes(
     return True
 
 
-def _wall(
-    rows: list[RatedFilm], counts: dict[float, int], sizes: dict[float, int]
-) -> list[BandRow]:
+def _wall(rows: list[RatedFilm], counts: dict[float, int]) -> list[BandRow]:
     """The films grouped into their bands, best band first, ranks left as they stand.
 
     A filter thins a row without renumbering it: the rank on a poster is the film's
@@ -256,9 +256,7 @@ def _wall(
     for row in rows:
         grouped.setdefault(row.band, []).append(row)
     return [
-        BandRow(
-            band=band, films=grouped[band], anchors=counts.get(band, 0), size=sizes.get(band, 0)
-        )
+        BandRow(band=band, films=grouped[band], anchors=counts.get(band, 0))
         for band in sorted(grouped, reverse=True)
     ]
 

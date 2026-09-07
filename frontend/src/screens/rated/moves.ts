@@ -1,4 +1,4 @@
-import { BANDS, type BandRow, type RatedFilm } from "../../api";
+import { BANDS, type BandRow, type Rated, type RatedFilm } from "../../api";
 
 /**
  * The arithmetic of a move, kept apart from the drag so it can be read on its own.
@@ -15,6 +15,15 @@ import { BANDS, type BandRow, type RatedFilm } from "../../api";
 export interface Target {
   band: number;
   rank: number;
+}
+
+/**
+ * One band row as the editor holds it: what the filter shows of it, plus how big the
+ * whole band is, which is where a move to its end goes and what tells an empty-looking
+ * row apart from an empty band.
+ */
+export interface EditableRow extends BandRow {
+  size: number;
 }
 
 /**
@@ -48,7 +57,7 @@ export type Step = "up" | "down" | "first" | "last" | "better" | "worse";
 export function stepTarget(
   film: RatedFilm,
   step: Step,
-  rows: BandRow[],
+  rows: EditableRow[],
   visibleBands: number[],
 ): Target | null {
   const row = rows.find((one) => one.band === film.band);
@@ -89,7 +98,11 @@ export function stepTarget(
  * closes up and its new band opens a slot, the anchor mark goes, and the header counts
  * follow. Bands are sorted by rank afterwards, which is what seats the mover.
  */
-export function applyMove(rows: BandRow[], mover: RatedFilm, target: Target): BandRow[] {
+export function applyMove(
+  rows: EditableRow[],
+  mover: RatedFilm,
+  target: Target,
+): EditableRow[] {
   const moved: RatedFilm = {
     ...mover,
     band: target.band,
@@ -131,10 +144,26 @@ export function applyMove(rows: BandRow[], mover: RatedFilm, target: Target): Ba
   });
 }
 
-/** The rows with `band` present, empty if it was not, so a move into it has a row to land in. */
-export function ensureRow(rows: BandRow[], band: number): BandRow[] {
+/** The rows with `band` present, sized but showing nothing if it was not, so a move into it has a row. */
+export function ensureRow(rows: EditableRow[], band: number, size = 0): EditableRow[] {
   if (rows.some((row) => row.band === band)) return rows;
-  return [...rows, { band, films: [], anchors: 0, size: 0 }].sort((a, b) => b.band - a.band);
+  return [...rows, { band, films: [], anchors: 0, size }].sort((a, b) => b.band - a.band);
+}
+
+/**
+ * The editor's rows off the screen's answer: every band the editor draws, each carrying
+ * the whole band's size, so a band a filter has emptied still reads as one with films.
+ */
+export function editableRows(rated: Rated, bands: number[]): EditableRow[] {
+  const sized = (rated.rows ?? []).map((row) => ({ ...row, size: sizeOf(rated, row.band) }));
+  return bands
+    .reduce((rows, band) => ensureRow(rows, band, sizeOf(rated, band)), sized)
+    .filter((row) => bands.includes(row.band));
+}
+
+/** The wire keys a band as "4.0", which is not what `String(4)` says. */
+function sizeOf(rated: Rated, band: number): number {
+  return rated.sizes[band.toFixed(1)] ?? 0;
 }
 
 function byRank(films: RatedFilm[]): RatedFilm[] {

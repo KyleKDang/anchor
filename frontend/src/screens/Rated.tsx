@@ -111,9 +111,7 @@ export function Rated() {
 
           <section className="section" aria-labelledby="ordering-heading">
             <h2 id="ordering-heading">Your ordering</h2>
-            {editing && rated.anchor_nudge && (
-              <AnchorNudge action="Tap Anchor under any poster here to mark your first." />
-            )}
+            {editing && rated.anchor_nudge && <AnchorNudge onWall />}
             {editing && rated.rows !== null ? (
               <EditableWall
                 rated={rated}
