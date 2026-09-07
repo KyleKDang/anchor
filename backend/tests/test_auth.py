@@ -84,6 +84,22 @@ async def test_visitor_signs_up_verifies_logs_in_and_logs_out(client, resend):
     assert (await client.get("/api/auth/me")).status_code == 401
 
 
+async def test_the_session_says_whether_it_is_the_demo(owner, db):
+    """The wall's edit toggle is absent on the demo account rather than intercepted.
+
+    The flag is the one fact the frontend needs for that, so the session carries it. It
+    reads false on every ordinary account and true once the account is flagged, which is
+    what the demo build (#42) will do.
+    """
+    assert (await owner.get("/api/auth/me")).json()["demo"] is False
+
+    async with db.sessions() as session:
+        await session.execute(update(Account).values(is_demo=True))
+        await session.commit()
+
+    assert (await owner.get("/api/auth/me")).json()["demo"] is True
+
+
 async def test_unverified_account_is_inert(client, resend, db):
     account = await sign_up(client)
 

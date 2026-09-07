@@ -69,15 +69,28 @@ async def test_a_rating_queues_a_retrain(owner, jobs_app):
     assert len(await queued_retrains(jobs_app)) == 1
 
 
-async def test_marking_and_retiring_an_anchor_each_queue_a_retrain(owner, jobs_app):
+async def test_marking_and_retiring_an_anchor_each_queue_a_retrain(owner, jobs_app, run_jobs):
     """Both change the exemplar set, which is half of what a retrain regenerates."""
     await build_ordering(owner, LIBRARY[:4])
-    before = len(await queued_retrains(jobs_app))
+    await run_jobs()
+    assert await queued_retrains(jobs_app) == []
 
+    await mark_anchor(owner, LIBRARY[1])
+    assert len(await queued_retrains(jobs_app)) == 1
+
+    await run_jobs()
+    await retire_anchor(owner, LIBRARY[1])
+    assert len(await queued_retrains(jobs_app)) == 1
+
+
+async def test_a_burst_of_changes_waits_on_one_retrain(owner, jobs_app):
+    """A retrain rebuilds from scratch off the ordering as it stands, so one that is
+    still waiting already covers every change made since it was queued."""
+    await build_ordering(owner, LIBRARY[:4])
     await mark_anchor(owner, LIBRARY[1])
     await retire_anchor(owner, LIBRARY[1])
 
-    assert len(await queued_retrains(jobs_app)) == before + 2
+    assert len(await queued_retrains(jobs_app)) == 1
 
 
 async def test_a_toggle_that_changes_nothing_queues_nothing(owner, jobs_app):
@@ -202,7 +215,7 @@ async def test_each_retrain_appends_one_metrics_row_and_rewrites_none(owner, db,
     await run_jobs()
     account = await owner_id(owner)
     before = await taste_metrics(db, account)
-    assert len(before) == 5, "one row per rating"
+    assert len(before) == 1, "one row per retrain, and five ratings in a row shared one"
 
     await rate(owner, LIBRARY[5], 2.0)
     await run_jobs()

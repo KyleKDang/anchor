@@ -83,10 +83,14 @@ class AccountOut(BaseModel):
     id: uuid.UUID
     email: str
     verified: bool
+    demo: bool
+    """The shared read-only demo account, whose wall has no edit mode (demo-account.md)."""
 
     @classmethod
     def of(cls, account: Account) -> Self:
-        return cls(id=account.id, email=account.email, verified=account.verified)
+        return cls(
+            id=account.id, email=account.email, verified=account.verified, demo=account.is_demo
+        )
 
 
 # --- The door ---

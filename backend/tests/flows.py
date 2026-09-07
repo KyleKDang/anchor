@@ -160,6 +160,22 @@ async def anchored(client, band, film):
     return landed
 
 
+# --- Moves ---
+
+
+async def move(client, film, band, rank, expect=200):
+    """Drag a film to a rank in a band on the wall, which is the whole of a move.
+
+    ``rank`` is the place the film holds once it has landed: 1..n inside its own band,
+    1..n+1 in another. Every drop saves at once, so one call is one drop.
+    """
+    response = await client.post(
+        f"/api/rated/{film.tmdb_id}/move", json={"band": band, "rank": rank}
+    )
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
 # --- Rewatches ---
 
 
