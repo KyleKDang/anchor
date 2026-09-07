@@ -19,8 +19,8 @@ lower - can settle it.
 
 *This module is pure, and the narrowing keeps no state.* A rating in progress needs no
 entity (data-model.md), so the whole of a narrowing is replayed from the range the owner
-selected and the verdicts they have given: the same inputs always reach the same
-question. That is what lets the screen carry the transcript and the server stay a read -
+selected and the answers they have given: the same inputs always reach the same
+question. That is what lets the screen carry the answers and the server stay a read -
 and it means a client cannot name its own opponent, because it never names one at all.
 """
 
@@ -33,8 +33,14 @@ from dataclasses import dataclass
 from anchor.ordering import Ordering
 
 
-class Verdict(enum.StrEnum):
-    """The four answers a band comparison takes, as the owner meets them on screen."""
+class Answer(enum.StrEnum):
+    """The four answers a band comparison takes, as the owner meets them on screen.
+
+    Not called a verdict: CONTEXT.md keeps that word for the precomputed judgment behind
+    a discovery suggestion, and the log's own column is a ``ComparisonVerdict`` of a/b/
+    tied/skip. These are what the owner is offered on the screen, and the mapping between
+    the two is written down once, where the log entry is built.
+    """
 
     better = "better"
     """At least the band the opponent stood for."""
@@ -97,8 +103,8 @@ class Narrowing:
 
     bands: tuple[float, ...]
     """The bands still in the range, best first."""
-    answered: tuple[tuple[Opponent, Verdict], ...]
-    """Every comparison replayed, in the order it was answered. The transcript's meaning."""
+    answered: tuple[tuple[Opponent, Answer], ...]
+    """Every comparison replayed, in the order it was answered: what the answers meant."""
     question: Opponent | None = None
     seam: Seam | None = None
     choose: bool = False
@@ -108,38 +114,42 @@ class Narrowing:
 
     def beaten(self) -> tuple[int, ...]:
         """The films the owner said this one is better than."""
-        return tuple(one.film_id for one, verdict in self.answered if verdict is Verdict.better)
+        return tuple(one.film_id for one, answer in self.answered if answer is Answer.better)
 
     def lost_to(self) -> tuple[int, ...]:
         """The films the owner said this one is worse than."""
-        return tuple(one.film_id for one, verdict in self.answered if verdict is Verdict.worse)
+        return tuple(one.film_id for one, answer in self.answered if answer is Answer.worse)
 
 
-def seed_for(account_id: uuid.UUID, subject: int) -> int:
+def seed_for(account_id: uuid.UUID, subject: int, base: int = 0) -> int:
     """The tie-break seed for one film's narrowing: per account, per film, and stable.
 
     Opponent choice is advisory (ADR 0001), and the only thing left to chance in it is
     which of two equally central anchors gets asked. Fixing that per account and film
     rather than drawing it fresh keeps a narrowing coherent across its own steps - the
     same range replays to the same questions - and keeps two owners from being asked in
-    lockstep. Callers pass a seed rather than reading one so the rule can be tested
-    against several without inventing an account per seed.
+    lockstep.
+
+    ``base`` is the configured seed, zero everywhere but a test that wants the same
+    account and the same library asked a different way. Sampling accepts a seed so a
+    scripted answer sequence lands deterministically (testing.md), and this is where the
+    picker's one sampled decision takes one.
     """
-    return zlib.crc32(account_id.bytes) ^ subject
+    return zlib.crc32(account_id.bytes) ^ subject ^ base
 
 
 def narrow(
     ordering: Ordering,
     subject: int,
     selected: Sequence[float],
-    verdicts: Sequence[Verdict],
+    answers: Sequence[Answer],
     seed: int,
 ) -> Narrowing:
     """Replay a narrowing from the range the owner selected and the answers they gave.
 
     The loop is the spec read straight through: pick the question the current range calls
-    for, apply the next verdict to it, and stop the moment the range is one band, the
-    owner says "about the same", or the transcript runs out and there is something to ask.
+    for, apply the next answer to it, and stop the moment the range is one band, the
+    owner says "about the same", or the answers run out and there is something to ask.
 
     ``subject`` is excluded from every opponent and exemplar. On a re-rate the film being
     rated is already on the wall, and asking the owner whether a film is better than
@@ -148,7 +158,7 @@ def narrow(
     live = tuple(selected)
     phase = Phase.middle if len(live) == 3 else Phase.upper
     asked: set[int] = set()
-    answered: list[tuple[Opponent, Verdict]] = []
+    answered: list[tuple[Opponent, Answer]] = []
     index = 0
 
     while True:
@@ -176,22 +186,22 @@ def narrow(
             # a band with no film at all cannot be asked about at all (rating-system.md).
             phase = _advance(phase)
             continue
-        if index >= len(verdicts):
+        if index >= len(answers):
             return Narrowing(bands=live, answered=tuple(answered), question=candidate)
 
-        verdict = verdicts[index]
+        answer = answers[index]
         index += 1
         asked.add(candidate.film_id)
-        answered.append((candidate, verdict))
-        if verdict is Verdict.skip:
+        answered.append((candidate, answer))
+        if answer is Answer.skip:
             # Records nothing and swaps in the band's next candidate: same phase, same
             # range, one fewer film to ask about.
             continue
-        if verdict is Verdict.same:
+        if answer is Answer.same:
             return Narrowing(bands=(band,), answered=tuple(answered), settled=band)
         live = (
             tuple(one for one in live if one >= band)
-            if verdict is Verdict.better
+            if answer is Answer.better
             else tuple(one for one in live if one <= band)
         )
         phase = _advance(phase)
@@ -218,7 +228,7 @@ def landing_rank(
     lost_to = [seats[film_id] for film_id in narrowing.lost_to() if film_id in seats]
 
     # Below every film it lost to first, then above every film it beat, so that a
-    # transcript that contradicts itself - possible only if the owner answered two ways
+    # run of answers that contradicts itself - possible only if the owner answered two ways
     # about one band - still lands somewhere rather than throwing.
     if lost_to:
         rank = max(rank, max(lost_to) + 1)

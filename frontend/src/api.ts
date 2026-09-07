@@ -84,7 +84,7 @@ export interface Picker {
 }
 
 /** A comparison's four answers, as the owner meets them on screen. */
-export type NarrowVerdict = "better" | "worse" | "same" | "skip";
+export type ComparisonAnswer = "better" | "worse" | "same" | "skip";
 
 /** The film a comparison sets the subject against, and the band it stands for. */
 export interface PickerOpponent {
@@ -122,7 +122,7 @@ export interface Narrowed {
   /** The range the owner selected. */
   bands: number[];
   /** Every answer given, in order: what the landing is clipped to. */
-  answered: NarrowVerdict[];
+  answered: ComparisonAnswer[];
   /** The boundary film the owner judged it closer to, and null for every other pick. */
   closer?: number | null;
 }
@@ -691,8 +691,8 @@ export const api = {
   narrow: (
     tmdbId: number,
     bands: number[],
-    answered: NarrowVerdict[],
-    verdict: NarrowVerdict | null = null,
+    answered: ComparisonAnswer[],
+    verdict: ComparisonAnswer | null = null,
   ) => request<NarrowStep>("POST", `/api/placements/${tmdbId}/narrow`, { bands, answered, verdict }),
   /** Tap a band, which is the whole of rating a film - or land the range it narrowed to. */
   pickBand: (tmdbId: number, band: number, narrowed?: Narrowed) =>

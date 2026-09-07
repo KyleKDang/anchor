@@ -271,6 +271,42 @@ async def test_the_owners_last_resort_pick_must_be_a_band_the_answers_left(owner
     await land(owner, SUBJECT, 4.0, bands=[5.0, 4.5], answered=["better"], expect=409)
 
 
+async def test_a_range_sitting_at_the_boundary_can_only_be_answered_by_it(owner):
+    """The seam is what the boundary question settles, not one of several ways to."""
+    await a_seam(owner)
+
+    await land(owner, SUBJECT, 5.0, bands=[5.0, 4.5], answered=["worse", "better"], expect=409)
+
+
+async def test_a_boundary_film_named_where_no_boundary_is_waiting_is_refused(owner):
+    await a_seam(owner)
+
+    await land(
+        owner,
+        SUBJECT,
+        5.0,
+        bands=[5.0, 4.5],
+        answered=["better"],
+        closer=LIBRARY[2].tmdb_id,
+        expect=409,
+    )
+
+
+async def test_answers_the_range_could_never_have_produced_are_refused(owner):
+    """Answering past the end of a run is a screen out of step, not a judgment."""
+    await a_seam(owner)
+
+    await narrow(owner, SUBJECT, [5.0, 4.5], ["better", "worse"], expect=409)
+    await land(owner, SUBJECT, 5.0, bands=[5.0, 4.5], answered=["better", "worse"], expect=409)
+
+
+async def test_a_one_band_range_is_not_a_range(owner):
+    """One band is not being unsure; that is the outright pick, which names no range."""
+    await a_seam(owner)
+
+    await land(owner, SUBJECT, 5.0, bands=[5.0], expect=422)
+
+
 # --- Skipping ---
 
 
@@ -332,18 +368,23 @@ async def test_a_film_that_beat_an_anchor_lands_above_it(owner, db):
 
 
 async def test_a_film_that_lost_to_a_stand_in_lands_below_it(owner, db):
-    """The other half of the clip, and the reason a stand-in is a real opponent."""
-    await build_ordering(owner, LIBRARY[0:3], band=4.0)
-    await build_ordering(owner, LIBRARY[4:6], band=3.5)
-    await mark_watched(owner, SUBJECT, "now")
+    """The other half of the clip, and the reason a stand-in is a real opponent.
 
-    # The 4.0 band's stand-in is its bottom film, and losing to it puts the film below it.
-    step = await answer(owner, SUBJECT, [4.0, 3.5], ["worse", "skip"])
-    assert step["boundary"] is not None
-    await land(owner, SUBJECT, 4.0, bands=[4.0, 3.5], answered=["worse", "skip"], closer=None)
+    The subject is the best-sorting film in the library, so the default order would seat
+    it at the top of the band. Losing to the film standing for that band is what moves it.
+    """
+    subject = LIBRARY[0]
+    await build_ordering(owner, LIBRARY[4:7], band=4.0)
+    await build_ordering(owner, LIBRARY[7:10], band=3.5)
+    await mark_watched(owner, subject, "now")
 
-    row = (ordering_of(await rated(owner)))[4.0]
-    assert row.index(SUBJECT.tmdb_id) > row.index(LIBRARY[2].tmdb_id)
+    step = await answer(owner, subject, [4.0, 3.5], ["worse", "worse"])
+    assert step["band"] == 3.5, "losing to the lower band's stand-in settles it there"
+    landed = await land(owner, subject, 3.5, bands=[4.0, 3.5], answered=["worse", "worse"])
+
+    row = (ordering_of(await rated(owner)))[3.5]
+    assert row.index(subject.tmdb_id) > row.index(LIBRARY[7].tmdb_id)
+    assert landed["rank"] == 2, "the default order would have seated it first"
     await assert_ordering_well_formed(db, await account_id(owner))
 
 
@@ -433,6 +474,32 @@ async def test_a_boundary_pick_names_both_exemplars_and_the_range(owner, db):
     )
 
 
+async def test_a_pick_the_comparisons_settled_names_the_one_band_they_left(owner, db):
+    """The range on a pick is the range it was narrowing, which is how the kinds differ."""
+    account = await account_id(owner)
+    await a_seam(owner)
+
+    await land(owner, SUBJECT, 5.0, bands=[5.0, 4.5], answered=["better"])
+
+    row = (await comparison_log(db, account))[-1]
+    assert row[1] == "band_pick" and row[6] == 5.0
+    assert tuple(row[column] for column in RANGE_COLUMNS) == (5.0, 5.0)
+    assert tuple(row[column] for column in EXEMPLAR_COLUMNS) == (None, None)
+
+
+async def test_a_last_resort_pick_names_the_bands_it_was_picked_from(owner, db):
+    """Nothing could be asked, so the range the owner chose from is still whole."""
+    account = await account_id(owner)
+    await mark_watched(owner, SUBJECT, "now")
+
+    await land(owner, SUBJECT, 1.5, bands=[2.0, 1.5])
+
+    row = (await comparison_log(db, account))[-1]
+    assert row[1] == "band_pick" and row[6] == 1.5
+    assert tuple(row[column] for column in RANGE_COLUMNS) == (2.0, 1.5), "more than one band left"
+    assert tuple(row[column] for column in EXEMPLAR_COLUMNS) == (None, None)
+
+
 async def test_an_outright_pick_names_no_range_and_no_exemplars(owner, db):
     """The picker's one-tap path narrowed nothing, and the log says so rather than guessing."""
     account = await account_id(owner)
@@ -460,24 +527,36 @@ async def test_an_unwatched_film_cannot_be_narrowed(owner):
     await narrow(owner, SUBJECT, [5.0, 4.5], expect=409)
 
 
-async def test_the_middle_anchor_rule_holds_whichever_way_a_tie_falls(owner, other_owner):
-    """An even pool has two equally central anchors and the seed picks; the rule is the test.
+async def an_even_pool(client):
+    """A middle band whose four anchors leave two equally central, and no rule between them."""
+    await build_ordering(client, LIBRARY[0:2], band=5.0)
+    await build_ordering(client, LIBRARY[3:7], band=4.5)
+    await build_ordering(client, LIBRARY[8:10], band=4.0)
+    for film in LIBRARY[3:7]:
+        await mark_anchor(client, film)
+    await mark_watched(client, SUBJECT, "now")
 
-    Two accounts, one library, two seeds. What is pinned is that the film asked about is
-    one of the pool's two central anchors - never which of them a given account got.
+
+async def test_the_middle_anchor_rule_holds_whichever_way_the_seed_falls(owner):
+    """The seed decides an exact tie; the rule is what the test pins.
+
+    Two runs of the same library under two seeds. What is asserted is that the film asked
+    about is one of the pool's two central anchors - never which of them a seed produced.
     """
-    central = {LIBRARY[4].tmdb_id, LIBRARY[5].tmdb_id}
-    for client in (owner, other_owner):
-        await build_ordering(client, LIBRARY[0:2], band=5.0)
-        await build_ordering(client, LIBRARY[3:7], band=4.5)
-        await build_ordering(client, LIBRARY[8:10], band=4.0)
-        for film in LIBRARY[3:7]:
-            await mark_anchor(client, film)
-        await mark_watched(client, SUBJECT, "now")
+    await an_even_pool(owner)
 
-        step = await narrow(client, SUBJECT, [5.0, 4.5, 4.0])
+    step = await narrow(owner, SUBJECT, [5.0, 4.5, 4.0])
 
-        assert step["question"]["film"]["tmdb_id"] in central
+    assert step["question"]["film"]["tmdb_id"] in {LIBRARY[4].tmdb_id, LIBRARY[5].tmdb_id}
+
+
+@pytest.mark.settings(picker_seed=1)
+async def test_the_middle_anchor_rule_holds_under_another_seed(owner):
+    await an_even_pool(owner)
+
+    step = await narrow(owner, SUBJECT, [5.0, 4.5, 4.0])
+
+    assert step["question"]["film"]["tmdb_id"] in {LIBRARY[4].tmdb_id, LIBRARY[5].tmdb_id}
 
 
 async def test_an_answer_to_a_question_that_is_not_being_asked_is_refused(owner):
