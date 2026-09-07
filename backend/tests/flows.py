@@ -640,3 +640,48 @@ async def discovery(client, boundary=True, expect=200):
 async def shelf(client, boundary=True):
     """Just the films on the shelf, in the order the screen shows them."""
     return (await discovery(client, boundary=boundary))["films"]
+
+
+async def accept(client, film, expect=200):
+    """ "I want to watch this." The card goes, the film joins the backlog, nothing learns."""
+    return await _acted(client, "POST", f"/api/discovery/{film.tmdb_id}/accept", expect)
+
+
+async def dismiss_suggestion(client, film, expect=200):
+    """ "Not interested." The card goes and the film is suppressed until it is lifted."""
+    return await _acted(client, "POST", f"/api/discovery/{film.tmdb_id}/dismissal", expect)
+
+
+async def seen_it(client, film, expect=200):
+    """ "I have already seen this." Watched-unrated, with a seat and one skippable offer."""
+    return await _acted(client, "POST", f"/api/discovery/{film.tmdb_id}/seen", expect)
+
+
+async def _acted(client, method, path, expect):
+    """One owner action on a card, with the shelf it left behind checked on the way out.
+
+    The same honesty assertions the feed's own read carries, because the response is a
+    shelf: an action that leaked a fit bucket would leak it exactly as a read would.
+    """
+    response = await client.request(method, path)
+    assert response.status_code == expect, response.text
+    payload = response.json()
+    if expect >= 400:
+        return payload
+    assert_no_rating_keys(payload, "a discovery action")
+    for card in payload["films"]:
+        assert "fit" not in card, f"a discovery action leaked a fit bucket: {card}"
+    return payload
+
+
+async def dismissed(client):
+    """The reviewable dismissed list, behind the Discovery overflow."""
+    response = await client.get("/api/discovery/dismissals")
+    assert response.status_code == 200, response.text
+    return response.json()["films"]
+
+
+async def lift_dismissal(client, film, expect=204):
+    """The owner taking a dismissal back; the film becomes suggestible again."""
+    response = await client.delete(f"/api/discovery/{film.tmdb_id}/dismissal")
+    assert response.status_code == expect, response.text

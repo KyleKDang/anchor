@@ -76,6 +76,10 @@ WIPED = (
     # off a queue the owner was working through - so they belong to the library being
     # replaced rather than to the owner's standing statements about themselves.
     "dismissals",
+    # The cooldowns go with the feed state they are counted in. Their whole content is a
+    # refresh number the counter above has just been reset to zero, so a surviving row
+    # would hold a film off a shelf that has never been refreshed at all.
+    "suggestion_cooldowns",
     "import_rows",
     "imports",
     "account_films",
@@ -182,7 +186,10 @@ async def _seed_rating(
         return
     if account_film is None:
         account_film = AccountFilm(
-            account_id=account_id, film_id=film.tmdb_id, state=LifecycleState.backlog
+            account_id=account_id,
+            film_id=film.tmdb_id,
+            state=LifecycleState.backlog,
+            origin=WatchOrigin.import_seeded,
         )
         db.add(account_film)
         await db.flush()
@@ -228,6 +235,7 @@ async def _seed_backlog(
             account_id=account_id,
             film_id=film_id,
             state=LifecycleState.backlog,
+            origin=WatchOrigin.import_seeded,
             # Letterboxd's own added-at date, so the backlog's default sort means
             # something the moment the import lands rather than being one flat instant.
             **({"added_at": row.occurred_at} if row.occurred_at is not None else {}),
@@ -250,6 +258,7 @@ async def _seed_watched(db: AsyncSession, account_id: uuid.UUID, film_id: int) -
                 film_id=film_id,
                 state=LifecycleState.watched_unrated,
                 rate_later=True,
+                origin=WatchOrigin.import_seeded,
             )
         )
         await db.flush()

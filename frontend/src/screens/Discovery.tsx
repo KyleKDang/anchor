@@ -1,11 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router";
 
-import { api, messageOf, type Feed, type Suggestion, type Threshold } from "../api";
+import {
+  api,
+  messageOf,
+  type Acted,
+  type DismissedFilm,
+  type Feed,
+  type Suggestion,
+  type Threshold,
+} from "../api";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
-import { filmPath, releaseYear } from "../films/tmdb";
+import { filmPath, placePath, releaseYear } from "../films/tmdb";
 import { plural, shortfall, worstBar } from "../films/unlock";
+import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
  * The Discovery screen: films from the wider catalog, chosen for this owner.
@@ -18,10 +27,17 @@ import { plural, shortfall, worstBar } from "../films/unlock";
  * The shelf runs short whenever the engine has less to stand behind, and says nothing
  * about it. There is no "we could not find more" banner and nothing is padded out to
  * twenty: a feed that only shows what it can defend has nothing to apologise for.
+ *
+ * Every card carries three ways off it, and keeping them apart is the point. Adding one
+ * to the backlog says "I want this"; seen-it says "I already have"; not-interested says
+ * "the pitch does not appeal" - and it only means that reliably because the other two
+ * exist to catch the answers that would otherwise be filed under it. The slot behind
+ * whichever one is used fills itself at once, so the shelf never has a hole in it.
  */
 export function Discovery() {
   const [feed, setFeed] = useState<Feed | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [invited, setInvited] = useState<Suggestion | null>(null);
 
   const load = useCallback(async (boundary: boolean) => {
     try {
@@ -47,6 +63,19 @@ export function Discovery() {
     arrived.current = true;
   }, [load]);
 
+  /**
+   * Take the shelf an action handed back, rather than reloading the screen for it.
+   *
+   * The response already is the shelf with the gap closed and the slot refilled, so a
+   * reload would ask the same question twice and let the list flicker between the two
+   * answers. An action is never a session boundary, so nothing the engine did can arrive
+   * through here either.
+   */
+  const applied = useCallback((acted: Acted, film: Suggestion) => {
+    setFeed((standing) => (standing === null ? standing : { ...standing, films: acted.films }));
+    if (acted.place_now) setInvited(film);
+  }, []);
+
   return (
     <>
       <h1>Discovery</h1>
@@ -55,7 +84,9 @@ export function Discovery() {
           {error}
         </p>
       )}
-      {feed !== null && (feed.unlocked ? <Shelf feed={feed} /> : <Locked feed={feed} />)}
+      {invited !== null && <PlaceNow film={invited} onSkip={() => setInvited(null)} />}
+      {feed !== null &&
+        (feed.unlocked ? <Shelf feed={feed} onActed={applied} /> : <Locked feed={feed} />)}
     </>
   );
 }
@@ -98,35 +129,46 @@ function remaining(thresholds: Threshold[]): string {
   return `Rate ${short} more film${plural(short)} first.`;
 }
 
+/** What every action on a card reports back: the new shelf, and the card it was about. */
+type Applied = (acted: Acted, film: Suggestion) => void;
+
 /** The shelf itself, or the honest empty state when the engine has nothing to offer. */
-function Shelf({ feed }: { feed: Feed }) {
-  if (feed.films.length === 0) {
-    return (
-      <div className="empty">
-        <p className="muted">
-          Nothing to suggest just now. Anchor only puts a film here when it can say why, so
-          this fills in as it learns more about what you like.
-        </p>
-      </div>
-    );
-  }
+function Shelf({ feed, onActed }: { feed: Feed; onActed: Applied }) {
   return (
-    <ul className="film-list">
-      {feed.films.map((film) => (
-        <Card key={film.tmdb_id} film={film} />
-      ))}
-    </ul>
+    <>
+      {feed.films.length === 0 ? (
+        <div className="empty">
+          <p className="muted">
+            Nothing to suggest just now. Anchor only puts a film here when it can say why, so
+            this fills in as it learns more about what you like.
+          </p>
+        </div>
+      ) : (
+        <ul className="film-list">
+          {feed.films.map((film) => (
+            <Card key={film.tmdb_id} film={film} onActed={onActed} />
+          ))}
+        </ul>
+      )}
+      <NotInterested />
+    </>
   );
 }
 
 /**
- * One suggestion: the film, the reason, and the plot behind its spoiler toggle.
+ * One suggestion: the film, the reason, the plot behind its spoiler toggle, and the three
+ * things the owner can say about it.
  *
  * The pitch is the loudest thing on the row after the title, because it is the only thing
  * the engine says out loud and the whole reason the shelf is worth reading. The plot stays
  * folded away, the way it does on every surface in Anchor that shows one.
+ *
+ * Adding to the backlog is the one action with a button, because it is the one the shelf
+ * exists for. The other two are quiet verbs under the pitch, the shape the ranked tier's
+ * overrides already take: twenty rows with three buttons each would be sixty controls
+ * with the films lost among them.
  */
-function Card({ film }: { film: Suggestion }) {
+function Card({ film, onActed }: { film: Suggestion; onActed: Applied }) {
   return (
     <li className="film-row suggestion">
       <Link className="poster-link" to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
@@ -142,9 +184,200 @@ function Card({ film }: { film: Suggestion }) {
               .filter(Boolean)
               .join(" · ")}
           </span>
+          {/* Freshness, not fit: it says the card is new to this visit and nothing about
+              how good a match it is, which is why it can sit here at all (ADR 0005). */}
+          {film.fresh && <span className="state-flag">New</span>}
         </p>
         <p className="pitch">{film.pitch}</p>
         <Plot overview={film.overview} />
+        <p className="row-verbs">
+          <Verb
+            label="Seen it"
+            act={() => api.seenSuggestion(film.tmdb_id)}
+            film={film}
+            onActed={onActed}
+          />
+          <Verb
+            label="Not interested"
+            act={() => api.dismissSuggestion(film.tmdb_id)}
+            film={film}
+            onActed={onActed}
+          />
+        </p>
+      </div>
+      <div className="film-row-actions">
+        <Accept film={film} onActed={onActed} />
+      </div>
+    </li>
+  );
+}
+
+/** The affirmative answer, and the only one on the row that keeps a button. */
+function Accept({ film, onActed }: { film: Suggestion; onActed: Applied }) {
+  const { busy, error, run } = useAsyncAction();
+  return (
+    <>
+      <button
+        type="button"
+        className="button"
+        disabled={busy}
+        onClick={() => void run(async () => onActed(await api.acceptSuggestion(film.tmdb_id), film))}
+      >
+        Add to backlog
+      </button>
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
+/** One of the two quiet answers: the card leaving the shelf is its whole confirmation. */
+function Verb({
+  label,
+  act,
+  film,
+  onActed,
+}: {
+  label: string;
+  act: () => Promise<Acted>;
+  film: Suggestion;
+  onActed: Applied;
+}) {
+  const { busy, error, run } = useAsyncAction();
+  return (
+    <>
+      <button
+        type="button"
+        className="link-button"
+        disabled={busy}
+        onClick={() => void run(async () => onActed(await act(), film))}
+      >
+        {label}
+      </button>
+      {error && (
+        <span className="error" role="alert">
+          {error}
+        </span>
+      )}
+    </>
+  );
+}
+
+/**
+ * The seen-it invite: one line, at a moment the owner triggered, and skippable.
+ *
+ * A line rather than a modal, because nothing in Anchor interrupts (ADR 0011) - and
+ * skipping it costs the owner nothing at all, since marking the film seen already put it
+ * in the rate-later queue. "Later" never becomes a promise, so there is no chaser and
+ * this never comes back on its own.
+ */
+function PlaceNow({ film, onSkip }: { film: Suggestion; onSkip: () => void }) {
+  return (
+    <p className="nudge">
+      Marked <strong>{film.title}</strong> as watched. It is waiting in your rate-later queue.{" "}
+      <Link to={placePath(film.tmdb_id)}>Rate it now</Link>, or{" "}
+      <button type="button" className="link-button" onClick={onSkip}>
+        leave it for later
+      </button>
+      .
+    </p>
+  );
+}
+
+/**
+ * The dismissed list, behind the Discovery overflow.
+ *
+ * A record to check rather than something to act on, so it lives folded away under the
+ * shelf - the loudness ceiling for anything that is not the shelf itself (surfacing.md).
+ * It is fetched only when the owner opens it, because a list nobody looks at is not worth
+ * a request on every arrival.
+ *
+ * The wording never reads as distaste. A dismissal says the pitch did not land, which is
+ * the whole reason seen-it is a separate action: this list means only that.
+ */
+function NotInterested() {
+  const [films, setFilms] = useState<DismissedFilm[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      setFilms((await api.dismissedSuggestions()).films);
+      setError(null);
+    } catch (caught) {
+      setError(messageOf(caught));
+    }
+  }, []);
+
+  return (
+    <details
+      className="spoiler section"
+      onToggle={(event) => event.currentTarget.open && void load()}
+    >
+      <summary>Not interested{films && films.length > 0 ? ` (${films.length})` : ""}</summary>
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {films !== null && films.length === 0 ? (
+        <p className="muted">
+          Nothing here yet. Films you turn down are kept on this list, and you can put any of
+          them back whenever you like.
+        </p>
+      ) : (
+        <>
+          <p className="muted">
+            Kept off the shelf until you say otherwise. Nothing about them has been marked down.
+          </p>
+          <ul className="film-list">
+            {(films ?? []).map((film) => (
+              <DismissedRow key={film.tmdb_id} film={film} onChanged={load} />
+            ))}
+          </ul>
+        </>
+      )}
+    </details>
+  );
+}
+
+/** One dismissed film, with the inverse of the action that put it here (surfacing.md). */
+function DismissedRow({ film, onChanged }: { film: DismissedFilm; onChanged: () => void }) {
+  const { busy, error, run } = useAsyncAction();
+  return (
+    <li className="film-row">
+      <Link className="poster-link" to={filmPath(film.tmdb_id)} tabIndex={-1} aria-hidden="true">
+        <Poster title={film.title} path={film.poster_path} size="w154" />
+      </Link>
+      <div className="film-row-body">
+        <h3 className="film-row-title">
+          <Link to={filmPath(film.tmdb_id)}>{film.title}</Link>
+        </h3>
+        <p className="film-row-meta">
+          <span className="muted">{releaseYear(film.year)}</span>
+        </p>
+        {error && (
+          <p className="error" role="alert">
+            {error}
+          </p>
+        )}
+      </div>
+      <div className="film-row-actions">
+        <button
+          type="button"
+          className="link-button"
+          disabled={busy}
+          onClick={() =>
+            void run(async () => {
+              await api.liftDismissal(film.tmdb_id);
+              onChanged();
+            })
+          }
+        >
+          Put back on the shelf
+        </button>
       </div>
     </li>
   );

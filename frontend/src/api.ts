@@ -462,6 +462,33 @@ export interface Suggestion {
   overview: string;
   /** "Because you loved X and Y - ...", precomputed and visible by default. */
   pitch: string;
+  /**
+   * New since the owner's last visit.
+   *
+   * Freshness, never fit: it says when the card arrived and nothing about how good a
+   * match it is, so ADR 0005 is untouched. It marks the card and stops there - positions
+   * are not reordered around it and nothing at nav level ever counts it.
+   */
+  fresh: boolean;
+}
+
+/** One film on the reviewable dismissed list, behind the Discovery overflow. */
+export interface DismissedFilm {
+  tmdb_id: number;
+  title: string;
+  year: number | null;
+  poster_path: string | null;
+}
+
+/** What one owner action on a card leaves behind: the shelf, and any invite it earned. */
+export interface Acted {
+  /** The whole shelf, gap closed and slot backfilled, rather than a diff to apply. */
+  films: Suggestion[];
+  /**
+   * Offer to rate the film now. Seen-it only, and an invite rather than a step: skipping
+   * it costs nothing, because the film is already waiting in the rate-later queue.
+   */
+  place_now: boolean;
 }
 
 /** The Discovery screen: the shelf, or the honest explanation of why there is not one. */
@@ -772,6 +799,18 @@ export const api = {
    */
   feed: ({ boundary = true }: { boundary?: boolean } = {}) =>
     request<Feed>("GET", `/api/discovery${boundary ? "" : "?boundary=false"}`),
+  /** "I want to watch this": the film joins the backlog, and nothing learns anything. */
+  acceptSuggestion: (tmdbId: number) =>
+    request<Acted>("POST", `/api/discovery/${tmdbId}/accept`),
+  /** "Not interested": suppressed until lifted, and kept on the dismissed list. */
+  dismissSuggestion: (tmdbId: number) =>
+    request<Acted>("POST", `/api/discovery/${tmdbId}/dismissal`),
+  /** "I have already seen this": watched-unrated, with a seat and one skippable offer. */
+  seenSuggestion: (tmdbId: number) => request<Acted>("POST", `/api/discovery/${tmdbId}/seen`),
+  dismissedSuggestions: () =>
+    request<{ films: DismissedFilm[] }>("GET", "/api/discovery/dismissals"),
+  liftDismissal: (tmdbId: number) =>
+    request<void>("DELETE", `/api/discovery/${tmdbId}/dismissal`),
 
   importState: () => request<ImportState>("GET", "/api/import"),
   importWarning: () => request<ImportWarning>("GET", "/api/import/warning"),

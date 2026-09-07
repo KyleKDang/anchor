@@ -26,7 +26,6 @@ from anchor.models import (
     AccountFilm,
     RewatchOutcome,
     WatchEvent,
-    WatchOrigin,
 )
 
 router = APIRouter(prefix="/api/rewatches")
@@ -71,7 +70,7 @@ async def log(db: AsyncSession, account_id: uuid.UUID, account_film: AccountFilm
         # Stamped the way any other watch is, rather than assuming a rated film holds no
         # tier seat: where the film stood is the tier's answer to give, not this module's.
         standing=tier.standing(account_film),
-        origin=WatchOrigin.hand_added,
+        origin=account_film.origin,
         rewatch=True,
     )
     db.add(event)

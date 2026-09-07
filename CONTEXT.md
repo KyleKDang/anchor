@@ -251,6 +251,12 @@ Kept separate from dismissal so a dismissal cleanly means the pitch does not app
 **Restock**:
 The re-pull of discovery candidate pools that tops up the feed's pipeline.
 Happens only when the owner has visited the feed since the last one; an owner who ignores discovery costs nothing.
+Buys verdicts and nothing else: the shelf itself is re-derived from them at the owner's next refresh, so a restock landing mid-session moves nothing they are looking at.
+
+**Refresh**:
+The owner arriving at the discovery feed, and the feed's whole clock.
+Every engine-driven change to the shelf lands at one and only at one; rotation and its re-entry cooldown are counted in them, so a dormant account never rotates anything.
+A reload after the owner's own action is not a refresh.
 
 ### Evaluation
 

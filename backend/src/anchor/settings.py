@@ -118,6 +118,18 @@ class Settings(BaseSettings):
     enough above one that no comparison can ever be what triggers a regeneration.
     """
 
+    prose_dismissals_trigger: int = 8
+    """Discovery dismissals that make a regeneration worth buying, and worth reading.
+
+    One number doing both halves of ADR 0006's magnitude guard, because they are the same
+    judgment stated twice: below this many the pile says nothing, so it is not shown to a
+    regeneration and it does not buy one. Above it, this many *new* dismissals since the
+    live version is what makes the pattern worth re-reading.
+
+    Deliberately well above one. A single dismissal means nothing, and the whole risk this
+    guard exists for is a profile that reacts to one tap.
+    """
+
     prose_staleness_judgments: int = 40
     """The backstop: comparison-log rows since the live prose, whatever else moved.
 
@@ -234,6 +246,22 @@ class Settings(BaseSettings):
     list, and because a single call over the whole shortlist would put the month's budget
     behind one provider timeout. Windows are ordered by the prefilter, so the strongest
     candidates are judged together rather than scattered.
+    """
+
+    discovery_rotation_refreshes: int = 3
+    """Refreshes a card may be passed over before it rotates off the shelf.
+
+    discovery.md's indicative number. A refresh is the owner arriving at the feed and
+    saying nothing about what is on it - a card they acted on left when they acted - so
+    this is denominated in their own activity and a dormant account rotates nothing.
+    """
+
+    discovery_reentry_refreshes: int = 3
+    """Refreshes a rotated film waits before it may be suggested again.
+
+    Its verdict is untouched by the rotation, so the return costs nothing: the cooldown
+    expires and the shelf picks the film back up from the same cached judgment. What the
+    wait buys is the owner seeing something else in the meantime.
     """
 
     discovery_pool: int = 300
