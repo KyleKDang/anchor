@@ -1,7 +1,7 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
 
-import { api, messageOf, type CriteriaCard } from "../api";
+import { api, messageOf, type CriteriaCard, type CriteriaDealt, type FilmDetail } from "../api";
 import { CriteriaQuestion } from "../films/Criteria";
 import { filmPath } from "../films/tmdb";
 
@@ -27,9 +27,19 @@ export function Questions() {
   const [over, setOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Opening mints a card, so it must happen once per visit: the effect is what runs on
+  // arrival, and React's development double-run of effects would otherwise open two
+  // sessions and leave one card orphaned as unanswered. The opening is kept across the
+  // re-run and only ever made again for another film.
+  const opening = useRef<{ id: number; dealt: Promise<[FilmDetail, CriteriaDealt]> } | null>(
+    null,
+  );
   useEffect(() => {
+    if (opening.current?.id !== id) {
+      opening.current = { id, dealt: Promise.all([api.film(id), api.openCriteriaSession(id)]) };
+    }
     let cancelled = false;
-    Promise.all([api.film(id), api.openCriteriaSession(id)])
+    opening.current.dealt
       .then(([film, session]) => {
         if (cancelled) return;
         setTitle(film.title);
@@ -63,9 +73,8 @@ export function Questions() {
       {opened && first !== null && !over && (
         <CriteriaQuestion
           first={first}
+          home="session"
           tag={title === null ? "About this film" : `About ${title}`}
-          dismissLabel="Skip this one"
-          dismissal="passes"
           onAnswered={() => setAnswered((count) => count + 1)}
           onDone={() => setOver(true)}
         />

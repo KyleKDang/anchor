@@ -43,7 +43,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
-from anchor import criteria, jobs, tags
+from anchor import criteria, jobs
 from anchor import narrowing as narrowing_module
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
@@ -375,12 +375,7 @@ async def pick(
     # without moving anything else the tier is computed from.
     crossed = await tier_module.note_unlock(db, account.id, settings)
     card = await criteria.offer(db, account, tmdb_id, context)
-    # The films a card from this rating could have named are the ones the next card will
-    # want tags for, so this rating is what buys them - for the next one, never for this
-    # one. Precompute only: nothing above waits on the job this queues.
-    await tags.schedule(
-        db, queue, account.id, await criteria.askable_films(db, account.id, tmdb_id), settings
-    )
+    await criteria.buy_tags(db, queue, account.id, tmdb_id, settings)
     landed = await _landed(db, account, tmdb_id, unlocked=crossed, card=card)
     await db.commit()
     return landed

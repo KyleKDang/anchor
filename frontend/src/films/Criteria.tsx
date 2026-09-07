@@ -16,27 +16,30 @@ import { useAsyncAction } from "./useAsyncAction";
  * was; when nothing comes back the home is over and the card goes. The offer already
  * reads as unanswered, and walking away is recorded exactly the same way as dismissing,
  * so the card says nothing congratulatory afterwards. What the small dismiss does is the
- * home's call: the run ends on it and sends nothing, while the session passes the
- * question over and takes the next.
+ * home's call, and the home is the one thing a caller says: the run ends on it and sends
+ * nothing, while the session passes the question over and takes the next.
  *
  * The wording is a fixed template with the quality dropped in. Anchor never invents the
  * question, and this component is the only place the template exists.
  */
+/** The two homes, and what the small dismiss means in each (screens-and-flows.md). */
+const HOMES = {
+  run: { dismissLabel: "No thanks", dismissal: "ends" },
+  session: { dismissLabel: "Skip this one", dismissal: "passes" },
+} as const;
+
 export function CriteriaQuestion({
   first,
+  home,
   tag,
-  dismissLabel,
-  dismissal,
   onAnswered,
   onDone,
 }: {
   /** The card the home opened with. */
   first: CriteriaCard;
+  home: keyof typeof HOMES;
   /** The small line above the question, saying what this is. */
   tag: string;
-  dismissLabel: string;
-  /** Whether the dismiss ends the home (the run) or passes to the next card (the session). */
-  dismissal: "ends" | "passes";
   /** An answer landed; the count is the home's to show. */
   onAnswered?: () => void;
   /** The home is over: it ran out of questions, or the owner dismissed the run. */
@@ -46,19 +49,20 @@ export function CriteriaQuestion({
   const [card, setCard] = useState<CriteriaCard>(first);
   // A card that arrived after the first slides in; the first one was there already.
   const entered = card.id !== first.id;
+  const { dismissLabel, dismissal } = HOMES[home];
 
   const follow = (next: CriteriaCard | null) => (next === null ? onDone() : setCard(next));
 
   const answer = (verdict: CriteriaVerdict) =>
     void run(async () => {
-      const { next } = await api.answerCriteria(card.id, verdict);
+      const dealt = await api.answerCriteria(card.id, verdict);
       onAnswered?.();
-      follow(next);
+      follow(dealt.card);
     });
 
   const dismiss = () => {
     if (dismissal === "ends") onDone();
-    else void run(async () => follow((await api.dismissCriteria(card.id)).next));
+    else void run(async () => follow((await api.dismissCriteria(card.id)).card));
   };
 
   return (

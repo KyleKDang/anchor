@@ -467,9 +467,8 @@ function CriteriaRun({ first }: { first: CriteriaCard }) {
   return (
     <CriteriaQuestion
       first={first}
+      home="run"
       tag="One more, if you like"
-      dismissLabel="No thanks"
-      dismissal="ends"
       onDone={() => setGone(true)}
     />
   );
