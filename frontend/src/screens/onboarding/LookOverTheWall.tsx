@@ -28,7 +28,9 @@ export function LookOverTheWall({ phase }: { phase: WallPhase }) {
           : `${phase.moved} of about ${phase.target} moved so far.`}
       </p>
       <p>
-        <Link className="button secondary" to="/rated?edit">
+        {/* The same URL the wall's own toggle writes, so arriving here from the step and
+            arriving from the toggle land on one shape rather than two. */}
+        <Link className="button secondary" to="/rated?edit=1">
           Open the wall
         </Link>
       </p>

@@ -160,15 +160,11 @@ class WallPhase(BaseModel):
     moved: int
     """Films the owner has moved, ever. Read off the placements, like everything here."""
     target: int
-    """Advisory: what the step stops asking after. The wall was already theirs to edit."""
-    explain: bool
-    """Show the one-time explanation of dragging and marking (onboarding-and-import.md).
+    """Advisory: what the step stops asking after. The wall was already theirs to edit.
 
-    Presence-based, like every other ambient line (surfacing.md): it goes the moment a
-    film has been moved, because a moved film is the trace of the gesture having landed.
-    Nothing records that the line was shown, which is the better fact of the two - a
-    "seen" flag would keep hiding the explanation from an owner who never worked out what
-    it was explaining.
+    The step's one-time explanation is not here. It explains dragging, so it rides the
+    screen the step sends the owner to rather than the screen they leave, and it is read
+    off the Rated payload's ``wall_hint`` (:func:`explain_the_wall`).
     """
 
 
@@ -422,17 +418,17 @@ async def _wall_phase(
     else here: a placement carries the moment it was last moved, so the step cannot drift
     out of step with the wall it is describing.
     """
-    moved = await moves(db, account_id)
-    skipped = (WarmupMark.wall, None) in marks
+    moved = await _moves(db, account_id)
     return WallPhase(
-        state=_phase_state(skipped=skipped, done=moved >= settings.warmup_moves),
+        state=_phase_state(
+            skipped=(WarmupMark.wall, None) in marks, done=moved >= settings.warmup_moves
+        ),
         moved=moved,
         target=settings.warmup_moves,
-        explain=not skipped and moved == 0,
     )
 
 
-async def moves(db: AsyncSession, account_id: uuid.UUID) -> int:
+async def _moves(db: AsyncSession, account_id: uuid.UUID) -> int:
     """How many of the account's films sit somewhere the owner put them by hand.
 
     A placement's ``moved_at`` is None until the first move and set from then on, so this
@@ -456,7 +452,12 @@ async def explain_the_wall(db: AsyncSession, account_id: uuid.UUID) -> bool:
     about dragging, so it has to be waiting where the dragging happens rather than on the
     page they just left.
 
-    Three facts in one round trip rather than the phase read's three, because this rides
+    Dismissing the whole warmup silences it, which is the one place a dismissal does more
+    than close a screen: the phases go on reporting "todo" after one, because put away is
+    not answered - but this is the warmup speaking on somebody else's screen, and an owner
+    who put the warmup away has said they do not want to be spoken to by it.
+
+    Four facts in one round trip rather than the phase read's several, because this rides
     the Rated screen - the most-read screen there is - and the answer is False on almost
     every load of it.
     """
@@ -466,12 +467,15 @@ async def explain_the_wall(db: AsyncSession, account_id: uuid.UUID) -> bool:
         .where(Placement.account_id == account_id, Placement.moved_at.is_not(None))
         .exists()
     )
-    skipped = (
+    put_away = (
         select(WarmupProgress.id)
-        .where(WarmupProgress.account_id == account_id, WarmupProgress.mark == WarmupMark.wall)
+        .where(
+            WarmupProgress.account_id == account_id,
+            WarmupProgress.mark.in_((WarmupMark.wall, WarmupMark.dismissed)),
+        )
         .exists()
     )
-    return bool(await db.scalar(select(imported & ~moved & ~skipped)))
+    return bool(await db.scalar(select(imported & ~moved & ~put_away)))
 
 
 # --- The last phase: seed the backlog ---

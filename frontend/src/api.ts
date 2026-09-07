@@ -689,10 +689,11 @@ export interface WallPhase {
   state: PromptState;
   /** Films the owner has moved, ever. */
   moved: number;
-  /** Advisory: where the step stops asking. The wall was already theirs to edit. */
+  /** Advisory: where the step stops asking. The wall was already theirs to edit.
+   *
+   * The step's one-time explanation is not here: it explains dragging, so it rides the
+   * screen the step sends the owner to, as the Rated payload's `wall_hint`. */
   target: number;
-  /** Show the one-time explanation of dragging and marking. Goes on the first move. */
-  explain: boolean;
 }
 
 export interface BacklogPhase {

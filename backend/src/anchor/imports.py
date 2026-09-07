@@ -462,7 +462,7 @@ async def _state(db: AsyncSession, account_id: uuid.UUID) -> ImportState:
         pending=states.get(ImportRowState.pending, 0),
         review_pending=await _distinct_films(db, account_id, ImportRowState.review_pending),
         unmatched=await _distinct_films(db, account_id, ImportRowState.unmatched_open),
-        unlocked=[unlock for unlock in Unlock if unlock in showing],
+        unlocked=unlocks_module.ordered(showing),
     )
 
 
