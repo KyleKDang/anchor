@@ -72,7 +72,7 @@ async def test_a_move_up_within_a_band_renumbers_only_that_band(owner, db):
 
     moved = await move(owner, by_id(d), 4.0, 2)
 
-    assert moved == {"tmdb_id": d, "band": 4.0, "rank": 2, "anchor": False}
+    assert moved == {"tmdb_id": d, "band": 4.0, "rank": 2, "anchor": False, "unlocked": []}
     after = await wall(owner)
     assert after[4.0] == [a, d, b, c]
     assert after[3.0] == before[3.0]

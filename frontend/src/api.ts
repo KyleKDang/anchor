@@ -189,6 +189,8 @@ export interface Moved {
   band: number;
   rank: number;
   anchor: boolean;
+  /** What this very drop unlocked, and empty on every other one. */
+  unlocked: Unlock[];
 }
 
 export interface Rated {
@@ -204,6 +206,8 @@ export interface Rated {
   sizes: Record<string, number>;
   /** No anchor exists yet: the one line saying what marking one does. */
   anchor_nudge: boolean;
+  /** The warmup's look-over-the-wall step is unanswered: explain dragging and marking. */
+  wall_hint: boolean;
   rate_later: FilmCard[];
 }
 
@@ -640,14 +644,17 @@ export type WarmupFill = "imported" | "fresh";
 export type PromptState = "todo" | "done" | "skipped";
 
 /** A phase that can be skipped as a whole; a band names one anchor prompt. */
-export type WarmupMark = "anchors" | "rating" | "backlog";
+export type WarmupMark = "anchors" | "rating" | "wall" | "backlog";
 
 export interface AnchorPrompt {
   band: number;
   state: PromptState;
   /** The band's anchor pool. Any number may be marked, so one makes the prompt done. */
   marked: FilmCard[];
-  /** Ranked suggestions on the import fill; empty on the fresh fill, which searches. */
+  /** The band's own films, best-remembered first, minus what is already marked.
+   *
+   * A marked band keeps its list: any number may be marked, and the second one is in
+   * the same place the first came from. Empty once the band is skipped. */
   candidates: FilmCard[];
 }
 
@@ -664,14 +671,28 @@ export interface AnchorPhase {
 /**
  * The fresh fill's middle step: "rate ~5 films you have seen", as normal ratings.
  *
- * Absent on the import fill, whose middle step is looking over the wall it just got -
- * which is edit mode, and arrives with the warmup ticket that follows.
+ * Absent on the import fill, whose middle step is {@link WallPhase} instead.
  */
 export interface RatingPhase {
   state: PromptState;
   rated: number;
   /** Advisory: where the phase stops asking, never a bar the owner has to clear. */
   target: number;
+}
+
+/**
+ * The import fill's middle step: the wall the export just built, in edit mode.
+ *
+ * Absent on the fresh fill, which has nothing yet to look over.
+ */
+export interface WallPhase {
+  state: PromptState;
+  /** Films the owner has moved, ever. */
+  moved: number;
+  /** Advisory: where the step stops asking. The wall was already theirs to edit. */
+  target: number;
+  /** Show the one-time explanation of dragging and marking. Goes on the first move. */
+  explain: boolean;
 }
 
 export interface BacklogPhase {
@@ -688,8 +709,10 @@ export interface Warmup {
   fork: boolean;
   dismissed: boolean;
   anchors: AnchorPhase;
-  /** The fresh fill's middle step, and null on the import fill, which has two. */
+  /** The fresh fill's middle step, and null on the import fill, which has the wall. */
   rating: RatingPhase | null;
+  /** The import fill's middle step, and null on the fresh fill, which has nothing yet. */
+  wall: WallPhase | null;
   backlog: BacklogPhase;
   readiness: Readiness;
 }

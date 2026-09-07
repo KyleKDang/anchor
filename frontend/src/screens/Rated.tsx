@@ -111,6 +111,10 @@ export function Rated() {
 
           <section className="section" aria-labelledby="ordering-heading">
             <h2 id="ordering-heading">Your ordering</h2>
+            {/* Two ambient lines, and edit mode is the one place both can show at once:
+                the wall step's explanation is what the owner was sent here to read, and
+                the anchor nudge is about the toggle sitting on every poster under it. */}
+            {editing && rated.wall_hint && <WallHint />}
             {editing && rated.anchor_nudge && <AnchorNudge onWall />}
             {editing && rated.rows !== null ? (
               <EditableWall
@@ -163,6 +167,24 @@ export function Rated() {
         </>
       )}
     </>
+  );
+}
+
+/**
+ * The warmup's look-over-the-wall step, explained where the wall is.
+ *
+ * One-time and presence-based like every other ambient line (surfacing.md): it goes the
+ * moment a film has been moved, because a moved film is the trace of the gesture having
+ * landed. It names the two gestures and says nothing about finishing anything - the step
+ * is skippable, and the wall was the owner's to edit before it ever asked.
+ */
+function WallHint() {
+  return (
+    <p className="nudge">
+      This is your wall: every film you imported, in the band you rated it. Drag a poster to
+      move it inside its row or into another band, and the new rating saves as it lands. Tap
+      Anchor under a poster to mark a film you are certain of.
+    </p>
   );
 }
 

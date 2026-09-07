@@ -82,6 +82,7 @@ function WarmupSection() {
       : [
           warmup.anchors.state === "todo" && "mark your anchors",
           warmup.rating?.state === "todo" && "rate a few films you have seen",
+          warmup.wall?.state === "todo" && "look over the wall",
           warmup.backlog.state === "todo" && "fill your backlog",
         ].filter((one): one is string => one !== false);
   if (warmup === null || left.length === 0) return null;

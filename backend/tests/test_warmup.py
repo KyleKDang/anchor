@@ -1,10 +1,10 @@
 """Onboarding, driven the way its owner drives it: pick a way in, warm up, or skip it all.
 
 One skeleton with two fills, so the tests come in two halves that meet at the same
-phases. The import fill has two of them for now - its middle step is the wall in edit
-mode, which arrives with the warmup ticket that follows this one - and the fresh fill
-keeps its three. Every test speaks the JSON API over a real database with TMDB faked at
-its HTTP edge (testing.md).
+phases. Both fills have three of them and only the middle one differs: the import fill
+looks over the wall its export just built, and the fresh fill rates a few more films.
+Every test speaks the JSON API over a real database with TMDB faked at its HTTP edge
+(testing.md).
 """
 
 import pytest
@@ -23,6 +23,7 @@ from flows import (
     dismiss_warmup,
     enter_warmup,
     mark_anchor,
+    move,
     pool_for,
     profile,
     prompt_for,
@@ -260,14 +261,27 @@ async def test_the_rating_phase_stops_asking_at_its_target(owner):
     assert phase["state"] == "done"
 
 
-async def test_the_import_fill_has_no_rating_phase_yet(owner, run_jobs):
-    """Its middle step is the wall in edit mode, which does not exist yet (ADR 0013)."""
+async def test_the_import_fill_swaps_the_rating_phase_for_the_wall(owner, run_jobs):
+    """Its middle step is looking over the wall the export just built, not rating more.
+
+    An owner who imported has ratings already; what they have not seen is the ordering
+    those ratings made, and edit mode is where they meet it (ADR 0013).
+    """
     await _import(owner, run_jobs, ratings=_rated_group())
 
     state = await warmup(owner)
 
     assert state["fill"] == "imported"
     assert state["rating"] is None
+    assert state["wall"] == {"state": "todo", "moved": 0, "target": 3, "explain": True}
+
+
+async def test_the_fresh_fill_has_no_wall_step(owner):
+    """Nothing was built for it to look over: its middle step is rating a few films."""
+    state = await warmup(owner)
+
+    assert state["wall"] is None
+    assert state["rating"] is not None
 
 
 async def test_adding_a_film_the_owner_means_to_watch_finishes_the_last_phase(owner):
@@ -326,18 +340,6 @@ async def test_a_profile_favourite_is_boosted_to_the_top_of_its_band(owner, run_
     )
 
 
-async def test_candidates_stop_being_offered_once_the_band_has_an_anchor(owner, run_jobs):
-    await _import(owner, run_jobs, ratings=_rated_group())
-    prompt = prompt_for((await warmup(owner))["anchors"], BAND)
-    await mark_anchor(owner, _fixture(prompt["candidates"][0]["tmdb_id"]))
-
-    prompt = prompt_for((await warmup(owner))["anchors"], BAND)
-
-    assert prompt["state"] == "done"
-    assert prompt["candidates"] == [], "the question has been answered, so it stops being asked"
-    assert prompt["marked"] != []
-
-
 async def test_the_import_fill_seeds_the_backlog_before_the_owner_arrives(owner, run_jobs):
     """Phase 3 on the import fill has already happened: watchlist.csv is the whole of it."""
     await _import(owner, run_jobs, ratings=_rated_group(), watchlist=(Row(WANTED.title, 2021),))
@@ -346,6 +348,138 @@ async def test_the_import_fill_seeds_the_backlog_before_the_owner_arrives(owner,
 
     assert phase == {"state": "done", "films": 1, "seeded": 1}
     assert [film["tmdb_id"] for film in (await backlog(owner))["films"]] == [WANTED.tmdb_id]
+
+
+async def test_a_band_keeps_offering_candidates_after_the_first_mark(owner, run_jobs):
+    """Any number may be marked per band, so the first mark does not close the offer.
+
+    A band with one anchor is a band that can hold two, and the film that would be the
+    second is sitting in the same ranked list the first came from - so the prompt goes on
+    offering it rather than sending the owner to the film page to do what it was already
+    doing (onboarding-and-import.md).
+    """
+    await _import(owner, run_jobs, ratings=_rated_group())
+    first = prompt_for((await warmup(owner))["anchors"], BAND)["candidates"][0]
+    await mark_anchor(owner, _fixture(first["tmdb_id"]))
+
+    prompt = prompt_for((await warmup(owner))["anchors"], BAND)
+
+    assert prompt["state"] == "done", "the question has been answered"
+    assert [film["tmdb_id"] for film in prompt["marked"]] == [first["tmdb_id"]]
+    assert prompt["candidates"] != [], "and the band is still open to a second one"
+    assert first["tmdb_id"] not in [film["tmdb_id"] for film in prompt["candidates"]], (
+        "a film already marked is not offered as a candidate for the mark it holds"
+    )
+
+
+# --- The middle phase, the import fill: look over the wall ---
+
+
+async def test_the_wall_step_completes_once_the_owner_has_moved_a_few_films(owner, run_jobs):
+    """Done when the gesture has been used, not when the ordering is right.
+
+    The step exists to introduce dragging, and the wall was already the owner's to edit
+    as much or as little as they liked - so what completes it is having moved, and the
+    number is advisory like every other one in the warmup.
+    """
+    await _import(owner, run_jobs, ratings=_rated_group())
+    assert (await warmup(owner))["wall"]["state"] == "todo"
+
+    # Each to the end of the row in turn, so every one of the three is a real move: a
+    # drop that lands a film where it already sits is not a move and does not count.
+    for film in GROUP[:3]:
+        await move(owner, film, BAND, len(GROUP))
+
+    phase = (await warmup(owner))["wall"]
+    assert phase["moved"] == 3
+    assert phase["state"] == "done"
+
+
+async def test_the_explanation_goes_the_moment_the_owner_has_dragged_anything(owner, run_jobs):
+    """One-time, and presence-based like every other ambient line (surfacing.md).
+
+    Nothing records that it was shown: a film the owner has moved is the trace, and it is
+    a truer one than a "seen" flag, which would go on hiding the explanation for an owner
+    who never worked out what it was explaining.
+    """
+    await _import(owner, run_jobs, ratings=_rated_group())
+    assert (await warmup(owner))["wall"]["explain"] is True
+
+    await move(owner, GROUP[0], BAND, 4)
+
+    phase = (await warmup(owner))["wall"]
+    assert phase["explain"] is False, "the gesture has been learned"
+    assert phase["state"] == "todo", "which is not the same as the step being done"
+
+
+async def test_the_explanation_rides_edit_mode_rather_than_the_warmup_screen(owner, run_jobs):
+    """It explains dragging, so it belongs where the dragging happens.
+
+    The Rated screen is where the step sends the owner, and the line has to be waiting
+    there when they arrive rather than on the page they just left.
+    """
+    await _import(owner, run_jobs, ratings=_rated_group())
+    assert (await rated(owner))["wall_hint"] is True
+
+    await move(owner, GROUP[0], BAND, 4)
+
+    assert (await rated(owner))["wall_hint"] is False
+
+
+async def test_the_fresh_fill_never_shows_the_wall_s_explanation(owner):
+    """It explains a step the fresh fill does not have."""
+    await rate(owner, LIBRARY[0], 4.0)
+
+    assert (await rated(owner))["wall_hint"] is False
+
+
+async def test_the_wall_step_is_skippable_like_every_other(owner, run_jobs):
+    await _import(owner, run_jobs, ratings=_rated_group())
+
+    state = await skip_warmup(owner, "wall")
+
+    assert state["wall"]["state"] == "skipped"
+    assert state["wall"]["explain"] is False, "put away is put away"
+    assert (await rated(owner))["wall_hint"] is False
+
+
+async def test_a_band_on_the_wall_step_is_refused(owner, run_jobs):
+    """Only an anchor prompt names a band; the wall step is one question about one wall."""
+    await _import(owner, run_jobs, ratings=_rated_group())
+
+    refused = await skip_warmup(owner, "wall", 3.0, expect=422)
+
+    assert refused["error"]["code"] == "not_a_band_prompt"
+
+
+@pytest.mark.settings(readiness_forming_films=3, readiness_forming_bands=3)
+async def test_a_move_that_crosses_a_bar_names_the_unlock_where_it_happened(owner, run_jobs):
+    """The unlock line rides whichever step crossed the bar (surfacing.md).
+
+    On the import fill that step is the wall, and the act is a drop - so the move's own
+    answer is what names it, on the screen the owner is looking at. Every later move says
+    nothing, because the line is once ever and the nav's dot is its only other half.
+    """
+    await _import(
+        owner,
+        run_jobs,
+        ratings=(*_rated_group(), Row(OTHER.title, OTHER.year, rating=2.0)),
+    )
+    assert (await warmup(owner))["readiness"] == "cold", "five films, but only two bands"
+
+    moved = await move(owner, GROUP[0], 1.0, 1)
+
+    assert moved["unlocked"] == ["discovery"]
+    # A second crossing of the same bar, which is not a second unlock: the dot fires once
+    # per account, and so does the line beside it.
+    assert (await move(owner, GROUP[1], 1.0, 1))["unlocked"] == []
+
+
+async def test_a_move_inside_a_band_unlocks_nothing_and_says_so(owner, run_jobs):
+    """Rearranging a band changes neither count readiness reads, so there is nothing to name."""
+    await _import(owner, run_jobs, ratings=_rated_group())
+
+    assert (await move(owner, GROUP[0], BAND, 4))["unlocked"] == []
 
 
 # --- Skipping ---
@@ -407,6 +541,28 @@ async def test_skipping_everything_leaves_the_app_fully_usable(owner, db):
     assert len(flows.ordering_of(await rated(owner))) == 2
     assert (await profile(owner))["readiness"] == "cold"
     await assert_ordering_well_formed(db, await account_id(owner))
+
+
+async def test_skipping_every_step_of_the_import_fill_leaves_the_app_usable_too(owner, run_jobs):
+    """The other fill's steps, put away one at a time, and the same promise kept.
+
+    Its middle step is the one the fresh fill does not have, so skipping it is the case
+    the fresh test cannot cover: the wall is the owner's to edit whether or not a warmup
+    step ever asked them to, and skipping the ask does not take the wall away.
+    """
+    await _import(owner, run_jobs, ratings=_rated_group(), watchlist=(Row(WANTED.title, 2021),))
+    await skip_warmup(owner, "anchors")
+    await skip_warmup(owner, "wall")
+    await skip_warmup(owner, "backlog")
+    assert (await dismiss_warmup(owner))["dismissed"] is True
+
+    await move(owner, GROUP[0], BAND, 4)
+    await mark_anchor(owner, GROUP[0])
+    await add_to_backlog(owner, LIBRARY[0])
+
+    assert pool_for(await anchors(owner), BAND) == [GROUP[0].tmdb_id]
+    assert flows.ordering_of(await rated(owner))[BAND][-1] == GROUP[0].tmdb_id, "the move landed"
+    assert len((await backlog(owner))["films"]) == 2
 
 
 async def test_dismissing_is_not_the_same_as_finishing(owner):

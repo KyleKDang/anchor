@@ -6,10 +6,12 @@ arrived with a Letterboxd export or with nothing (onboarding-and-import.md). The
 is shared so that neither path is a special case of the other, and so that an owner who
 imports later meets the same questions they would have met on day one.
 
-The import fill has two steps for now. Its middle step is "look over the wall" - Rated
-opening in edit mode with a one-time explanation of dragging and marking - and edit mode
-does not exist yet, so the step is absent rather than faked; the warmup ticket that
-follows this one refits it (ADR 0013 removed the settling step it used to hold).
+Both fills have three steps and only the middle one differs. The fresh fill rates about
+five more films; the import fill looks over the wall its export just built, which is
+Rated opening in edit mode with a one-time explanation of dragging and marking. An owner
+who imported already has ratings, so asking for more would be asking for the one thing
+they came in holding; what they have not seen is the ordering those ratings made
+(ADR 0013 removed the settling step that used to stand there).
 
 Two rules run through everything here.
 
@@ -53,6 +55,7 @@ from anchor.models import (
     ImportRowKind,
     ImportRowState,
     LifecycleState,
+    Placement,
     WarmupMark,
     WarmupProgress,
 )
@@ -108,13 +111,18 @@ class AnchorPrompt(BaseModel):
     marked: list[FilmCard]
     """The band's anchor pool. Any number may be marked, so the prompt is done at one."""
     candidates: list[FilmCard]
-    """The account's own films in this band, best-remembered first.
+    """The account's own films in this band, best-remembered first, minus what is marked.
 
     Offered on both fills, because these are never suggestions in the recommender sense:
     they are films this owner has already rated into this band, so there is no popularity
     grid wearing the costume of a recommendation. On the import fill that is most of the
     library; on the fresh fill it is whatever the owner has just rated through the picker,
     which is exactly what they came back to mark.
+
+    A marked band keeps its list. Any number may be marked per band, and the film that
+    would be the second is sitting in the same ranked list the first came from - so
+    closing the offer at one would send the owner to the film page to do what the prompt
+    was already doing (onboarding-and-import.md).
     """
 
 
@@ -133,14 +141,35 @@ class AnchorPhase(BaseModel):
 class RatingPhase(BaseModel):
     """The fresh fill's middle step: "rate ~5 films you have seen", as normal ratings.
 
-    Absent on the import fill, whose middle step is looking over the wall it just got -
-    which is edit mode, and arrives with the warmup ticket that follows this one.
+    Absent on the import fill, whose middle step is :class:`WallPhase` instead.
     """
 
     state: PromptState
     rated: int
     target: int
     """Advisory: what the phase stops asking after, never what the owner has to reach."""
+
+
+class WallPhase(BaseModel):
+    """The import fill's middle step: the wall the export just built, in edit mode.
+
+    Absent on the fresh fill, which has nothing yet to look over.
+    """
+
+    state: PromptState
+    moved: int
+    """Films the owner has moved, ever. Read off the placements, like everything here."""
+    target: int
+    """Advisory: what the step stops asking after. The wall was already theirs to edit."""
+    explain: bool
+    """Show the one-time explanation of dragging and marking (onboarding-and-import.md).
+
+    Presence-based, like every other ambient line (surfacing.md): it goes the moment a
+    film has been moved, because a moved film is the trace of the gesture having landed.
+    Nothing records that the line was shown, which is the better fact of the two - a
+    "seen" flag would keep hiding the explanation from an owner who never worked out what
+    it was explaining.
+    """
 
 
 class BacklogPhase(BaseModel):
@@ -162,7 +191,9 @@ class Warmup(BaseModel):
     dismissed: bool
     anchors: AnchorPhase
     rating: RatingPhase | None
-    """The fresh fill's middle step, and None on the import fill, which has two."""
+    """The fresh fill's middle step, and None on the import fill, which has the wall."""
+    wall: WallPhase | None
+    """The import fill's middle step, and None on the fresh fill, which has nothing yet."""
     backlog: BacklogPhase
     readiness: Readiness
     """Ambient only, for the progress line surfacing.md allows on a warmup step."""
@@ -171,7 +202,7 @@ class Warmup(BaseModel):
 class Skip(BaseModel):
     """Skipping one prompt, or a whole phase where no band is named."""
 
-    mark: Literal[WarmupMark.anchors, WarmupMark.rating, WarmupMark.backlog]
+    mark: Literal[WarmupMark.anchors, WarmupMark.rating, WarmupMark.wall, WarmupMark.backlog]
     band: float | None = None
 
 
@@ -237,6 +268,9 @@ async def _warmup(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -
             if fill is Fill.fresh
             else None
         ),
+        wall=(
+            await _wall_phase(db, account_id, settings, marks) if fill is Fill.imported else None
+        ),
         backlog=await _backlog_phase(db, account_id, marks),
         readiness=readiness_module.classify(
             await readiness_module.evidence(db, account_id), settings
@@ -283,12 +317,12 @@ async def _anchor_phase(
             band=band,
             state=state,
             marked=[cards[film_id] for film_id in pool if film_id in cards],
-            # A band with a pool still offers nothing more: the prompt has been answered,
-            # and the film page is where a second anchor is marked from.
+            # A skipped band is the one that stops offering: the owner said stop asking.
+            # A marked one has answered the question and is still open to a second mark.
             candidates=(
-                [cards[film_id] for film_id in ranked.get(band, ()) if film_id in cards]
-                if state is PromptState.todo
-                else []
+                []
+                if state is PromptState.skipped
+                else [cards[film_id] for film_id in ranked.get(band, ()) if film_id in cards]
             ),
         )
 
@@ -370,6 +404,74 @@ async def _rating_phase(
         rated=beyond,
         target=settings.warmup_placements,
     )
+
+
+# --- The import fill's middle phase: look over the wall ---
+
+
+async def _wall_phase(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    settings: Settings,
+    marks: set[tuple[WarmupMark, float | None]],
+) -> WallPhase:
+    """ "Look over the wall": Rated in edit mode, done once a few films have been moved.
+
+    What completes it is having used the gesture rather than having got the ordering
+    right, so the count is of moves and the target is advisory. Derived like everything
+    else here: a placement carries the moment it was last moved, so the step cannot drift
+    out of step with the wall it is describing.
+    """
+    moved = await moves(db, account_id)
+    skipped = (WarmupMark.wall, None) in marks
+    return WallPhase(
+        state=_phase_state(skipped=skipped, done=moved >= settings.warmup_moves),
+        moved=moved,
+        target=settings.warmup_moves,
+        explain=not skipped and moved == 0,
+    )
+
+
+async def moves(db: AsyncSession, account_id: uuid.UUID) -> int:
+    """How many of the account's films sit somewhere the owner put them by hand.
+
+    A placement's ``moved_at`` is None until the first move and set from then on, so this
+    counts films ever moved rather than moves ever made - which is the question the step
+    is asking, since moving one film twice teaches the gesture exactly once.
+    """
+    return (
+        await db.scalar(
+            select(func.count())
+            .select_from(Placement)
+            .where(Placement.account_id == account_id, Placement.moved_at.is_not(None))
+        )
+    ) or 0
+
+
+async def explain_the_wall(db: AsyncSession, account_id: uuid.UUID) -> bool:
+    """Whether edit mode should carry the wall step's one-time explanation.
+
+    Lives here rather than on the Rated screen because it is the warmup's own line, and
+    the screen it appears on is the one the step sends the owner to: the explanation is
+    about dragging, so it has to be waiting where the dragging happens rather than on the
+    page they just left.
+
+    Three facts in one round trip rather than the phase read's three, because this rides
+    the Rated screen - the most-read screen there is - and the answer is False on almost
+    every load of it.
+    """
+    imported = select(Import.id).where(Import.account_id == account_id).exists()
+    moved = (
+        select(Placement.id)
+        .where(Placement.account_id == account_id, Placement.moved_at.is_not(None))
+        .exists()
+    )
+    skipped = (
+        select(WarmupProgress.id)
+        .where(WarmupProgress.account_id == account_id, WarmupProgress.mark == WarmupMark.wall)
+        .exists()
+    )
+    return bool(await db.scalar(select(imported & ~moved & ~skipped)))
 
 
 # --- The last phase: seed the backlog ---
