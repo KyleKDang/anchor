@@ -977,14 +977,6 @@ class ProseTrigger(enum.StrEnum):
     placements = "placements"
     anchors = "anchors"
     constraints = "constraints"
-    dismissals = "dismissals"
-    """Discovery dismissals piled up far enough to be worth reading as a pattern.
-
-    The one queue signal anywhere in Anchor that reaches the profile (ADR 0006), and it
-    arrives here rather than in the weight vector because the negative space it describes
-    - films the owner would never consider - is exactly what an ordering of films they
-    chose to watch cannot express.
-    """
     staleness = "staleness"
 
 
@@ -1025,13 +1017,6 @@ class ProseProfileVersion(Base):
     judgments: Mapped[int] = mapped_column(Integer, nullable=False)
     """Every comparison-log row. The staleness backstop's measure, and it catches what
     the placement count cannot: a re-rate appends a pick without adding a film."""
-    dismissals: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
-    """Discovery dismissals standing when this was written; the magnitude guard's measure.
-
-    A count rather than a digest, because the guard is about accumulation: a single
-    dismissal means nothing and only a pile of them says anything (ADR 0006), so what
-    matters is how many more there are than last time, never which ones.
-    """
     anchors: Mapped[str] = mapped_column(String(64), nullable=False)
     constraints: Mapped[str] = mapped_column(String(64), nullable=False)
     """The two set-shaped dimensions, as digests. Anchors and constraints are current-only

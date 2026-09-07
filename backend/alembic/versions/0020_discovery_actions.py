@@ -74,23 +74,8 @@ def upgrade() -> None:
         ),
     )
 
-    # The magnitude guard's watermark. Zero for every existing version, so the first
-    # regeneration after this ships counts every dismissal an account already has -
-    # which is right: none of them has ever been read.
-    op.add_column(
-        "prose_profile_versions",
-        sa.Column("dismissals", sa.Integer(), server_default="0", nullable=False),
-    )
-    # Postgres allows ADD VALUE inside a transaction but forbids *using* the value in
-    # the same one, which is why nothing below writes a trigger row: the enum grows here
-    # and the first row carrying it is written by the running app afterwards.
-    op.execute("ALTER TYPE prose_trigger ADD VALUE IF NOT EXISTS 'dismissals'")
-
 
 def downgrade() -> None:
-    # The added enum value is deliberately left in place: Postgres cannot drop a value
-    # from an enum, and re-adding one on a re-upgrade is what IF NOT EXISTS is for.
-    op.drop_column("prose_profile_versions", "dismissals")
     op.drop_table("suggestion_cooldowns")
     op.drop_column("feed_states", "refresh_counter")
     op.drop_column("feed_states", "fresh_since")

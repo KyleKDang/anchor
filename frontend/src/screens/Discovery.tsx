@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 
 import {
@@ -10,11 +10,27 @@ import {
   type Suggestion,
   type Threshold,
 } from "../api";
+import { useAuth } from "../auth";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { filmPath, placePath, releaseYear } from "../films/tmdb";
 import { plural, shortfall, worstBar } from "../films/unlock";
 import { useAsyncAction } from "../films/useAsyncAction";
+
+/**
+ * The account whose feed this app load has already opened, if any.
+ *
+ * Module-level rather than a ref, and that is the whole of what makes a boundary a
+ * boundary. A ref lives and dies with the component, so every trip out to a film page and
+ * back would count as a fresh arrival - and an arrival advances the refresh counter that
+ * rotation is denominated in, which would let an owner browse their own shelf away in one
+ * sitting. What discovery.md means by a session boundary is the next app open, so that is
+ * what this measures.
+ *
+ * Keyed by account rather than a bare flag, so logging out and in as somebody else is
+ * their arrival and not a continuation of the last person's.
+ */
+let openedFor: string | null = null;
 
 /**
  * The Discovery screen: films from the wider catalog, chosen for this owner.
@@ -35,6 +51,7 @@ import { useAsyncAction } from "../films/useAsyncAction";
  * whichever one is used fills itself at once, so the shelf never has a hole in it.
  */
 export function Discovery() {
+  const { account } = useAuth();
   const [feed, setFeed] = useState<Feed | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [invited, setInvited] = useState<Suggestion | null>(null);
@@ -49,19 +66,19 @@ export function Discovery() {
     }
   }, []);
 
-  // Arriving is the session boundary the shelf changes at. Anything after that is the
-  // same session, so the list cannot move while the owner is reading it.
-  const arrived = useRef(false);
   useEffect(() => {
-    void load(!arrived.current);
-    if (!arrived.current) {
+    const id = account?.id;
+    if (id === undefined) return;
+    const arriving = openedFor !== id;
+    if (arriving) openedFor = id;
+    void load(arriving);
+    if (arriving) {
       // The same arrival clears the one-time dot this destination was carrying. A dot is
       // the quietest thing on the screen, so failing to clear one is not worth a banner;
       // the next visit asks again.
       void api.seenDiscovery().catch(() => undefined);
     }
-    arrived.current = true;
-  }, [load]);
+  }, [load, account?.id]);
 
   /**
    * Take the shelf an action handed back, rather than reloading the screen for it.
@@ -191,13 +208,13 @@ function Card({ film, onActed }: { film: Suggestion; onActed: Applied }) {
         <p className="pitch">{film.pitch}</p>
         <Plot overview={film.overview} />
         <p className="row-verbs">
-          <Verb
+          <Answer
             label="Seen it"
             act={() => api.seenSuggestion(film.tmdb_id)}
             film={film}
             onActed={onActed}
           />
-          <Verb
+          <Answer
             label="Not interested"
             act={() => api.dismissSuggestion(film.tmdb_id)}
             film={film}
@@ -206,52 +223,44 @@ function Card({ film, onActed }: { film: Suggestion; onActed: Applied }) {
         </p>
       </div>
       <div className="film-row-actions">
-        <Accept film={film} onActed={onActed} />
+        <Answer
+          label="Add to backlog"
+          act={() => api.acceptSuggestion(film.tmdb_id)}
+          film={film}
+          onActed={onActed}
+          weight="button"
+        />
       </div>
     </li>
   );
 }
 
-/** The affirmative answer, and the only one on the row that keeps a button. */
-function Accept({ film, onActed }: { film: Suggestion; onActed: Applied }) {
-  const { busy, error, run } = useAsyncAction();
-  return (
-    <>
-      <button
-        type="button"
-        className="button"
-        disabled={busy}
-        onClick={() => void run(async () => onActed(await api.acceptSuggestion(film.tmdb_id), film))}
-      >
-        Add to backlog
-      </button>
-      {error && (
-        <span className="error" role="alert">
-          {error}
-        </span>
-      )}
-    </>
-  );
-}
-
-/** One of the two quiet answers: the card leaving the shelf is its whole confirmation. */
-function Verb({
+/**
+ * One of the three answers. They differ in weight and wording and in nothing else.
+ *
+ * Written once because they behave identically: each one asks the server, and the card
+ * leaving the shelf is the whole of the confirmation (surfacing.md). Only the affirmative
+ * answer takes the button, because it is the one the shelf exists for.
+ */
+function Answer({
   label,
   act,
   film,
   onActed,
+  weight = "link-button",
 }: {
   label: string;
   act: () => Promise<Acted>;
   film: Suggestion;
   onActed: Applied;
+  weight?: "button" | "link-button";
 }) {
   const { busy, error, run } = useAsyncAction();
   return (
     <>
       <button
         type="button"
-        className="link-button"
+        className={weight}
         disabled={busy}
         onClick={() => void run(async () => onActed(await act(), film))}
       >
@@ -322,7 +331,10 @@ function NotInterested() {
           {error}
         </p>
       )}
-      {films !== null && films.length === 0 ? (
+      {/* Three states, and the first one is the frame between opening the overflow and
+          the list arriving. Saying nothing there is the point: the alternative is a
+          sentence about films that are not on screen yet. */}
+      {films === null ? null : films.length === 0 ? (
         <p className="muted">
           Nothing here yet. Films you turn down are kept on this list, and you can put any of
           them back whenever you like.
@@ -333,7 +345,7 @@ function NotInterested() {
             Kept off the shelf until you say otherwise. Nothing about them has been marked down.
           </p>
           <ul className="film-list">
-            {(films ?? []).map((film) => (
+            {films.map((film) => (
               <DismissedRow key={film.tmdb_id} film={film} onChanged={load} />
             ))}
           </ul>

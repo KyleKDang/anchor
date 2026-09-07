@@ -30,7 +30,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from anchor import readiness
+from anchor import catalog, readiness
 from anchor.models import (
     ComparisonKind,
     ComparisonLogEntry,
@@ -105,19 +105,18 @@ class Evidence:
 class Watermark:
     """What the account looked like when a version was written.
 
-    Three counters and two digests. Anchors and constraints are current-only - retiring a
-    mark clears it - so no count reliably moves when they change, and a digest catches the
-    swap that leaves the count alone.
+    Two counters that only go up, and two digests. Anchors and constraints are
+    current-only - retiring a mark clears it - so no count reliably moves when they
+    change, and a digest catches the swap that leaves the count alone.
 
-    The dismissal count is not quite monotonic: lifting a dismissal takes one back out of
-    the live set, so the number can fall. That is harmless here, because the trigger is a
-    *rise* of a certain size - a lift simply makes the next one further away, which is the
-    right answer for an owner who has just told the profile it read them wrong.
+    Dismissals are deliberately absent. They are evidence a regeneration reads when one
+    happens, never a reason to buy one (ADR 0006): a pile of taps the owner made while
+    clearing a queue is the weakest signal in the system, and letting it schedule spend
+    would make it the only signal that can.
     """
 
     placements: int
     judgments: int
-    dismissals: int
     anchors: str
     constraints: str
 
@@ -159,12 +158,6 @@ async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Pr
         return ProseTrigger.constraints
     if now.placements - live.placements >= settings.prose_placements_trigger:
         return ProseTrigger.placements
-    # Below placements deliberately: a placement is the owner telling Anchor what they
-    # think of a film they watched, and a dismissal is them declining a pitch. Both are
-    # real, and the first is worth more, so where both have accumulated the regeneration
-    # is attributed to the stronger one.
-    if now.dismissals - live.dismissals >= settings.prose_dismissals_trigger:
-        return ProseTrigger.dismissals
     if now.judgments - live.judgments >= settings.prose_staleness_judgments:
         return ProseTrigger.staleness
     return None
@@ -200,7 +193,6 @@ async def record(
         trigger=trigger,
         placements=mark.placements,
         judgments=mark.judgments,
-        dismissals=mark.dismissals,
         anchors=mark.anchors,
         constraints=mark.constraints,
     )
@@ -218,15 +210,9 @@ async def watermark(db: AsyncSession, account_id: uuid.UUID) -> Watermark:
         .select_from(ComparisonLogEntry)
         .where(ComparisonLogEntry.account_id == account_id)
     )
-    dismissals = await db.scalar(
-        select(func.count())
-        .select_from(Dismissal)
-        .where(Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None))
-    )
     return Watermark(
         placements=int(placements or 0),
         judgments=int(judgments or 0),
-        dismissals=int(dismissals or 0),
         anchors=await _anchor_digest(db, account_id),
         constraints=await _constraint_digest(db, account_id),
     )
@@ -401,12 +387,7 @@ async def _dismissal_lines(
     dismissals are left out: the owner took those back, and holding them against the
     account would make changing your mind cost something.
     """
-    live = await db.scalar(
-        select(func.count())
-        .select_from(Dismissal)
-        .where(Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None))
-    )
-    if int(live or 0) < settings.prose_dismissals_trigger:
+    if await _live_dismissals(db, account_id) < settings.prose_dismissal_evidence_min:
         return []
     rows = await db.execute(
         select(Film)
@@ -420,15 +401,28 @@ async def _dismissal_lines(
 
 def _dismissal_line(film: Film) -> str:
     """One dismissed film, described by the things a pattern could be made of."""
+    directors = catalog.names(film, "directors")
     described = [_titled(film)]
     if film.genres:
         described.append(", ".join(film.genres))
-    directors = [
-        str(person.get("name", "")) for person in (film.credits or {}).get("directors") or []
-    ]
     if directors:
         described.append(f"dir. {', '.join(directors)}")
     return " - ".join(described)
+
+
+async def _live_dismissals(db: AsyncSession, account_id: uuid.UUID) -> int:
+    """How many films this account has turned down and not taken back.
+
+    The magnitude guard's whole measure: below the bar the section does not exist, and
+    above it the pile is described. Nothing else reads it - a dismissal never schedules a
+    regeneration, it is only ever read by one that was already happening.
+    """
+    counted = await db.scalar(
+        select(func.count())
+        .select_from(Dismissal)
+        .where(Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None))
+    )
+    return int(counted or 0)
 
 
 async def _quality_names(db: AsyncSession, account_id: uuid.UUID) -> dict[uuid.UUID, str]:

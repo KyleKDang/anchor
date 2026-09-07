@@ -643,18 +643,28 @@ async def shelf(client, boundary=True):
 
 
 async def accept(client, film, expect=200):
-    """ "I want to watch this." The card goes, the film joins the backlog, nothing learns."""
-    return await _acted(client, "POST", f"/api/discovery/{film.tmdb_id}/accept", expect)
+    """The owner wants to watch it: the card goes, the film joins the backlog."""
+    return await _acted(client, "POST", f"/api/discovery/{_tmdb_id(film)}/accept", expect)
 
 
 async def dismiss_suggestion(client, film, expect=200):
-    """ "Not interested." The card goes and the film is suppressed until it is lifted."""
-    return await _acted(client, "POST", f"/api/discovery/{film.tmdb_id}/dismissal", expect)
+    """Not interested: the card goes and the film is suppressed until it is lifted."""
+    return await _acted(client, "POST", f"/api/discovery/{_tmdb_id(film)}/dismissal", expect)
 
 
 async def seen_it(client, film, expect=200):
-    """ "I have already seen this." Watched-unrated, with a seat and one skippable offer."""
-    return await _acted(client, "POST", f"/api/discovery/{film.tmdb_id}/seen", expect)
+    """Already seen it: watched-unrated, with a seat and one skippable offer."""
+    return await _acted(client, "POST", f"/api/discovery/{_tmdb_id(film)}/seen", expect)
+
+
+def _tmdb_id(film):
+    """A fixture or a bare id, because the shelf hands back ids and the tests hold fixtures.
+
+    A test that works through whatever the feed is currently offering only knows the ids
+    on the cards; one that names a particular film holds its fixture. Both are the same
+    argument as far as the owner is concerned.
+    """
+    return getattr(film, "tmdb_id", film)
 
 
 async def _acted(client, method, path, expect):

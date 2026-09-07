@@ -205,7 +205,7 @@ async def accept(
     through the scorer, on the same terms as everything else. What the feed never does is
     write to the tier itself.
     """
-    await _shelved(db, account.id, tmdb_id)
+    await _require_shelved(db, account.id, tmdb_id)
     db.add(
         AccountFilm(
             account_id=account.id,
@@ -223,11 +223,7 @@ async def accept(
 
 @router.post("/{tmdb_id}/dismissal")
 async def dismiss(
-    tmdb_id: int,
-    account: CurrentAccount,
-    db: DbSession,
-    settings: AppSettings,
-    jobs_app: AppJobs,
+    tmdb_id: int, account: CurrentAccount, db: DbSession, settings: AppSettings
 ) -> Acted:
     """The owner saying no: the film is suppressed until they take it back.
 
@@ -240,23 +236,17 @@ async def dismiss(
     the backfill all read it, so a dismissed film cannot come back through any of the three
     doors.
 
-    The prose check queued on the way out is the only thing here that could ever spend,
-    and it is a question rather than a purchase: a pile has to reach the magnitude guard
-    before a regeneration is due at all.
+    Nothing here schedules any work at all. A dismissal is read by the next regeneration
+    that happens for some other reason, and never buys one: it is the weakest signal in
+    the system, and a queue action that could schedule spend would be the only one.
     """
-    await _shelved(db, account.id, tmdb_id)
+    await _require_shelved(db, account.id, tmdb_id)
     existing = await _dismissal(db, account.id, tmdb_id)
     if existing is None:
         db.add(Dismissal(account_id=account.id, film_id=tmdb_id))
     else:
         existing.lifted_at = None
     await db.flush()
-    # The same shape as a picker or constraint edit: something changed about what a
-    # regeneration must read without moving anything in the ordering it describes, so
-    # nothing else would ever ask the question. The job re-asks :func:`prose.due` itself
-    # and the magnitude guard answers no for a long time, so a dismissal that means
-    # nothing yet costs a queue row and a count rather than a provider call.
-    await jobs.schedule_prose_check(db, jobs_app, account.id)
     return await _acted(db, account.id, settings)
 
 
@@ -276,7 +266,7 @@ async def seen(
     and taking it is what makes walking away safe. So the place-it-now invite is a genuine
     offer - skipping it loses nothing, because the film is already waiting in the queue.
     """
-    await _shelved(db, account.id, tmdb_id)
+    await _require_shelved(db, account.id, tmdb_id)
     account_film = AccountFilm(
         account_id=account.id,
         film_id=tmdb_id,
@@ -302,9 +292,7 @@ async def seen(
     # the same: the account's library just grew, and leaving the queue stale until the
     # next boundary would be a worse answer than the one query this costs.
     await tier_module.reconcile(db, account.id, settings)
-    acted = await _acted(db, account.id, settings)
-    acted.place_now = True
-    return acted
+    return await _acted(db, account.id, settings, place_now=True)
 
 
 @router.get("/dismissals")
@@ -352,24 +340,26 @@ async def lift_dismissal(tmdb_id: int, account: CurrentAccount, db: DbSession) -
 # --- Helpers ---
 
 
-async def _acted(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Acted:
+async def _acted(
+    db: AsyncSession, account_id: uuid.UUID, settings: Settings, *, place_now: bool = False
+) -> Acted:
     """Close the gap the action left, commit, and hand back the shelf it produced.
 
     The backfill is a pair of queries against verdicts Anchor already paid for, so the
     slot is full by the time the response is written and no provider is involved at any
     point (discovery.md). Nothing here is a session boundary: the cards the owner did not
-    touch keep the order they were reading.
+    touch are left exactly as they were, sentence included.
     """
     await feed_module.backfill(db, account_id, settings)
     await db.commit()
-    return Acted(films=await _shelf(db, account_id))
+    return Acted(films=await _shelf(db, account_id), place_now=place_now)
 
 
 async def _shelf(db: AsyncSession, account_id: uuid.UUID) -> list[Suggestion]:
     return [Suggestion.of(shelved) for shelved in await feed_module.shelf(db, account_id)]
 
 
-async def _shelved(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> None:
+async def _require_shelved(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> None:
     """Refuse an action on a film that is not on this owner's shelf.
 
     The three actions are things the owner does to a *card*, not to a film: they are the
