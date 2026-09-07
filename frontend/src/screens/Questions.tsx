@@ -42,21 +42,18 @@ export function Questions() {
     };
   }, [id]);
 
-  const leave = (
-    <Link className="link-button questions-leave" to={filmPath(id)}>
-      Leave
-    </Link>
-  );
-
   return (
     <div className="place questions">
+      {/* The bar never leaves: the way out on one side, the count of answers on the
+          other, and nothing else the session says about itself. */}
       <header className="questions-bar">
-        {leave}
+        <p className="back-link questions-leave">
+          <Link to={filmPath(id)}>Leave</Link>
+        </p>
         <p className="muted questions-count" aria-live="polite">
           {answered === 1 ? "1 answer" : `${answered} answers`}
         </p>
       </header>
-      {title !== null && <h1 className="questions-title">{title}</h1>}
       {error && (
         <p className="error" role="alert">
           {error}
@@ -66,7 +63,7 @@ export function Questions() {
       {opened && first !== null && !over && (
         <CriteriaQuestion
           first={first}
-          tag="About this film"
+          tag={title === null ? "About this film" : `About ${title}`}
           dismissLabel="Skip this one"
           dismissal="passes"
           onAnswered={() => setAnswered((count) => count + 1)}

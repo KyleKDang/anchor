@@ -453,10 +453,10 @@ export function Landed({
 /**
  * The run: the optional questions sitting under the landing they came with.
  *
- * Everything about it is built to cost nothing. It is below the primary action rather
- * than over it, so the owner has already finished before they meet it; it never blocks,
- * never navigates, and dismissing it is a real, visible choice rather than a thing to
- * hunt for. Each answer slides the next card in; dismissing, leaving, or running out of
+ * Everything about it is built to cost nothing. It sits beside the primary action rather
+ * than over it, so the landing is already complete without it; it never blocks, never
+ * navigates, and dismissing it is a real, visible choice rather than a thing to hunt
+ * for. Each answer slides the next card in; dismissing, leaving, or running out of
  * questions ends the run, and walking away without touching it is recorded exactly as
  * dismissing it.
  */

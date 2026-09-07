@@ -171,14 +171,17 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 </Link>
                 <AnchorToggle film={film} onChanged={onChange} />
               </div>
-              <p className="muted">
-                <Link to={`/rated?film=${film.tmdb_id}`}>See where it sits on the wall</Link>
-              </p>
-              {/* Pull-only, and the one place it is offered (surfacing.md): a stream of
-                  questions about this film, open whatever the frequency setting says. */}
-              <p className="muted">
-                <Link to={questionsPath(film.tmdb_id)}>Answer questions about this film</Link>
-              </p>
+              {/* Two ways on from here, one line each: the wall, and - pull-only, and the
+                  one place it is offered (surfacing.md) - a stream of questions about this
+                  film, open whatever the frequency setting says. */}
+              <ul className="muted film-page-links">
+                <li>
+                  <Link to={`/rated?film=${film.tmdb_id}`}>See where it sits on the wall</Link>
+                </li>
+                <li>
+                  <Link to={questionsPath(film.tmdb_id)}>Answer questions about this film</Link>
+                </li>
+              </ul>
               <Judgments judgments={film.judgments} />
             </section>
           )}

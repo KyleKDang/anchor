@@ -474,10 +474,10 @@ const FREQUENCY_OPTIONS: { value: CriteriaFrequency; label: string; hint: string
     label: "Adaptive",
     hint: "Asks more when you answer, and backs off when you don't.",
   },
-  { value: "often", label: "Often", hint: "After most placements." },
-  { value: "sometimes", label: "Sometimes", hint: "Every few placements." },
+  { value: "often", label: "Often", hint: "After most ratings." },
+  { value: "sometimes", label: "Sometimes", hint: "Every few ratings." },
   { value: "rarely", label: "Rarely", hint: "Occasionally, and never twice in a row." },
-  { value: "off", label: "Never", hint: "No bonus questions at all, and none recorded." },
+  { value: "off", label: "Never", hint: "None after a rating, and none recorded." },
 ];
 
 /**
@@ -509,9 +509,11 @@ function CriteriaSection({ frequency }: { frequency: CriteriaFrequency | null })
     <section className="section" aria-labelledby="bonus-heading">
       <h2 id="bonus-heading">Bonus questions</h2>
       <p className="muted">
-        After a placement Anchor sometimes asks one extra question about the films you just
-        compared - which had the better screenplay, say. Answering is always optional, and
-        the answers shape what Anchor recommends without ever moving your ordering.
+        After a rating Anchor sometimes asks a few questions about the film you just rated
+        against ones you know well - which had the better screenplay, say. Answering is
+        always optional, and the answers shape what Anchor recommends without ever moving
+        your ordering. This sets how often those follow a rating; a film's own page can
+        always ask more.
       </p>
       {error && (
         <p className="error" role="alert">
