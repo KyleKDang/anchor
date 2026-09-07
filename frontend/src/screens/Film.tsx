@@ -7,7 +7,7 @@ import { MarkWatched } from "../films/MarkWatched";
 import { Plot } from "../films/Plot";
 import { Poster } from "../films/Poster";
 import { StateFlag } from "../films/StateFlag";
-import { filmPath, placePath, releaseYear } from "../films/tmdb";
+import { filmPath, placePath, questionsPath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
 
 /**
@@ -173,6 +173,11 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
               </div>
               <p className="muted">
                 <Link to={`/rated?film=${film.tmdb_id}`}>See where it sits on the wall</Link>
+              </p>
+              {/* Pull-only, and the one place it is offered (surfacing.md): a stream of
+                  questions about this film, open whatever the frequency setting says. */}
+              <p className="muted">
+                <Link to={questionsPath(film.tmdb_id)}>Answer questions about this film</Link>
               </p>
               <Judgments judgments={film.judgments} />
             </section>

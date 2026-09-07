@@ -1,9 +1,11 @@
-"""The bonus question after a rating, and the quality list behind it.
+"""The criteria questions: the run after a rating, the session from a film's page, and
+the quality list behind both.
 
 These read as what the owner did: rate a film, notice the card, answer it or walk past
-it, turn it down or off on Profile. The card is a bonus, so most of what is asserted here
-is what it costs when it is ignored - which is nothing, at every level: the rating, the
-ordering, and the next screen are all identical either way.
+it, open a session about a film and answer until they leave, turn the run down or off on
+Profile. The cards are a bonus, so most of what is asserted here is what they cost when
+they are ignored - which is nothing, at every level: the rating, the ordering, and the
+next screen are all identical either way.
 
 The one thing that is never asserted is which pair or quality the advisory selection
 happened to choose beyond what the spec fixes: the opponent comes down the ladder
@@ -20,16 +22,23 @@ from flows import (
     account_id,
     add_quality,
     answer_criteria,
+    answer_run,
     ask_criteria,
     build_ordering,
+    compared_in_picker,
+    dismiss_criteria,
     given_tags,
     mark_anchor,
     mark_watched,
+    open_session,
+    opponent_of,
+    pair_of,
     pick,
     picker,
     profile,
     rate,
     rated,
+    re_rate,
 )
 from invariants import (
     assert_appended_only,
@@ -101,7 +110,7 @@ async def test_a_rating_offers_the_card_on_the_done_screen(owner, db):
     assert card is not None
     assert card["quality"] in BUILT_IN_QUALITIES
     assert await criteria_log(db, await account_id(owner)) == [
-        (card["quality"], card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"], "skip")
+        (card["quality"], card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"], "skip", "placement")
     ]
 
 
@@ -144,8 +153,8 @@ async def test_the_wording_is_a_template_and_the_card_carries_no_free_text(owner
     assert card["quality"] in BUILT_IN_QUALITIES
 
 
-async def test_a_rating_offers_at_most_one_card(owner, db):
-    """Zero or one per rating: there is exactly one call that can mint one."""
+async def test_a_rating_offers_one_card_until_it_is_answered(owner, db):
+    """The landing carries one card: the next is minted by an answer and by nothing else."""
     await build_ordering(owner, [FIRST], band=3.0)
 
     card = await card_from(owner, SECOND)
@@ -154,14 +163,269 @@ async def test_a_rating_offers_at_most_one_card(owner, db):
     assert len(await criteria_log(db, await account_id(owner))) == 1
 
 
-async def test_answering_never_triggers_another(owner, db):
+# --- The run on the done screen ---
+
+
+async def test_answering_a_card_slides_the_next_one_in(owner, db):
+    """A run: each answer brings the next card, about the same film, in the same context."""
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await card_from(owner, THIRD)
+    assert card is not None
+
+    following = await answer_criteria(owner, card, "a")
+
+    assert following is not None
+    assert following["id"] != card["id"]
+    assert THIRD.tmdb_id in pair_of(following)
+    log = await criteria_log(db, await account_id(owner))
+    assert [entry[4] for entry in log[-2:]] == ["placement", "placement"]
+
+
+async def test_a_run_never_asks_the_same_pair_and_quality_twice(owner):
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await card_from(owner, THIRD)
+    assert card is not None
+
+    met = await answer_run(owner, card)
+
+    asked = [(frozenset(pair_of(seen)), seen["quality"]) for seen in met]
+    assert len(asked) == len(set(asked))
+    assert len(asked) > 2, "the run should have outlasted a couple of cards"
+
+
+async def test_a_run_ends_when_nothing_unasked_remains(owner):
+    """One opponent and a dozen qualities: twelve cards, then the run is over."""
     await build_ordering(owner, [FIRST], band=3.0)
     card = await card_from(owner, SECOND)
     assert card is not None
 
-    await answer_criteria(owner, card, "a")
+    met = await answer_run(owner, card)
 
+    assert len(met) == len(BUILT_IN_QUALITIES)
+    assert [seen["quality"] for seen in met] == list(BUILT_IN_QUALITIES)
+    assert {frozenset(pair_of(seen)) for seen in met} == {
+        frozenset({FIRST.tmdb_id, SECOND.tmdb_id})
+    }
+
+
+async def test_dismissing_the_run_ends_it_and_the_offer_reads_skip(owner, db):
+    """Dismissing is the absence of an answer: no next card is minted, and the row stands."""
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await card_from(owner, THIRD)
+    assert card is not None
+    following = await answer_criteria(owner, card, "a")
+    assert following is not None
+
+    # The owner taps dismiss on the second card, or simply leaves. Nothing is sent.
+    log = await criteria_log(db, await account_id(owner))
+
+    assert [entry[3] for entry in log[-2:]] == ["a", "skip"]
+
+
+async def test_a_re_rate_s_run_is_recorded_as_a_re_rate(owner, db):
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND, THIRD], band=3.0)
+    account = await account_id(owner)
+    before = len(await criteria_log(db, account))
+
+    card = (await re_rate(owner, THIRD, 4.0))["criteria"]
+    assert card is not None
+    await answer_criteria(owner, card, "b")
+
+    assert [entry[4] for entry in (await criteria_log(db, account))[before:]] == [
+        "re_rate",
+        "re_rate",
+    ]
+
+
+async def test_turning_the_run_off_ends_a_run_in_progress(owner):
+    """Off is complete: an answer after the switch mints nothing more."""
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await card_from(owner, THIRD)
+    assert card is not None
+    await ask_criteria(owner, "off")
+
+    assert await answer_criteria(owner, card, "a") is None
+
+
+# --- The session from a film's page ---
+
+
+async def test_a_session_opens_from_a_rated_film_whatever_the_frequency_says(owner, db):
+    """Pull-only and always available: the off switch governs the run alone."""
+    await ask_criteria(owner, "off")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+
+    card = await open_session(owner, SECOND)
+
+    assert card is not None
+    assert SECOND.tmdb_id in pair_of(card)
+    assert await criteria_log(db, await account_id(owner)) == [
+        (
+            card["quality"],
+            card["film_a"]["tmdb_id"],
+            card["film_b"]["tmdb_id"],
+            "skip",
+            "spontaneous",
+        )
+    ]
+
+
+async def test_a_session_is_only_about_a_film_the_owner_has_rated(owner):
+    await build_ordering(owner, [FIRST], band=3.0)
+    await mark_watched(owner, SECOND, "later")
+
+    refused = await open_session(owner, SECOND, expect=404)
+
+    assert refused["error"]["code"] == "not_rated"
+
+
+async def test_a_session_with_nothing_to_ask_opens_empty(owner):
+    """A library of one has no opponent, so the session says so rather than inventing one."""
+    await build_ordering(owner, [FIRST], band=3.0)
+
+    assert await open_session(owner, FIRST) is None
+
+
+async def test_a_session_serves_cards_until_nothing_unasked_remains(owner, db):
+    await ask_criteria(owner, "off")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await open_session(owner, SECOND)
+    assert card is not None
+
+    met = await answer_run(owner, card, "ab")
+
+    assert len(met) == len(BUILT_IN_QUALITIES)
+    assert {frozenset(pair_of(seen)) for seen in met} == {
+        frozenset({FIRST.tmdb_id, SECOND.tmdb_id})
+    }
+    assert {entry[4] for entry in await criteria_log(db, await account_id(owner))} == {
+        "spontaneous"
+    }
+
+
+async def test_a_session_never_asks_the_same_pair_and_quality_twice(owner):
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
+    card = await open_session(owner, FOURTH)
+    assert card is not None
+
+    met = await answer_run(owner, card)
+
+    asked = [(frozenset(pair_of(seen)), seen["quality"]) for seen in met]
+    assert len(asked) == len(set(asked))
+    assert len(asked) == 3 * len(BUILT_IN_QUALITIES)
+
+
+async def test_a_session_does_not_re_ask_what_the_run_already_asked(owner):
+    """What the app has asked before is what it has asked, whichever home asked it."""
+    await ask_criteria(owner, "often")
+    await build_ordering(owner, [FIRST], band=3.0)
+    run = await card_from(owner, SECOND)
+    assert run is not None
+    await answer_criteria(owner, run, "a")
+
+    card = await open_session(owner, SECOND)
+
+    assert card is not None
+    assert card["quality"] != run["quality"]
+
+
+async def test_leaving_a_session_leaves_its_last_offer_reading_skip(owner, db):
+    await ask_criteria(owner, "off")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await open_session(owner, SECOND)
+    assert card is not None
+    following = await answer_criteria(owner, card, "tied")
+    assert following is not None
+
+    # The leave control. Nothing is sent.
+    assert [entry[3] for entry in await criteria_log(db, await account_id(owner))] == [
+        "tied",
+        "skip",
+    ]
+
+
+async def test_dismissing_a_session_card_brings_the_next_without_an_answer(owner, db):
+    """A question the owner cannot answer is waved away, not forced into "about the same"."""
+    await ask_criteria(owner, "off")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await open_session(owner, SECOND)
+    assert card is not None
+
+    following = await dismiss_criteria(owner, card)
+
+    assert following is not None
+    assert following["id"] != card["id"]
+    assert following["quality"] != card["quality"]
+    assert [entry[3] for entry in await criteria_log(db, await account_id(owner))] == [
+        "skip",
+        "skip",
+    ]
+
+
+async def test_dismissing_a_run_card_ends_the_run(owner, db):
+    """The run's dismiss is the same as leaving: nothing more comes, and nothing is written."""
+    await build_ordering(owner, [FIRST], band=3.0)
+    card = await card_from(owner, SECOND)
+    assert card is not None
+
+    assert await dismiss_criteria(owner, card) is None
     assert len(await criteria_log(db, await account_id(owner))) == 1
+
+
+async def test_a_session_asks_about_varied_opponents(owner):
+    """Each card sets the film against another opponent before any opponent is asked twice."""
+    await build_ordering(owner, [FIRST, SECOND, THIRD, FOURTH], band=3.0)
+    card = await open_session(owner, FOURTH)
+    assert card is not None
+
+    met = await answer_run(owner, card, limit=3)
+
+    first_round = [opponent_of(seen, FOURTH) for seen in met]
+    assert sorted(first_round) == sorted([FIRST.tmdb_id, SECOND.tmdb_id, THIRD.tmdb_id])
+
+
+async def test_one_owner_cannot_open_a_session_on_another_s_film(owner, other_owner):
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+
+    refused = await open_session(other_owner, SECOND, expect=404)
+
+    assert refused["error"]["code"] == "not_rated"
+
+
+# --- Where the opponent comes from (taste-profile.md) ---
+
+
+async def test_the_ladder_runs_anchors_neighbours_picker_opponents_then_the_library(
+    owner, db, tmdb
+):
+    """One film per rung, and a session walks them in the order the spec fixes.
+
+    Nothing in selection is sampled, so the order is asserted outright: the anchor of the
+    subject's band, then the film beside it on the wall, then the film the picker set it
+    against, then a film from the rest of the library.
+    """
+    account = await account_id(owner)
+    elsewhere = FilmFixture(3000, "Elsewhere", release_date="2010-01-01")
+    tmdb.with_films(elsewhere)
+    # The subject's band: the anchor at the top, the neighbour, then the subject. The
+    # anchor is two places up, so the neighbour rung has a film of its own.
+    await build_ordering(owner, [FIRST, SECOND, THIRD], band=3.0)
+    await mark_anchor(owner, FIRST)
+    await build_ordering(owner, [FOURTH], band=4.0)
+    await build_ordering(owner, [elsewhere], band=2.0)
+    await compared_in_picker(db, account, THIRD, FOURTH)
+
+    card = await open_session(owner, THIRD)
+    assert card is not None
+    met = await answer_run(owner, card, limit=4)
+
+    opponents = [opponent_of(seen, THIRD) for seen in met]
+    assert opponents == [FIRST.tmdb_id, SECOND.tmdb_id, FOURTH.tmdb_id, elsewhere.tmdb_id]
 
 
 # --- Answering, dismissing, and walking away ---
@@ -174,9 +438,13 @@ async def test_answering_records_the_verdict_on_the_offer(owner, db):
 
     await answer_criteria(owner, card, "tied")
 
-    assert await criteria_log(db, await account_id(owner)) == [
-        (card["quality"], card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"], "tied")
-    ]
+    assert (await criteria_log(db, await account_id(owner)))[0] == (
+        card["quality"],
+        card["film_a"]["tmdb_id"],
+        card["film_b"]["tmdb_id"],
+        "tied",
+        "placement",
+    )
 
 
 async def test_ignoring_the_card_is_recorded_exactly_as_dismissing_it(owner, db):
@@ -187,7 +455,7 @@ async def test_ignoring_the_card_is_recorded_exactly_as_dismissing_it(owner, db)
 
     # The owner walks off. Nothing is sent, and the record still exists to be counted.
     assert await criteria_log(db, await account_id(owner)) == [
-        (card["quality"], card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"], "skip")
+        (card["quality"], card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"], "skip", "placement")
     ]
 
 
@@ -235,6 +503,21 @@ async def test_a_criteria_answer_never_moves_the_ordering(owner, db):
     wall = await rated(owner)
 
     await answer_criteria(owner, card, "a")
+
+    assert await ordering_snapshot(db, account) == before
+    assert await rated(owner) == wall
+    await assert_ordering_well_formed(db, account)
+
+
+async def test_a_session_answer_never_moves_the_ordering(owner, db):
+    await build_ordering(owner, [FIRST, SECOND, THIRD], band=3.0)
+    card = await open_session(owner, THIRD)
+    assert card is not None
+    account = await account_id(owner)
+    before = await ordering_snapshot(db, account)
+    wall = await rated(owner)
+
+    await answer_run(owner, card, "ab")
 
     assert await ordering_snapshot(db, account) == before
     assert await rated(owner) == wall
@@ -345,7 +628,56 @@ async def test_adaptive_keeps_asking_an_owner_who_keeps_answering(owner, db):
     second = await card_from(owner, THIRD)
 
     assert second is not None
-    assert len(await criteria_log(db, account)) == 2
+    # The first run: its answered card and the one the answer slid in. Then the new one.
+    assert len(await criteria_log(db, account)) == 3
+
+
+async def test_a_run_s_ignored_last_card_does_not_outweigh_the_answers_before_it(owner, db):
+    """Every run ends on an unanswered card, so answering three then leaving is engagement."""
+    account = await account_id(owner)
+    await build_ordering(owner, [FIRST], band=3.0)
+    card = await card_from(owner, SECOND)
+    assert card is not None
+    for verdict in "aab":
+        card = await answer_criteria(owner, card, verdict)
+        assert card is not None
+    # Four offers made, three answered, the fourth left on screen.
+    assert len(await criteria_log(db, account)) == 4
+
+    assert await card_from(owner, THIRD) is not None
+
+
+async def test_a_session_s_answers_raise_the_adaptive_frequency(owner, db):
+    """Non-engagement lowered it; a session of answers is engagement, and brings it back."""
+    account = await account_id(owner)
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    assert len(await criteria_log(db, account)) == 1  # offered once, and ignored
+    await build_ordering(owner, [THIRD], band=3.0)
+    assert len(await criteria_log(db, account)) == 1  # and now backed off
+
+    card = await open_session(owner, THIRD)
+    assert card is not None
+    for verdict in "abab":
+        card = await answer_criteria(owner, card, verdict)
+        assert card is not None
+
+    assert await card_from(owner, FOURTH) is not None
+
+
+async def test_a_session_s_offers_are_not_run_offers(owner, db):
+    """A manual gap is counted in ratings since the last *run* offer; a session resets nothing."""
+    account = await account_id(owner)
+    await ask_criteria(owner, "sometimes")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    assert len(await criteria_log(db, account)) == 1
+    card = await open_session(owner, SECOND)
+    assert card is not None
+    await answer_criteria(owner, card, "a")
+
+    # "Sometimes" waits one rating between offers, so the next rating gets no card...
+    assert await card_from(owner, THIRD) is None
+    # ...and the one after does, exactly as if the session had never happened.
+    assert await card_from(owner, FOURTH) is not None
 
 
 async def test_the_rotation_works_through_the_quality_list(owner, db):

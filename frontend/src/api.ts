@@ -48,17 +48,32 @@ export type Rate = "now" | "later";
 export type CriteriaVerdict = "a" | "b" | "tied";
 
 /**
- * The optional bonus question after a placement: "Which had the better ___?"
+ * One criteria question: "Which had the better ___?"
  *
  * The wording is a fixed template and `quality` is the only thing that varies, drawn
  * from the account's quality list. Nothing here is generated and there is no free-form
  * question: the intelligence is entirely in which pair and which quality were picked.
+ * The same card serves both homes: the run on the done screen and the session from a
+ * film's page.
  */
 export interface CriteriaCard {
   id: string;
   quality: string;
   film_a: FilmCard;
   film_b: FilmCard;
+}
+
+/**
+ * What answering a card hands back: the next card in the same home, or null when the
+ * home is over - the run's frequency was switched off, or nothing unasked remains.
+ */
+export interface CriteriaAnswered {
+  next: CriteriaCard | null;
+}
+
+/** A session's opening: its first card, or null when there is nothing left to ask. */
+export interface CriteriaSession {
+  card: CriteriaCard | null;
 }
 
 /** The films immediately above and below a landed film, inside its own band. */
@@ -143,7 +158,7 @@ export interface Landed {
   unlocked: Unlock[];
   /** The account has no anchors at all: the one line saying what marking one does. */
   anchor_nudge: boolean;
-  /** The bonus question this landing earned, and usually null. Never blocking. */
+  /** The first card of the run this landing earned, and usually null. Never blocking. */
   criteria: CriteriaCard | null;
 }
 
@@ -721,7 +736,12 @@ export const api = {
     request<void>("POST", `/api/rewatches/${tmdbId}`, { answer }),
   profile: () => request<Profile>("GET", "/api/profile"),
   answerCriteria: (offerId: string, verdict: CriteriaVerdict) =>
-    request<void>("POST", `/api/criteria/${offerId}`, { verdict }),
+    request<CriteriaAnswered>("POST", `/api/criteria/${offerId}`, { verdict }),
+  /** Session only: the next card without an answer. On a run card it ends the run. */
+  dismissCriteria: (offerId: string) =>
+    request<CriteriaAnswered>("POST", `/api/criteria/${offerId}/dismiss`, {}),
+  openCriteriaSession: (tmdbId: number) =>
+    request<CriteriaSession>("POST", `/api/criteria/session/${tmdbId}`, {}),
   setCriteriaFrequency: (frequency: CriteriaFrequency) =>
     request<{ frequency: CriteriaFrequency }>("PUT", "/api/profile/criteria", { frequency }),
   qualities: () => request<Picker>("GET", "/api/profile/qualities"),

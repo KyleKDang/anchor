@@ -1693,6 +1693,62 @@ button.anchor-badge {
   gap: var(--s3);
 }
 
+/* The next card slides in where the last one was: a short travel from the right, so a
+   run reads as one question following another rather than the same card changing its
+   mind. The first card of a home never animates - it was already there when the owner
+   arrived, and a landing that shimmers is a landing asking for attention. */
+@keyframes criteria-enter {
+  from {
+    opacity: 0;
+    transform: translateX(var(--s5));
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.criteria-enter {
+  animation: criteria-enter 220ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .criteria-enter {
+    animation: none;
+  }
+}
+
+/* The criteria session: full-screen like the picker, one card at a time, and a bar that
+   never leaves - the way out on one side, the count of answers on the other, the only
+   thing the session says about itself (screens-and-flows.md). */
+.questions-bar {
+  width: min(100%, 34rem);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+}
+
+.questions-leave {
+  text-decoration: none;
+}
+
+.questions-count {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.questions-title {
+  margin: 0;
+  font-size: var(--text-lg);
+  text-align: center;
+}
+
+.questions-over {
+  max-width: 34rem;
+  text-align: center;
+}
+
 /* Profile: readiness, the account, and the attribution TMDB's terms require. -------------- */
 
 /* The prose profile ------------------------------------------------------------------- */
