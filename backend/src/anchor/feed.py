@@ -592,6 +592,10 @@ async def visit(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> 
     re-derived from the verdict cache, which is where a restock's work finally shows up
     and where the rotated slots get refilled.
 
+    Both of data-model.md's names are for this one moment: it is the *visit* the restock
+    gate reads and the *refresh* rotation is counted in, which is why the row carries a
+    timestamp and a counter for what is, from the owner's side, opening a screen.
+
     The visit line moves last, and only by one step: what was the last visit becomes the
     line freshness is measured against, and now becomes the last visit. Holding it one
     behind is what lets the marker survive the session it is shown in - every reload
@@ -614,7 +618,13 @@ async def visit(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> 
     # Stamped on every arrival regardless, because this half is the spend gate rather
     # than the marker: an owner who arrives to an empty shelf has still arrived, and it is
     # exactly that arrival which earns them the restock that fills it.
-    state.visited_at = datetime.now(UTC)
+    #
+    # Read from the database rather than from this process, because it is compared against
+    # ``Suggestion.created_at``, which the database stamps. Two clocks either side of a
+    # ">" is how a marker ends up stuck on or stuck off from a second of skew - and in
+    # Postgres this is transaction-start time, so a card written by this very transaction
+    # carries exactly this value and is correctly not newer than it.
+    state.visited_at = await db.scalar(select(func.now()))
 
 
 async def _standing(db: AsyncSession, account_id: uuid.UUID) -> int:
@@ -670,8 +680,13 @@ async def _cool_down(db: AsyncSession, account_id: uuid.UUID, film_id: int, unti
 
 
 @dataclass(frozen=True)
-class _Candidate:
-    """One film the shelf could show, with the sort key that decides whether it does."""
+class _Contender:
+    """One film the shelf could show, with the sort key that decides whether it does.
+
+    Not a *candidate*: that word is already taken in this module by the thing the LLM is
+    shown (:class:`anchor.llm.Candidate`), which is a film on its way *into* the verdict
+    cache. This is one on its way out of it.
+    """
 
     film_id: int
     verdict_id: uuid.UUID
@@ -689,17 +704,23 @@ async def rebuild(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -
     to nine films, the shelf holds nine.
     """
     ordered = await _ordered(db, account_id)
-    await _materialise(db, account_id, ordered[: settings.discovery_shelf])
+    await _materialise(db, account_id, ordered[: settings.discovery_shelf], repitch=True)
 
 
 async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
     """Close the gap an owner action left, and top the shelf back up from the cache.
 
     Not a rebuild, deliberately. An action is the owner's own doing rather than a session
-    boundary, so the cards they did not touch keep the order they were reading: the gap
-    closes, and one candidate joins the end. The newcomer is the next-ranked film the
-    cache already holds a verdict for, which is why this costs two queries and no provider
-    call at all (discovery.md).
+    boundary, so the cards they did not touch are left entirely alone: the gap closes, and
+    one candidate joins the end. The newcomer is the next-ranked film the cache already
+    holds a verdict for, which is why this costs two queries and no provider call at all
+    (discovery.md).
+
+    Entirely alone includes the sentence each card is standing on. A restock that landed
+    while the owner was reading has written newer verdicts, and expressing them here would
+    rewrite the pitch under their cursor - an engine-driven change outside a session
+    boundary, which is the one thing this whole arrangement exists to make impossible. So
+    the re-pitch is withheld: it is the next arrival's to make.
     """
     standing = {
         film_id: position
@@ -714,10 +735,10 @@ async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
         (one for one in ordered if one.film_id in standing), key=lambda one: standing[one.film_id]
     )
     joining = [one for one in ordered if one.film_id not in standing]
-    await _materialise(db, account_id, (held + joining)[: settings.discovery_shelf])
+    await _materialise(db, account_id, (held + joining)[: settings.discovery_shelf], repitch=False)
 
 
-async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Candidate]:
+async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Contender]:
     """Every film this account could be shown right now, in the order the shelf wants them.
 
     The eligibility rules are the shelf's invariant restated as a query: a film the owner
@@ -756,7 +777,7 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Candidate]:
     for film, verdict in rows:
         best[film.tmdb_id] = (film, verdict)
 
-    candidates = []
+    contenders = []
     for film, verdict in best.values():
         if verdict.fit is FitBucket.poor_fit:
             continue
@@ -764,8 +785,8 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Candidate]:
         # Live verdicts first and in the reranker's own order; stale ones behind them
         # ordered by the scorer, which is all a judgment of an older profile supports.
         # The id last, so a tie between two films is broken the same way every time.
-        candidates.append(
-            _Candidate(
+        contenders.append(
+            _Contender(
                 film_id=film.tmdb_id,
                 verdict_id=verdict.id,
                 key=(0, SHELF_ORDER[verdict.fit], verdict.rank, -score, film.tmdb_id)
@@ -773,12 +794,16 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Candidate]:
                 else (1, 0, 0, -score, film.tmdb_id),
             )
         )
-    candidates.sort(key=lambda one: one.key)
-    return candidates
+    contenders.sort(key=lambda one: one.key)
+    return contenders
 
 
 async def _materialise(
-    db: AsyncSession, account_id: uuid.UUID, desired: Sequence[_Candidate]
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    desired: Sequence[_Contender],
+    *,
+    repitch: bool,
 ) -> None:
     """Make the stored shelf say exactly this, keeping the rows of films that stay.
 
@@ -787,27 +812,33 @@ async def _materialise(
     deleting and re-inserting a film that never left the shelf would reset its rotation
     counter every time the engine ran and mark it new to an owner who has been looking at
     it for a week.
+
+    ``repitch`` is the session boundary, spelled as an argument. A held card's verdict is
+    the sentence the owner is reading, so moving it to a newer one is an engine-driven
+    change and belongs only to an arrival; a backfill closing a gap mid-session passes
+    False and leaves every surviving card exactly as it found it.
     """
     counter = await _refresh_counter(db, account_id)
     existing = {
         row.film_id: row
         for row in await db.scalars(select(Suggestion).where(Suggestion.account_id == account_id))
     }
-    for position, candidate in enumerate(desired):
-        held = existing.pop(candidate.film_id, None)
+    for position, contender in enumerate(desired):
+        held = existing.pop(contender.film_id, None)
         if held is None:
             db.add(
                 Suggestion(
                     account_id=account_id,
-                    film_id=candidate.film_id,
-                    verdict_id=candidate.verdict_id,
+                    film_id=contender.film_id,
+                    verdict_id=contender.verdict_id,
                     position=position,
                     arrived_at_refresh=counter,
                 )
             )
         else:
             held.position = position
-            held.verdict_id = candidate.verdict_id
+            if repitch:
+                held.verdict_id = contender.verdict_id
     for leaving in existing.values():
         await db.delete(leaving)
     await db.flush()

@@ -152,6 +152,20 @@ async def rating_films(client, run_jobs):
     return uuid.UUID(await account_id(client))
 
 
+async def turn_down(client, count):
+    """Turn down ``count`` suggestions, whichever ones the shelf is offering.
+
+    Worked through the action responses rather than by re-reading the screen, because a
+    read is a session boundary and a boundary advances the refresh counter: an owner
+    clearing a few cards in one sitting does not refresh the feed between them, and a test
+    that did would rotate the shelf out from under its own pile.
+    """
+    standing = await shelf(client)
+    for _ in range(count):
+        assert standing, "the shelf ran out before the pile was made"
+        standing = (await dismiss_suggestion(client, standing[0]["tmdb_id"]))["films"]
+
+
 async def stocked_shelf(client, run_jobs, provider, *films):
     """Get an account to a full shelf of ``films``, and hand back what is on it.
 
@@ -288,7 +302,7 @@ async def test_a_single_dismissal_changes_nothing(owner, run_jobs, provider, db)
     assert await prose_versions(db, account) == before
 
 
-@tuned(prose_dismissals_trigger=3)
+@tuned(prose_dismissal_evidence_min=3)
 async def test_accumulated_dismissals_reach_a_regeneration_as_pattern_evidence(
     owner, run_jobs, provider, db
 ):
@@ -301,20 +315,21 @@ async def test_accumulated_dismissals_reach_a_regeneration_as_pattern_evidence(
     """
     account = uuid.UUID(await account_id(owner))
     await stocked_shelf(owner, run_jobs, provider, *CANDIDATES)
+    await turn_down(owner, 3)
 
-    for film in CANDIDATES[:3]:
-        await dismiss_suggestion(owner, film)
-        await shelf(owner)  # the backfill puts the next candidate up to be dismissed
+    # The regeneration is earned by rating, which is the only kind of thing that ever
+    # earns one: a dismissal is read by a regeneration, never a reason to buy one.
+    await rate(owner, RATED[0], 4.5)
+    await rate(owner, RATED[1], 4.5)
     await run_jobs()
 
-    written = await prose_versions(db, account)
-    assert written[-1][2] == "dismissals"
+    assert len(await prose_versions(db, account)) > 1
     shown = provider.last_of(llm.PROSE_SYSTEM).prompt.user
     assert "Suggestions they turned down" in shown
     assert "Corbucci" in shown
 
 
-@tuned(prose_dismissals_trigger=3)
+@tuned(prose_dismissal_evidence_min=3)
 async def test_a_constraint_outranks_any_dismissal_pattern(owner, run_jobs, provider, db):
     """The correction flow overrides a pattern durably (ADR 0006), and says so in the prompt.
 
@@ -323,10 +338,9 @@ async def test_a_constraint_outranks_any_dismissal_pattern(owner, run_jobs, prov
     outright is settled fact, and a pattern may never contradict it.
     """
     await stocked_shelf(owner, run_jobs, provider, *CANDIDATES)
+    await turn_down(owner, 3)
+    # The correction is itself a trigger, so this is the regeneration it earns.
     await thumb_down(owner, "You have no time for westerns")
-    for film in CANDIDATES[:3]:
-        await dismiss_suggestion(owner, film)
-        await shelf(owner)
     await run_jobs()
 
     asked = provider.last_of(llm.PROSE_SYSTEM).prompt
@@ -354,6 +368,25 @@ async def test_a_lifted_dismissal_is_kept_rather_than_deleted(owner, run_jobs, p
     await lift_dismissal(owner, CANDIDATES[0])
 
     assert await dismissal_rows(db, account) == [(CANDIDATES[0].tmdb_id, True)]
+
+
+@tuned(prose_dismissal_evidence_min=3)
+async def test_a_pile_of_dismissals_still_buys_nothing(owner, run_jobs, provider, db):
+    """The pile is evidence, never a purchase order (ADR 0006).
+
+    Dismissals are the weakest signal Anchor holds - taps made while clearing a queue -
+    and the one thing they must not become is a spend path of their own. Well past the
+    magnitude guard, an owner who does nothing but dismiss earns no regeneration at all;
+    the pile waits for one that some real judgment of theirs pays for.
+    """
+    account = uuid.UUID(await account_id(owner))
+    await stocked_shelf(owner, run_jobs, provider, *CANDIDATES)
+    before = await prose_versions(db, account)
+
+    await turn_down(owner, 6)
+    await run_jobs()
+
+    assert await prose_versions(db, account) == before
 
 
 # --- Seen it ---

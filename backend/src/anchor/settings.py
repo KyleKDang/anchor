@@ -118,16 +118,18 @@ class Settings(BaseSettings):
     enough above one that no comparison can ever be what triggers a regeneration.
     """
 
-    prose_dismissals_trigger: int = 8
-    """Discovery dismissals that make a regeneration worth buying, and worth reading.
+    prose_dismissal_evidence_min: int = 8
+    """Live discovery dismissals before the pile is shown to a regeneration at all.
 
-    One number doing both halves of ADR 0006's magnitude guard, because they are the same
-    judgment stated twice: below this many the pile says nothing, so it is not shown to a
-    regeneration and it does not buy one. Above it, this many *new* dismissals since the
-    live version is what makes the pattern worth re-reading.
+    ADR 0006's magnitude guard, as a number. Below this the section does not reach the
+    prompt, so there is no wording anywhere for a regeneration to over-read; above it the
+    pile is described as a pattern and never as a verdict on any one film.
 
-    Deliberately well above one. A single dismissal means nothing, and the whole risk this
-    guard exists for is a profile that reacts to one tap.
+    Deliberately well above one. A single dismissal means nothing, and a profile that
+    reacts to one tap is the whole risk the guard exists for.
+
+    It gates only what a regeneration *reads*. Dismissals never trigger one: they are the
+    weakest signal Anchor holds, and the one thing they must not become is a spend path.
     """
 
     prose_staleness_judgments: int = 40
