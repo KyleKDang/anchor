@@ -62,15 +62,11 @@ export interface CriteriaCard {
 }
 
 /**
- * What answering a card hands back: the next card in the same home, or null when the
- * home is over - the run's frequency was switched off, or nothing unasked remains.
+ * What every call that can put a card in front of the owner hands back: the card, or
+ * null when the home is over - nothing unasked remains, or the run's frequency was
+ * switched off. One shape for a session's opening and for what follows an answer.
  */
-export interface CriteriaAnswered {
-  next: CriteriaCard | null;
-}
-
-/** A session's opening: its first card, or null when there is nothing left to ask. */
-export interface CriteriaSession {
+export interface CriteriaDealt {
   card: CriteriaCard | null;
 }
 
@@ -721,12 +717,12 @@ export const api = {
     request<void>("POST", `/api/rewatches/${tmdbId}`, { answer }),
   profile: () => request<Profile>("GET", "/api/profile"),
   answerCriteria: (offerId: string, verdict: CriteriaVerdict) =>
-    request<CriteriaAnswered>("POST", `/api/criteria/${offerId}`, { verdict }),
+    request<CriteriaDealt>("POST", `/api/criteria/${offerId}`, { verdict }),
   /** Session only: the next card without an answer. On a run card it ends the run. */
   dismissCriteria: (offerId: string) =>
-    request<CriteriaAnswered>("POST", `/api/criteria/${offerId}/dismiss`, {}),
+    request<CriteriaDealt>("POST", `/api/criteria/${offerId}/dismiss`, {}),
   openCriteriaSession: (tmdbId: number) =>
-    request<CriteriaSession>("POST", `/api/criteria/session/${tmdbId}`, {}),
+    request<CriteriaDealt>("POST", `/api/criteria/session/${tmdbId}`, {}),
   setCriteriaFrequency: (frequency: CriteriaFrequency) =>
     request<{ frequency: CriteriaFrequency }>("PUT", "/api/profile/criteria", { frequency }),
   qualities: () => request<Picker>("GET", "/api/profile/qualities"),

@@ -22,7 +22,7 @@ from flows import (
     account_id,
     add_quality,
     answer_criteria,
-    answer_run,
+    answer_every_card,
     ask_criteria,
     build_ordering,
     compared_in_picker,
@@ -189,7 +189,7 @@ async def test_a_run_never_asks_the_same_pair_and_quality_twice(owner):
     card = await card_from(owner, THIRD)
     assert card is not None
 
-    met = await answer_run(owner, card)
+    met = await answer_every_card(owner, card)
 
     asked = [(frozenset(pair_of(seen)), seen["quality"]) for seen in met]
     assert len(asked) == len(set(asked))
@@ -202,7 +202,7 @@ async def test_a_run_ends_when_nothing_unasked_remains(owner):
     card = await card_from(owner, SECOND)
     assert card is not None
 
-    met = await answer_run(owner, card)
+    met = await answer_every_card(owner, card)
 
     assert len(met) == len(BUILT_IN_QUALITIES)
     assert [seen["quality"] for seen in met] == list(BUILT_IN_QUALITIES)
@@ -211,8 +211,8 @@ async def test_a_run_ends_when_nothing_unasked_remains(owner):
     }
 
 
-async def test_dismissing_the_run_ends_it_and_the_offer_reads_skip(owner, db):
-    """Dismissing is the absence of an answer: no next card is minted, and the row stands."""
+async def test_leaving_a_run_after_an_answer_leaves_the_last_card_reading_skip(owner, db):
+    """Leaving is the absence of an answer: no next card is minted, and the row stands."""
     await ask_criteria(owner, "often")
     await build_ordering(owner, [FIRST, SECOND], band=3.0)
     card = await card_from(owner, THIRD)
@@ -298,7 +298,7 @@ async def test_a_session_serves_cards_until_nothing_unasked_remains(owner, db):
     card = await open_session(owner, SECOND)
     assert card is not None
 
-    met = await answer_run(owner, card, "ab")
+    met = await answer_every_card(owner, card, "ab")
 
     assert len(met) == len(BUILT_IN_QUALITIES)
     assert {frozenset(pair_of(seen)) for seen in met} == {
@@ -314,7 +314,7 @@ async def test_a_session_never_asks_the_same_pair_and_quality_twice(owner):
     card = await open_session(owner, FOURTH)
     assert card is not None
 
-    met = await answer_run(owner, card)
+    met = await answer_every_card(owner, card)
 
     asked = [(frozenset(pair_of(seen)), seen["quality"]) for seen in met]
     assert len(asked) == len(set(asked))
@@ -384,7 +384,7 @@ async def test_a_session_asks_about_varied_opponents(owner):
     card = await open_session(owner, FOURTH)
     assert card is not None
 
-    met = await answer_run(owner, card, limit=3)
+    met = await answer_every_card(owner, card, limit=3)
 
     first_round = [opponent_of(seen, FOURTH) for seen in met]
     assert sorted(first_round) == sorted([FIRST.tmdb_id, SECOND.tmdb_id, THIRD.tmdb_id])
@@ -423,7 +423,7 @@ async def test_the_ladder_runs_anchors_neighbours_picker_opponents_then_the_libr
 
     card = await open_session(owner, THIRD)
     assert card is not None
-    met = await answer_run(owner, card, limit=4)
+    met = await answer_every_card(owner, card, limit=4)
 
     opponents = [opponent_of(seen, THIRD) for seen in met]
     assert opponents == [FIRST.tmdb_id, SECOND.tmdb_id, FOURTH.tmdb_id, elsewhere.tmdb_id]
@@ -538,7 +538,7 @@ async def test_a_session_answer_never_moves_the_ordering(owner, db):
     before = await ordering_snapshot(db, account)
     wall = await rated(owner)
 
-    await answer_run(owner, card, "ab")
+    await answer_every_card(owner, card, "ab")
 
     assert await ordering_snapshot(db, account) == before
     assert await rated(owner) == wall
@@ -685,20 +685,41 @@ async def test_a_session_s_answers_raise_the_adaptive_frequency(owner, db):
     assert await card_from(owner, FOURTH) is not None
 
 
-async def test_a_session_s_offers_are_not_run_offers(owner, db):
-    """A manual gap is counted in ratings since the last *run* offer; a session resets nothing."""
+async def test_a_session_between_ratings_does_not_restart_the_gap(owner, db):
+    """A manual gap is counted in ratings since the last *run* offer; a session resets nothing.
+
+    The session sits between the two ratings the gap is counted over, so a dial that
+    mistook its offer for one of its own would start counting again from it and find
+    nothing had passed.
+    """
     account = await account_id(owner)
     await ask_criteria(owner, "sometimes")
     await build_ordering(owner, [FIRST, SECOND], band=3.0)
     assert len(await criteria_log(db, account)) == 1
-    card = await open_session(owner, SECOND)
+    # "Sometimes" waits one rating between offers, so this rating gets no card...
+    assert await card_from(owner, THIRD) is None
+    card = await open_session(owner, THIRD)
     assert card is not None
     await answer_criteria(owner, card, "a")
 
-    # "Sometimes" waits one rating between offers, so the next rating gets no card...
-    assert await card_from(owner, THIRD) is None
-    # ...and the one after does, exactly as if the session had never happened.
+    # ...and the next does, exactly as if the session had never happened.
     assert await card_from(owner, FOURTH) is not None
+
+
+async def test_a_session_before_any_run_does_not_spend_the_first_offer(owner, db):
+    """The first rating that can carry a card gets one whatever the setting - still."""
+    account = await account_id(owner)
+    await ask_criteria(owner, "rarely")
+    await build_ordering(owner, [FIRST], band=3.0)
+    await ask_criteria(owner, "off")
+    await build_ordering(owner, [SECOND], band=3.0)
+    card = await open_session(owner, SECOND)
+    assert card is not None
+    await answer_criteria(owner, card, "a")
+    assert all(entry[4] == "spontaneous" for entry in await criteria_log(db, account))
+    await ask_criteria(owner, "rarely")
+
+    assert await card_from(owner, THIRD) is not None
 
 
 async def test_the_rotation_works_through_the_quality_list(owner, db):

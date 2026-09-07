@@ -293,18 +293,18 @@ async def answer_criteria(client, card, verdict, expect=200):
     """
     response = await client.post(f"/api/criteria/{card['id']}", json={"verdict": verdict})
     assert response.status_code == expect, response.text
-    return response.json()["next"] if expect == 200 else response.json()
+    return response.json()["card"] if expect == 200 else response.json()
 
 
 async def dismiss_criteria(client, card, expect=200):
     """Wave a card away. In a session the next one comes; in a run, nothing does."""
     response = await client.post(f"/api/criteria/{card['id']}/dismiss")
     assert response.status_code == expect, response.text
-    return response.json()["next"] if expect == 200 else response.json()
+    return response.json()["card"] if expect == 200 else response.json()
 
 
-async def answer_run(client, card, verdicts="a", limit=200):
-    """Answer card after card until the home has nothing left, or ``limit`` cards have been met.
+async def answer_every_card(client, card, verdicts="a", limit=200):
+    """Answer card after card, in either home, until nothing is left or ``limit`` cards are met.
 
     Hands back every card the owner met, first to last. ``verdicts`` cycles, so one letter
     answers everything the same way; a string of several scripts the sequence.

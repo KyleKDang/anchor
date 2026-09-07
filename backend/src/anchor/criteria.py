@@ -40,6 +40,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Literal
 
+import procrastinate
 from fastapi import APIRouter
 from pydantic import BaseModel
 from sqlalchemy import func, or_, select
@@ -61,6 +62,7 @@ from anchor.models import (
     CriteriaFrequency,
     QualityListEntry,
 )
+from anchor.settings import Settings
 
 router = APIRouter(prefix="/api/criteria")
 
@@ -136,19 +138,14 @@ class CriteriaCard(BaseModel):
     film_b: FilmCard
 
 
-class Answered(BaseModel):
-    """What an answer hands back: the next card in the same home, or None when it is over.
+class Dealt(BaseModel):
+    """What every call that can put a card in front of the owner hands back.
 
-    Over means the run's frequency was switched off, or nothing unasked remains about the
-    film. The owner leaving or dismissing is not something the server hears about, and
-    does not need to: no answer, no next card.
+    The card, or None when the home is over: nothing unasked remains about the film, or
+    the run's frequency was switched off. One shape for the session's opening and for
+    the card that follows an answer or a dismissal, because to the client they are the
+    same thing - the next question, or the end.
     """
-
-    next: CriteriaCard | None
-
-
-class Session(BaseModel):
-    """A session's opening: its first card, or None when there is nothing left to ask."""
 
     card: CriteriaCard | None
 
@@ -188,21 +185,31 @@ async def offer(
     return await _mint(db, account.id, subject, context)
 
 
-async def askable_films(db: AsyncSession, account_id: uuid.UUID, subject: int) -> list[int]:
-    """Every film a card about ``subject`` could name, each once.
+async def buy_tags(
+    db: AsyncSession,
+    queue: procrastinate.App,
+    account_id: uuid.UUID,
+    subject: int,
+    settings: Settings,
+) -> None:
+    """Queue tags for every film a card about ``subject`` could name.
 
-    Exported for the quality tagging, which buys tags for exactly this set: the films
-    selection will look tags up for next time. Deliberately the same derivation the card
-    itself uses rather than a similar one, so a tagging never buys tags for films no card
-    here can ask about - nor misses the ones it will.
+    The films a card could name are the ones the next card will want tags for, so the
+    moment a home opens on a film - a landing, a session - is what buys them, for the
+    next card and never for this one. Precompute only: nothing waits on the job.
+
+    Deliberately the same derivation the card itself uses rather than a similar one, so
+    a tagging never buys tags for films no card here can ask about - nor misses the ones
+    it will.
     """
-    return sorted(
+    films = sorted(
         {
             film
             for matchup in await _candidates(db, account_id, subject)
             for film in (matchup.film_a, matchup.film_b)
         }
     )
+    await tags.schedule(db, queue, account_id, films, settings)
 
 
 async def _mint(
@@ -327,14 +334,14 @@ async def _select(
     askable = {entry.name: entry for entry in listed}
     # A stable sort, so the ladder's order is what breaks a tie in how often each
     # opponent has been asked about.
-    varied = sorted(candidates, key=lambda matchup: len(asked[matchup.film_b]))
+    varied = sorted(candidates, key=lambda matchup: len(asked.get(matchup.film_b, ())))
     for matchup in varied:
         shared = [
             askable[name]
             for name in BUILT_IN_QUALITIES
             if name in askable
             and name in tagged[matchup.film_a] & tagged[matchup.film_b]
-            and askable[name].id not in asked[matchup.film_b]
+            and askable[name].id not in asked.get(matchup.film_b, ())
         ]
         if shared:
             # Which of several shared tags to ask about is not spec'd, so it is settled
@@ -342,7 +349,7 @@ async def _select(
             # being asked.
             return matchup, _rotated(shared, last)
     for matchup in varied:
-        unasked = [entry for entry in listed if entry.id not in asked[matchup.film_b]]
+        unasked = [entry for entry in listed if entry.id not in asked.get(matchup.film_b, ())]
         if unasked:
             return matchup, _rotated(unasked, last)
     return None
@@ -350,11 +357,12 @@ async def _select(
 
 async def _asked(
     db: AsyncSession, account_id: uuid.UUID, subject: int
-) -> defaultdict[int, set[uuid.UUID]]:
+) -> dict[int, frozenset[uuid.UUID]]:
     """Every question already asked about the subject: opponent to the qualities asked.
 
     Offered is asked. An ignored card was put in front of the owner and they said
-    nothing, and asking it again would be the chore the spec rules out.
+    nothing, and asking it again would be the chore the spec rules out. An opponent
+    never asked about is simply absent.
     """
     rows = await db.execute(
         select(
@@ -370,7 +378,7 @@ async def _asked(
     asked: defaultdict[int, set[uuid.UUID]] = defaultdict(set)
     for a, b, quality_id in rows:
         asked[b if a == subject else a].add(quality_id)
-    return asked
+    return {film: frozenset(qualities) for film, qualities in asked.items()}
 
 
 def _rotated(listed: list[QualityListEntry], asked: dict[uuid.UUID, datetime]) -> QualityListEntry:
@@ -529,7 +537,7 @@ async def open_session(
     db: DbSession,
     queue: AppJobs,
     settings: AppSettings,
-) -> Session:
+) -> Dealt:
     """Open a session about one rated film: its first card, or None if nothing is left.
 
     Pull-only, and available whatever the frequency setting says: the dial governs the
@@ -540,13 +548,9 @@ async def open_session(
     if await ordering_module.placement_of(db, account.id, tmdb_id) is None:
         raise ApiError(404, "not_rated", "Questions are about films you have rated.")
     card = await _mint(db, account.id, tmdb_id, SESSION)
-    # The films this session can ask about are the ones its later cards will want tags
-    # for. Precompute only: nothing here waits on the job this queues.
-    await tags.schedule(
-        db, queue, account.id, await askable_films(db, account.id, tmdb_id), settings
-    )
+    await buy_tags(db, queue, account.id, tmdb_id, settings)
     await db.commit()
-    return Session(card=card)
+    return Dealt(card=card)
 
 
 # --- Answering and dismissing ---
@@ -555,7 +559,7 @@ async def open_session(
 @router.post("/{offer_id}")
 async def answer(
     offer_id: uuid.UUID, body: CriteriaAnswer, account: CurrentAccount, db: DbSession
-) -> Answered:
+) -> Dealt:
     """Answer a card, and take the next one in the same home. Optional by construction.
 
     There is no matching dismiss or leave endpoint, and there should not be. Dismissing
@@ -572,11 +576,11 @@ async def answer(
     if entry.context is SESSION or account.criteria_frequency is not CriteriaFrequency.off:
         following = await _mint(db, account.id, entry.subject_film_id, entry.context)
     await db.commit()
-    return Answered(next=following)
+    return Dealt(card=following)
 
 
 @router.post("/{offer_id}/dismiss")
-async def dismiss(offer_id: uuid.UUID, account: CurrentAccount, db: DbSession) -> Answered:
+async def dismiss(offer_id: uuid.UUID, account: CurrentAccount, db: DbSession) -> Dealt:
     """Wave a card away: in a session the next one comes, in a run nothing does.
 
     The card itself is not touched. Dismissing and ignoring are required to be recorded
@@ -589,10 +593,10 @@ async def dismiss(offer_id: uuid.UUID, account: CurrentAccount, db: DbSession) -
     """
     entry = await _offered(db, account, offer_id)
     if entry.context is not SESSION:
-        return Answered(next=None)
+        return Dealt(card=None)
     following = await _mint(db, account.id, entry.subject_film_id, entry.context)
     await db.commit()
-    return Answered(next=following)
+    return Dealt(card=following)
 
 
 async def _offered(db: AsyncSession, account: Account, offer_id: uuid.UUID) -> ComparisonLogEntry:
