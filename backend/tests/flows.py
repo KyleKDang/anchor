@@ -63,6 +63,47 @@ async def abandon(client, film):
     return await picker(client, film)
 
 
+# --- Narrowing a range ---
+
+
+async def narrow(client, film, bands, answered=(), verdict=None, expect=200):
+    """One step of narrowing: hand back the transcript, get the next question.
+
+    ``answered`` is what the screen is carrying and ``verdict`` the answer just given.
+    With no verdict this asks the range where it stands and writes nothing, which is how
+    the first question arrives.
+    """
+    response = await client.post(
+        f"/api/placements/{film.tmdb_id}/narrow",
+        json={"bands": list(bands), "answered": list(answered), "verdict": verdict},
+    )
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
+async def answer(client, film, bands, verdicts):
+    """Answer a whole run of comparisons in order, and hand back where it left off."""
+    step = await narrow(client, film, bands)
+    for index, verdict in enumerate(verdicts):
+        step = await narrow(client, film, bands, verdicts[:index], verdict)
+    return step
+
+
+async def land(client, film, band, bands=(), answered=(), closer=None, expect=200):
+    """End a range: the band the answers settled on, or the boundary film it is closer to."""
+    response = await client.post(
+        f"/api/placements/{film.tmdb_id}/band",
+        json={
+            "band": band,
+            "bands": list(bands),
+            "answered": list(answered),
+            "closer": closer,
+        },
+    )
+    assert response.status_code == expect, response.text
+    return response.json()
+
+
 async def build_ordering(client, films, band=4.0):
     """Rate a run of films into one band, in the order given.
 

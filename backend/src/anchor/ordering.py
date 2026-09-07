@@ -285,6 +285,38 @@ async def re_rate(db: AsyncSession, placement: Placement, *, band: float, rank: 
     await db.flush()
 
 
+async def shift(db: AsyncSession, placement: Placement, *, rank: int) -> None:
+    """Move a film to another rank inside the band it is already in.
+
+    ``rank`` is an insertion rank counted against the band with this film taken out of
+    it, which is the same arithmetic a landing uses, so a caller that has clipped a rank
+    against the band's other films can hand it straight over.
+
+    Used where a re-rate lands in the film's own band but the comparisons that got it
+    there contradict the rank it was holding: a landing may never contradict an answer
+    the owner has just given (rating-system.md), and the re-rate's "keeps its rank" is
+    about a rating re-affirmed with no question asked.
+    """
+    if rank == placement.rank:
+        return
+    await _close_rank(db, placement.account_id, placement.band, placement.rank)
+    # Excluded by id because this film is still sitting at its old rank while the gap it
+    # is moving into is opened, and a shift that pushed the film it is moving would move
+    # it twice.
+    await db.execute(
+        update(Placement)
+        .where(
+            Placement.account_id == placement.account_id,
+            Placement.band == placement.band,
+            Placement.rank >= rank,
+            Placement.id != placement.id,
+        )
+        .values(rank=Placement.rank + 1)
+    )
+    placement.rank = rank
+    await db.flush()
+
+
 async def unrate(db: AsyncSession, placement: Placement) -> None:
     """Take a film out of the ordering and close the gap it leaves behind."""
     await _close_rank(db, placement.account_id, placement.band, placement.rank)

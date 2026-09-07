@@ -529,6 +529,20 @@ class ComparisonLogEntry(Base):
             "(quality_id IS NOT NULL) = (kind = 'criteria')",
             name="ck_comparison_log_entries_criteria_quality",
         ),
+        # A range is two or three adjacent bands, so it is named by its ends or not at
+        # all. Half a range would be a judgment that cannot say what it was narrowing.
+        CheckConstraint(
+            "(range_top IS NULL) = (range_bottom IS NULL)",
+            name="ck_comparison_log_entries_range_ends",
+        ),
+        # The boundary question is the one judgment with two films standing beside the
+        # subject, and it is always a pick inside a range: a row naming one exemplar, or
+        # naming them outside a range, is not a boundary question.
+        CheckConstraint(
+            "(exemplar_upper_id IS NULL) = (exemplar_lower_id IS NULL)"
+            " AND (exemplar_upper_id IS NULL OR range_top IS NOT NULL)",
+            name="ck_comparison_log_entries_exemplars",
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -567,6 +581,31 @@ class ComparisonLogEntry(Base):
         index=True,
     )
     """Which quality a criteria row asked about. None on every other kind."""
+    range_top: Mapped[float | None] = mapped_column(Float)
+    """The best band of the range this judgment was narrowing, and None outside one.
+
+    Every comparison the picker asks is a step in narrowing a range, so the range is what
+    says what the question was *for*: "worse than this 4.0 anchor" reads one way while
+    the owner was choosing between 4.5 and 4.0 and another way entirely while they were
+    choosing between 4.0 and 3.5. A pick carries it too, which is how the three kinds of
+    pick tell themselves apart: outright picks name no range, and a pick that ends one
+    names it whether it was the boundary question or the range's last resort.
+    """
+    range_bottom: Mapped[float | None] = mapped_column(Float)
+    """The worst band of that range. Set with :attr:`range_top` or not at all."""
+    exemplar_upper_id: Mapped[int | None] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT")
+    )
+    """The boundary question's upper film: the bottom film of the range's upper band.
+
+    A boundary question is a band pick with two exemplars (CONTEXT.md), and which of them
+    the film was judged closer to is read off :attr:`band` - the chosen band is the band
+    of the exemplar it went to. Both are named because the question was about the pair.
+    """
+    exemplar_lower_id: Mapped[int | None] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT")
+    )
+    """The boundary question's lower film: the top film of the range's lower band."""
     context: Mapped[ComparisonContext] = mapped_column(
         Enum(ComparisonContext, name="comparison_context"), nullable=False
     )

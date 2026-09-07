@@ -264,7 +264,8 @@ async def comparison_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any,
             text(
                 """
                 SELECT id, kind, subject_film_id, film_a_id, film_b_id, verdict, band,
-                       context, created_at
+                       context, created_at, range_top, range_bottom,
+                       exemplar_upper_id, exemplar_lower_id
                 FROM comparison_log_entries WHERE account_id = :id
                 ORDER BY created_at, id
                 """
@@ -273,6 +274,12 @@ async def comparison_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any,
         )
         return [tuple(row) for row in rows]
 
+
+RANGE_COLUMNS = (9, 10)
+"""Where ``range_top`` and ``range_bottom`` sit: the range a judgment was narrowing."""
+
+EXEMPLAR_COLUMNS = (11, 12)
+"""Where the boundary question's two seam films sit, and empty on every other row."""
 
 VERDICT_COLUMN = 5
 """Where ``verdict`` sits in a :func:`comparison_log` tuple: the log's one mutable column.

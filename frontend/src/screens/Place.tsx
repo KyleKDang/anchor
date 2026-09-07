@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
 import { api, messageOf, type Landed as LandedStep, type Picker as PickerStep } from "../api";
-import { Landed, Picker } from "../films/steps";
+import { Landed, Narrowing, Picker } from "../films/steps";
 
 /** Where the flow's two exits lead: back where it was opened from, or Rated by default. */
 const EXITS = ["/rated", "/warmup"] as const;
@@ -38,6 +38,7 @@ export function Place() {
   const navigate = useNavigate();
   const exit = useExit();
   const [picker, setPicker] = useState<PickerStep | null>(null);
+  const [range, setRange] = useState<number[] | null>(null);
   const [landed, setLanded] = useState<LandedStep | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,8 +68,26 @@ export function Place() {
         </p>
       )}
       {picker === null && landed === null && !error && <p className="muted">Loading…</p>}
-      {picker !== null && landed === null && (
-        <Picker picker={picker} tmdbId={id} onLanded={setLanded} footer={leave} />
+      {picker !== null && landed === null && range === null && (
+        <Picker
+          picker={picker}
+          tmdbId={id}
+          onLanded={setLanded}
+          onRange={setRange}
+          footer={leave}
+        />
+      )}
+      {picker !== null && landed === null && range !== null && (
+        <Narrowing
+          film={picker.film}
+          tmdbId={id}
+          bands={range}
+          onLanded={setLanded}
+          // Leaving mid-range is leaving: the answers already given stay in the log, the
+          // film stays on the rate-later queue, and the next attempt starts the picker
+          // fresh rather than resuming half a narrowing (screens-and-flows.md).
+          footer={leave}
+        />
       )}
       {landed !== null && (
         <Landed
