@@ -35,11 +35,12 @@ from anchor import anchors as anchors_module
 from anchor import jobs
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
+from anchor import warmup as warmup_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.deps import AppJobs, AppSettings, DbSession
 from anchor.errors import ApiError
-from anchor.models import BANDS, AccountFilm, Film, LifecycleState, Placement, WatchEvent
+from anchor.models import BANDS, AccountFilm, Film, LifecycleState, Placement, Unlock, WatchEvent
 
 router = APIRouter(prefix="/api/rated")
 
@@ -98,6 +99,13 @@ class Rated(BaseModel):
     """
     anchor_nudge: bool
     """The account has no anchors at all: the one line saying what marking one does."""
+    wall_hint: bool
+    """The warmup's look-over-the-wall step is unanswered: explain dragging and marking.
+
+    The step sends the owner here, so its one-time explanation waits here rather than on
+    the screen they left. A sibling of ``anchor_nudge`` and presence-based the same way -
+    it goes the moment a film has been moved (:mod:`anchor.warmup`).
+    """
     rate_later: list[FilmCard]
     """Watched-unrated films seated in the queue, awaiting an optional rating."""
 
@@ -147,6 +155,7 @@ async def rated(
         ),
         sizes={band: len(ordering.row(band)) for band in ordering.bands()},
         anchor_nudge=not counts,
+        wall_hint=await warmup_module.explain_the_wall(db, account.id),
         rate_later=[cards[film_id] for film_id in seated if film_id in cards],
     )
 
@@ -166,6 +175,13 @@ class Moved(BaseModel):
     rank: int
     anchor: bool
     """False after a cross-band move, which is the badge going as the film lands."""
+    unlocked: list[Unlock]
+    """What this very drop unlocked, and empty on every other one.
+
+    A move is the act the import fill's warmup step asks for, so it is an act that can
+    cross the bands-spanned bar - and the unlock line rides whichever step crossed it
+    (surfacing.md). One line, once ever, on the screen the owner is looking at.
+    """
 
 
 @router.post("/{tmdb_id}/move")
@@ -193,16 +209,20 @@ async def move(
         changed = await ordering_module.move(db, placement, band=body.band, rank=body.rank)
     except ordering_module.RankOffTheEnd as error:
         raise ApiError(422, "rank_off_the_end", str(error)) from error
+    crossed: set[Unlock] = set()
     if changed:
         await jobs.schedule_retrain(db, queue, account.id)
         if crossed_bands:
             # The bands spanned may just have grown, and the tier owns what that means.
-            await tier_module.note_unlock(db, account.id, settings)
+            # A move inside a band changes neither count readiness reads, so it is the
+            # one act on this screen that cannot cross anything.
+            crossed = await tier_module.note_unlock(db, account.id, settings)
     moved = Moved(
         tmdb_id=tmdb_id,
         band=placement.band,
         rank=placement.rank,
         anchor=placement.anchored_at is not None,
+        unlocked=[unlock for unlock in Unlock if unlock in crossed],
     )
     await db.commit()
     return moved

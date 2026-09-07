@@ -21,10 +21,11 @@ import { CSS } from "@dnd-kit/utilities";
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
-import { api, messageOf, type Rated, type RatedFilm } from "../../api";
+import { api, messageOf, type Rated, type RatedFilm, type Unlock } from "../../api";
 import { Band } from "../../films/Band";
 import { Poster } from "../../films/Poster";
 import { filmPath, releaseYear } from "../../films/tmdb";
+import { UnlockLines } from "../../films/UnlockLines";
 import {
   applyMove,
   editableRows,
@@ -73,6 +74,10 @@ export function EditableWall({
   const [rows, setRows] = useState<EditableRow[]>(() => editableRows(rated, bands));
   const [active, setActive] = useState<RatedFilm | null>(null);
   const [failed, setFailed] = useState<{ tmdb_id: number; message: string } | null>(null);
+  // What a drop just unlocked, named here because here is where the owner is standing.
+  // Kept until they leave edit mode rather than cleared on the next drop: the line is
+  // news, and a burst of keyboard steps would otherwise flash it away unread.
+  const [unlocked, setUnlocked] = useState<Unlock[]>([]);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
   const snapshot = useRef<EditableRow[] | null>(null);
@@ -128,7 +133,8 @@ export function EditableWall({
       setRows(applyMove(base, film, target));
       if (film.tmdb_id === highlighted) onMoved();
       enqueue(film, async () => {
-        await api.move(film.tmdb_id, target.band, target.rank);
+        const moved = await api.move(film.tmdb_id, target.band, target.rank);
+        if (moved.unlocked.length > 0) setUnlocked(moved.unlocked);
       });
     },
     [enqueue, highlighted, onMoved],
@@ -261,6 +267,7 @@ export function EditableWall({
       onDragCancel={onDragCancel}
       accessibility={{ screenReaderInstructions: { draggable: INSTRUCTIONS }, announcements }}
     >
+      <UnlockLines unlocked={unlocked} />
       {rows.map((row) => (
         <EditableBand
           key={row.band}

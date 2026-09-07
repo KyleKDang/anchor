@@ -333,6 +333,15 @@ class Settings(BaseSettings):
     warmup_candidates_per_band: int = 5
     """Anchor candidates offered per band on the import path. A page is not a decision aid."""
 
+    warmup_moves: int = 3
+    """How many films the import fill's look-over-the-wall step asks to be moved.
+
+    "A few films" (onboarding-and-import.md), read as the smallest number plural enough to
+    have taught the gesture: one drag could be an accident, three is a habit. Advisory
+    like every other number here - the step is skippable, and the wall was the owner's to
+    edit as much or as little as they liked before the step ever asked.
+    """
+
     rate_limit_window_seconds: float = 15 * 60
     """The sliding window the per-IP limits below count within."""
 

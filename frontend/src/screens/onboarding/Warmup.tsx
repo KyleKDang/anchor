@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 
 import {
   api,
@@ -11,14 +11,15 @@ import {
 } from "../../api";
 import { useAsyncAction } from "../../films/useAsyncAction";
 import { Designate } from "./Designate";
+import { LookOverTheWall } from "./LookOverTheWall";
 import { SeedBacklog } from "./SeedBacklog";
 
 /**
  * The warmup: one skeleton, filled by whichever way in the owner took.
  *
- * The fresh fill has three phases and the import fill two - its middle step is looking
- * over the wall it just got, which is edit mode and arrives with its own ticket
- * (ADR 0013 removed the settling step that used to stand there).
+ * Both fills have three phases and only the middle one differs: the fresh fill rates a
+ * few more films, and the import fill looks over the wall its export just built, which
+ * is edit mode on the Rated screen (ADR 0013 removed the settling step that stood there).
  *
  * Inside the app frame rather than full-screen, deliberately. "Skippable at every point,
  * the app fully usable throughout" is not a promise worth making in prose while the
@@ -30,8 +31,12 @@ import { SeedBacklog } from "./SeedBacklog";
  */
 export function Warmup() {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [state, setState] = useState<WarmupState | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The band the picker was opened from, so a film rated mid-prompt comes back to the
+  // prompt that sent it rather than to wherever the run would otherwise have moved on to.
+  const from = params.has("band") ? Number(params.get("band")) : null;
 
   useEffect(() => {
     api
@@ -70,11 +75,12 @@ export function Warmup() {
         mark="anchors"
         onChanged={setState}
       >
-        <Designate phase={state.anchors} fill={state.fill} onChanged={setState} />
+        <Designate phase={state.anchors} fill={state.fill} from={from} onChanged={setState} />
       </Phase>
 
-      {/* Only the fresh fill has a middle step. The import fill's is looking over the
-          wall it just got, which is edit mode - and that arrives with its own ticket. */}
+      {/* The one step that differs between the fills. An owner who imported already has
+          ratings, so asking for more would ask for the thing they arrived holding; what
+          they have not seen is the ordering those ratings made. */}
       {state.rating !== null && (
         <Phase
           heading="2. Rate a few films you have seen"
@@ -87,8 +93,20 @@ export function Warmup() {
         </Phase>
       )}
 
+      {state.wall !== null && (
+        <Phase
+          heading="2. Look over the wall"
+          blurb="The ordering your export made, and how to change it."
+          state={state.wall.state}
+          mark="wall"
+          onChanged={setState}
+        >
+          <LookOverTheWall phase={state.wall} />
+        </Phase>
+      )}
+
       <Phase
-        heading={`${state.rating === null ? 2 : 3}. Fill your backlog`}
+        heading="3. Fill your backlog"
         blurb="Something to watch next, usable from minute one."
         state={state.backlog.state}
         mark="backlog"
@@ -206,7 +224,7 @@ function Done({
   const { busy, error, run } = useAsyncAction();
   const settled = [
     state.anchors.state,
-    state.rating?.state ?? "done",
+    state.rating?.state ?? state.wall?.state ?? "done",
     state.backlog.state,
   ].every((one) => one !== "todo");
 

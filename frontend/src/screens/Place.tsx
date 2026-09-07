@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router";
 
-import { api, messageOf, type Landed as LandedStep, type Picker as PickerStep } from "../api";
+import {
+  api,
+  BANDS,
+  messageOf,
+  type Landed as LandedStep,
+  type Picker as PickerStep,
+} from "../api";
 import { Landed, Narrowing, Picker } from "../films/steps";
 
 /** Where the flow's two exits lead: back where it was opened from, or Rated by default. */
@@ -11,12 +17,19 @@ const EXITS = ["/rated", "/warmup"] as const;
  * The screen that sent the owner here, if it named itself and is one we recognise.
  *
  * An allowlist rather than "any path starting with a slash": this value comes out of the
- * URL bar, and the one thing a redirect target must never be is arbitrary.
+ * URL bar, and the one thing a redirect target must never be is arbitrary. The band
+ * rides along for the same reason it is allowed to at all - the warmup sends the owner
+ * here mid-prompt, and returning them to a different band than the one they left would
+ * lose the film they came to rate. It is checked against the ten values, so the widening
+ * is one number from a closed set rather than a path.
  */
 function useExit(): string {
   const [params] = useSearchParams();
   const asked = params.get("back");
-  return EXITS.find((path) => path === asked) ?? EXITS[0];
+  const exit = EXITS.find((path) => path === asked) ?? EXITS[0];
+  const band = Number(params.get("band"));
+  const named = BANDS.includes(band);
+  return exit === "/warmup" && named ? `${exit}?band=${band.toFixed(1)}` : exit;
 }
 
 /**

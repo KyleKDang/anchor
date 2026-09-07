@@ -1387,6 +1387,8 @@ class WarmupMark(enum.StrEnum):
     """Marking skipped: for one band with a ``band``, for the phase without one."""
     rating = "rating"
     """The fresh fill's rate-some-films phase skipped, however few were rated."""
+    wall = "wall"
+    """The import fill's look-over-the-wall phase skipped, however few films were moved."""
     backlog = "backlog"
     """The backlog phase skipped."""
     dismissed = "dismissed"

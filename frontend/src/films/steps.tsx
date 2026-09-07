@@ -10,13 +10,13 @@ import {
   type ComparisonAnswer,
   type NarrowStep,
   type Picker as PickerStep,
-  type Unlock,
 } from "../api";
 import { AnchorBadge, AnchorNudge, Band } from "./Band";
 import { CriteriaQuestion } from "./Criteria";
 import { Plot } from "./Plot";
 import { Poster } from "./Poster";
 import { filmPath, releaseYear } from "./tmdb";
+import { UnlockLines } from "./UnlockLines";
 import { useAsyncAction } from "./useAsyncAction";
 
 /**
@@ -375,20 +375,6 @@ function Pool({ row }: { row: PickerStep["bands"][number] }) {
   );
 }
 
-const UNLOCKED: Record<Unlock, ReactNode> = {
-  discovery: (
-    <>
-      That was enough to go on. <Link to="/discovery">Discovery</Link> is live from here.
-    </>
-  ),
-  watchlist: (
-    <>
-      Your <Link to="/watchlist">watchlist</Link> is ranked from here: Anchor puts what you are
-      most likely to love next at the top.
-    </>
-  ),
-};
-
 export function Landed({
   landed,
   primary,
@@ -432,13 +418,7 @@ export function Landed({
 
       {landed.anchor_nudge && <AnchorNudge film={landed.film} />}
 
-      {/* One line per unlock this very landing earned, and never again: the other half of
-          the moment is the nav's one-time dot, and there is no third mention anywhere. */}
-      {landed.unlocked.map((unlock) => (
-        <p key={unlock} className="nudge">
-          {UNLOCKED[unlock]}
-        </p>
-      ))}
+      <UnlockLines unlocked={landed.unlocked} />
 
       {/* Below the unlock, on the rare landing that carries both: one is news about what
           the owner has just earned, the other is a favour being asked of them. */}

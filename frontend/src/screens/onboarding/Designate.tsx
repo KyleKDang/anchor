@@ -29,15 +29,26 @@ import { FilmPicker } from "./FilmPicker";
 export function Designate({
   phase,
   fill,
+  from,
   onChanged,
 }: {
   phase: AnchorPhase;
   fill: Warmup["fill"];
+  /** The band the picker was opened from, for a film rated mid-prompt and now back. */
+  from: number | null;
   onChanged: (warmup: Warmup) => void;
 }) {
-  const [continuing, setContinuing] = useState(false);
+  // Opened straight onto a half-star band: the owner is already past the continuation's
+  // door, so it is open behind them rather than a thing to ask about again.
+  const [continuing, setContinuing] = useState(from !== null && from % 1 !== 0);
+  // The band the run is standing on, once the owner has answered it. Any number may be
+  // marked per band, so a mark does not carry the run on by itself: the second anchor is
+  // in the same list the first came from, and advancing on the first would take that
+  // list away to make a point the owner never asked for.
+  const [held, setHeld] = useState<number | null>(from);
   const queue = continuing ? [...phase.prompts, ...phase.continuation] : phase.prompts;
-  const current = queue.find((prompt) => prompt.state === "todo") ?? null;
+  const open = queue.find((prompt) => prompt.state === "todo") ?? null;
+  const current = queue.find((prompt) => prompt.band === held) ?? open;
   const done = queue.filter((prompt) => prompt.state !== "todo").length;
 
   return (
@@ -58,8 +69,10 @@ export function Designate({
         <Prompt
           prompt={current}
           fill={fill}
-          position={done + 1}
+          position={current === open ? done + 1 : queue.indexOf(current) + 1}
           total={queue.length}
+          onMarked={() => setHeld(current.band)}
+          onNext={() => setHeld(null)}
           onChanged={onChanged}
         />
       )}
@@ -135,16 +148,23 @@ function Prompt({
   fill,
   position,
   total,
+  onMarked,
+  onNext,
   onChanged,
 }: {
   prompt: AnchorPrompt;
   fill: Warmup["fill"];
   position: number;
   total: number;
+  /** A mark landed: hold the run here, because the band may take another. */
+  onMarked: () => void;
+  /** The owner is done with this band, marked or not: carry the run on. */
+  onNext: () => void;
   onChanged: (warmup: Warmup) => void;
 }) {
   const navigate = useNavigate();
   const { busy, error, run } = useAsyncAction();
+  const marked = prompt.marked.length > 0;
 
   /**
    * Marking a film the owner has never rated: rate it first, then mark it.
@@ -158,13 +178,16 @@ function Prompt({
     await run(async () => {
       if (film.state === "rated") {
         await api.markAnchor(film.tmdb_id);
+        onMarked();
         onChanged(await api.warmup());
         return;
       }
       if (film.state === null || film.state === "backlog") {
         await api.markWatched(film.tmdb_id, "later");
       }
-      await navigate(`${placePath(film.tmdb_id)}?back=/warmup`);
+      // The band rides to the picker and back, so the film lands and the owner returns
+      // to the prompt that sent them - which is where the film they just rated is.
+      await navigate(`${placePath(film.tmdb_id)}?back=/warmup&band=${prompt.band.toFixed(1)}`);
     });
   }
 
@@ -172,6 +195,7 @@ function Prompt({
   async function markCandidate(film: FilmCard) {
     await run(async () => {
       await api.markAnchor(film.tmdb_id);
+      onMarked();
       onChanged(await api.warmup());
     });
   }
@@ -192,6 +216,15 @@ function Prompt({
         you are sure about is worth more than a film you love - and you can mark as many as
         you like.
       </p>
+
+      {/* What the band already holds, so a second mark is an addition to something the
+          owner can see rather than a tap into the dark. */}
+      {marked && (
+        <p className="muted">
+          Marked: {prompt.marked.map((film) => film.title).join(", ")}. Mark another below, or
+          move on.
+        </p>
+      )}
 
       {error && (
         <p className="error" role="alert">
@@ -214,14 +247,25 @@ function Prompt({
         />
       )}
 
+      {/* One control, and which one it is says what leaving this band would mean. An
+          unanswered band is skipped - the owner is saying stop asking - and an answered
+          one is simply left, because the question has been answered as fully as they
+          want it answered. */}
       <p className="prompt-skip">
         <button
           type="button"
           className="link-button"
           disabled={busy}
-          onClick={() => void run(async () => onChanged(await api.skipWarmup("anchors", prompt.band)))}
+          onClick={() =>
+            marked
+              ? onNext()
+              : void run(async () => {
+                  onNext();
+                  onChanged(await api.skipWarmup("anchors", prompt.band));
+                })
+          }
         >
-          Skip this band
+          {marked ? "Next band" : "Skip this band"}
         </button>
       </p>
     </div>
