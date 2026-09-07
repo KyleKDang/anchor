@@ -36,6 +36,7 @@ from anchor.models import (
     ComparisonLogEntry,
     ComparisonVerdict,
     ConstraintKind,
+    Dismissal,
     Exemplar,
     ExemplarRole,
     Film,
@@ -46,6 +47,16 @@ from anchor.models import (
     QualityListEntry,
 )
 from anchor.settings import Settings
+
+DISMISSAL_EVIDENCE = 40
+"""Discovery dismissals carried into a regeneration, newest first.
+
+A cap for the same reason the criteria cap exists: the newest dismissals describe the
+taste the owner has now, and a prompt that grew with the account would cost more every
+month to say the same thing. Larger than the criteria cap because a dismissal carries far
+less information than an answered comparison - the point of the section is the shape of a
+pile, and a pile needs to look like one.
+"""
 
 CRITERIA_EVIDENCE = 30
 """Answered bonus questions carried into a regeneration, newest first.
@@ -74,6 +85,18 @@ class Evidence:
     """Answered bonus questions, as "Quality: this film over that one" lines (ADR 0007)."""
     constraints: Sequence[str]
     """What the owner has said about themselves outright. Instructions, not evidence."""
+    dismissed: Sequence[str]
+    """Discovery suggestions the owner said no to, newest first (ADR 0006).
+
+    The one queue signal anywhere in Anchor that reaches the profile, and the only window
+    onto the negative space: the ordering holds films the owner chose to watch, so it
+    cannot express "I would never consider this", and a dismissed film generates no watch,
+    no placement and no later signal to learn from.
+
+    Empty below the magnitude guard, which is the whole of the discipline around it. A
+    single dismissal means nothing and must reach no prompt; only a pile is evidence, and
+    even then it is evidence of a pattern rather than a verdict on any one film.
+    """
     rated_films: int
     judgments: int
 
@@ -82,13 +105,19 @@ class Evidence:
 class Watermark:
     """What the account looked like when a version was written.
 
-    Two counters that only go up, and two digests. Anchors and constraints are
-    current-only - retiring a mark clears it - so no count reliably moves when they
-    change, and a digest catches the swap that leaves the count alone.
+    Three counters and two digests. Anchors and constraints are current-only - retiring a
+    mark clears it - so no count reliably moves when they change, and a digest catches the
+    swap that leaves the count alone.
+
+    The dismissal count is not quite monotonic: lifting a dismissal takes one back out of
+    the live set, so the number can fall. That is harmless here, because the trigger is a
+    *rise* of a certain size - a lift simply makes the next one further away, which is the
+    right answer for an owner who has just told the profile it read them wrong.
     """
 
     placements: int
     judgments: int
+    dismissals: int
     anchors: str
     constraints: str
 
@@ -130,6 +159,12 @@ async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Pr
         return ProseTrigger.constraints
     if now.placements - live.placements >= settings.prose_placements_trigger:
         return ProseTrigger.placements
+    # Below placements deliberately: a placement is the owner telling Anchor what they
+    # think of a film they watched, and a dismissal is them declining a pitch. Both are
+    # real, and the first is worth more, so where both have accumulated the regeneration
+    # is attributed to the stronger one.
+    if now.dismissals - live.dismissals >= settings.prose_dismissals_trigger:
+        return ProseTrigger.dismissals
     if now.judgments - live.judgments >= settings.prose_staleness_judgments:
         return ProseTrigger.staleness
     return None
@@ -165,6 +200,7 @@ async def record(
         trigger=trigger,
         placements=mark.placements,
         judgments=mark.judgments,
+        dismissals=mark.dismissals,
         anchors=mark.anchors,
         constraints=mark.constraints,
     )
@@ -182,20 +218,30 @@ async def watermark(db: AsyncSession, account_id: uuid.UUID) -> Watermark:
         .select_from(ComparisonLogEntry)
         .where(ComparisonLogEntry.account_id == account_id)
     )
+    dismissals = await db.scalar(
+        select(func.count())
+        .select_from(Dismissal)
+        .where(Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None))
+    )
     return Watermark(
         placements=int(placements or 0),
         judgments=int(judgments or 0),
+        dismissals=int(dismissals or 0),
         anchors=await _anchor_digest(db, account_id),
         constraints=await _constraint_digest(db, account_id),
     )
 
 
-async def evidence(db: AsyncSession, account_id: uuid.UUID) -> Evidence:
+async def evidence(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> Evidence:
     """What the account's rows say about its owner, phrased for a prompt.
 
     Read off the artifacts that are already kept current rather than recomputed here:
     the exemplar set is rewritten by every retrain, so the films standing for this taste
     are whatever the last ordering change made them.
+
+    Settings are here for exactly one thing: the magnitude guard on the dismissal pile.
+    Whether a pile is big enough to mean anything is a tuning question, so the number
+    lives with the other tuning rather than as a literal in the query.
     """
     counted = await readiness.evidence(db, account_id)
     exemplars = await _exemplars(db, account_id)
@@ -209,6 +255,7 @@ async def evidence(db: AsyncSession, account_id: uuid.UUID) -> Evidence:
         disliked=[_titled(film) for row, film in exemplars if row.role is ExemplarRole.worst],
         criteria=await _criteria_lines(db, account_id),
         constraints=await _constraint_lines(db, account_id),
+        dismissed=await _dismissal_lines(db, account_id, settings),
         rated_films=counted.rated_films,
         judgments=(await watermark(db, account_id)).judgments,
     )
@@ -336,6 +383,52 @@ async def _constraint_lines(db: AsyncSession, account_id: uuid.UUID) -> list[str
             if claim:
                 lines.append(f"They have said this is wrong about them: {claim}")
     return lines
+
+
+async def _dismissal_lines(
+    db: AsyncSession, account_id: uuid.UUID, settings: Settings
+) -> list[str]:
+    """Dismissed suggestions as evidence lines, newest first - or nothing at all.
+
+    The guard is the first thing that happens and it is all-or-nothing: below the
+    threshold the section does not exist, so there is no wording anywhere for a
+    regeneration to over-read. ADR 0006 is emphatic that a single dismissal means nothing,
+    and the cheapest way to honour that is to make sure the prompt never sees one.
+
+    Each line is the film as its genres and director, because that is the shape a pattern
+    would take - "consistently dismisses slow-burn horror" is a claim about a pile of
+    horror films, and a list of bare titles gives a model nothing to find it in. Lifted
+    dismissals are left out: the owner took those back, and holding them against the
+    account would make changing your mind cost something.
+    """
+    live = await db.scalar(
+        select(func.count())
+        .select_from(Dismissal)
+        .where(Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None))
+    )
+    if int(live or 0) < settings.prose_dismissals_trigger:
+        return []
+    rows = await db.execute(
+        select(Film)
+        .join(Dismissal, Dismissal.film_id == Film.tmdb_id)
+        .where(Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None))
+        .order_by(Dismissal.created_at.desc(), Dismissal.id)
+        .limit(DISMISSAL_EVIDENCE)
+    )
+    return [_dismissal_line(film) for film in rows.scalars()]
+
+
+def _dismissal_line(film: Film) -> str:
+    """One dismissed film, described by the things a pattern could be made of."""
+    described = [_titled(film)]
+    if film.genres:
+        described.append(", ".join(film.genres))
+    directors = [
+        str(person.get("name", "")) for person in (film.credits or {}).get("directors") or []
+    ]
+    if directors:
+        described.append(f"dir. {', '.join(directors)}")
+    return " - ".join(described)
 
 
 async def _quality_names(db: AsyncSession, account_id: uuid.UUID) -> dict[uuid.UUID, str]:

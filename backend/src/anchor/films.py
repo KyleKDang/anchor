@@ -183,7 +183,10 @@ async def add_to_backlog(
     account_film = await _account_film(db, account, tmdb_id)
     if account_film is None:
         account_film = AccountFilm(
-            account_id=account.id, film_id=tmdb_id, state=LifecycleState.backlog
+            account_id=account.id,
+            film_id=tmdb_id,
+            state=LifecycleState.backlog,
+            origin=WatchOrigin.hand_added,
         )
         db.add(account_film)
         await db.flush()
@@ -244,7 +247,10 @@ async def mark_watched(
         return await _detail(db, account, film, account_film)
     if account_film is None:
         account_film = AccountFilm(
-            account_id=account.id, film_id=tmdb_id, state=LifecycleState.watched_unrated
+            account_id=account.id,
+            film_id=tmdb_id,
+            state=LifecycleState.watched_unrated,
+            origin=WatchOrigin.hand_added,
         )
         db.add(account_film)
     # Read before the state moves: the standing stamp is capture-or-lose-forever, and
@@ -264,14 +270,16 @@ def _watch_event(account: Account, account_film: AccountFilm) -> WatchEvent:
     """The watch, stamped with where the film stood and how it got there.
 
     Both stamps are capture-or-lose-forever (evaluation.md): tier membership churns and
-    keeps no history, so nothing could reconstruct them later. The origin is hand-added
-    until discovery can put a film in the owner's world another way.
+    keeps no history, so nothing could reconstruct them later - and by watch time an
+    accepted suggestion has nothing left to reconstruct from either, since the shelf row
+    went the moment the owner accepted. So the origin rides on the account-film from
+    whichever door the film came in through, and is read back here.
     """
     return WatchEvent(
         account_id=account.id,
         film_id=account_film.film_id,
         standing=tier_module.standing(account_film),
-        origin=WatchOrigin.hand_added,
+        origin=account_film.origin,
     )
 
 

@@ -288,6 +288,18 @@ class UnlockMark(Base):
     """When the owner first arrived at the unlocked screen. None while the dot is showing."""
 
 
+class WatchOrigin(enum.StrEnum):
+    """How the film reached the owner's world (evaluation.md).
+
+    Stamped on the watch event, which is the only thing that ever reads it: it is
+    provenance for measurement, and no engine anywhere branches on it.
+    """
+
+    discovery_accept = "discovery_accept"
+    hand_added = "hand_added"
+    import_seeded = "import_seeded"
+
+
 class AccountFilm(Base):
     """One (account, film) pair, holding that film's lifecycle state in that account."""
 
@@ -316,6 +328,23 @@ class AccountFilm(Base):
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
+    origin: Mapped["WatchOrigin"] = mapped_column(
+        Enum(WatchOrigin, name="watch_origin"),
+        server_default=WatchOrigin.hand_added.value,
+        nullable=False,
+    )
+    """How the film reached this account, carried only so a watch can be stamped with it.
+
+    The stamp is capture-or-lose-forever (evaluation.md): a watch event records where the
+    film stood and where it came from, and by watch time there is nothing left to
+    reconstruct an accepted suggestion from - the shelf row was deleted the moment the
+    owner accepted. So the provenance rides here from the accept to the watch.
+
+    It is measurement and nothing else. No engine reads it, no surface shows it, and an
+    accepted film is treated in every other respect exactly as a hand-added one is, which
+    is what "no discovery-origin state exists anywhere" means in discovery.md - the
+    sentence whose own parenthesis carves this stamp out.
+    """
 
     # --- Tier bookkeeping ---
     #
@@ -660,14 +689,6 @@ class WatchStanding(enum.StrEnum):
     plain_backlog = "plain_backlog"
 
 
-class WatchOrigin(enum.StrEnum):
-    """How the film reached the owner's world. Only hand-added exists before #29 and #32."""
-
-    discovery_accept = "discovery_accept"
-    hand_added = "hand_added"
-    import_seeded = "import_seeded"
-
-
 class RewatchOutcome(enum.StrEnum):
     """The still-feel-the-same answer: the three the data model names.
 
@@ -956,6 +977,14 @@ class ProseTrigger(enum.StrEnum):
     placements = "placements"
     anchors = "anchors"
     constraints = "constraints"
+    dismissals = "dismissals"
+    """Discovery dismissals piled up far enough to be worth reading as a pattern.
+
+    The one queue signal anywhere in Anchor that reaches the profile (ADR 0006), and it
+    arrives here rather than in the weight vector because the negative space it describes
+    - films the owner would never consider - is exactly what an ordering of films they
+    chose to watch cannot express.
+    """
     staleness = "staleness"
 
 
@@ -996,6 +1025,13 @@ class ProseProfileVersion(Base):
     judgments: Mapped[int] = mapped_column(Integer, nullable=False)
     """Every comparison-log row. The staleness backstop's measure, and it catches what
     the placement count cannot: a re-rate appends a pick without adding a film."""
+    dismissals: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """Discovery dismissals standing when this was written; the magnitude guard's measure.
+
+    A count rather than a digest, because the guard is about accumulation: a single
+    dismissal means nothing and only a pile of them says anything (ADR 0006), so what
+    matters is how many more there are than last time, never which ones.
+    """
     anchors: Mapped[str] = mapped_column(String(64), nullable=False)
     constraints: Mapped[str] = mapped_column(String(64), nullable=False)
     """The two set-shaped dimensions, as digests. Anchors and constraints are current-only
@@ -1139,6 +1175,53 @@ class Suggestion(Base):
     """The judgment this card is standing on, and where its pitch is read from."""
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     """Dense from 0, best first. Position is the entire public statement (ADR 0005)."""
+    arrived_at_refresh: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """The feed's refresh counter when this card landed, and the whole of its clock.
+
+    Refreshes survived is read off it rather than counted beside it - the counter now,
+    less this - exactly as the tier reads staleness off ``tier_entered_watch``. A stored
+    count would be a second copy of one fact, free to disagree with it, and the fact this
+    copy would contradict is the one that decides whether a card rotates out.
+
+    Denominated in refreshes and never in calendar time (data-model.md), so a shelf the
+    owner has not looked at since March is exactly as stale as it was in March.
+    """
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    """When this card landed, and what the fresh-since-last-visit marker is measured off.
+
+    A real arrival time rather than a rewrite time: a rebuild keeps the row of a film
+    that was already on the shelf, so a restock that changes nothing marks nothing fresh.
+    """
+
+
+class SuggestionCooldown(Base):
+    """A film's re-entry cooldown after it rotated off the shelf unacted on.
+
+    The mirror of ``tier_reentry_watch`` on the ranked tier, in a table of its own for one
+    reason: a discovery candidate is a film the owner has never tracked, so there is no
+    account-film row to hang it from. Nothing else about it differs - it is a refresh
+    number the film may not come back before, and it is denominated in the feed's own
+    counter rather than in calendar time.
+
+    The verdict behind the film is deliberately untouched by any of this (discovery.md),
+    so the return costs nothing at all: the cooldown expires and the backfill picks the
+    film up again from the same cached judgment it was shown under before.
+    """
+
+    __tablename__ = "suggestion_cooldowns"
+    __table_args__ = (UniqueConstraint("account_id", "film_id"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        ForeignKey("accounts.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    film_id: Mapped[int] = mapped_column(
+        ForeignKey("films.tmdb_id", ondelete="RESTRICT"), nullable=False
+    )
+    reentry_refresh: Mapped[int] = mapped_column(Integer, nullable=False)
+    """The refresh counter before which this film may not be suggested again."""
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -1164,6 +1247,29 @@ class FeedState(Base):
     restocked_profile_version: Mapped[int | None] = mapped_column(Integer)
     """The version the last restock ran for; None until one ever has."""
     restocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    visited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the owner last arrived at the feed. None until they ever have.
+
+    Half of the spend gate: a restock is only worth sourcing for an owner who has looked
+    at the shelf since the last one, so this is compared against ``restocked_at`` and an
+    owner who ignores discovery costs nothing however much their taste moves.
+    """
+    fresh_since: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """What "new since your last visit" is measured against, held one visit behind.
+
+    Two columns rather than one because the marker has to survive the visit that shows
+    it. Arriving advances ``visited_at`` to now and this to whatever ``visited_at`` was,
+    so every read in the session - the arrival and each reload after an action - marks
+    the same cards, and the next arrival moves the line on.
+    """
+    refresh_counter: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """Refreshes this account has put the feed through: the feed's whole clock.
+
+    Advanced once per session-boundary arrival, which is what a refresh *is* - the owner
+    coming back to the shelf and passing over what is on it. Rotation and its re-entry
+    cooldown are both counted in it (data-model.md), so a dormant account never rotates
+    anything and a busy one converges quickly.
+    """
 
 
 class ImportStatus(enum.StrEnum):

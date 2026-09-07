@@ -23,11 +23,20 @@ normally, stale-version ones stay usable ordered by the linear scorer, and unver
 films simply wait. The shelf runs short, and says nothing about it, because the feed
 never shows anything it cannot stand behind.
 
-*The spend is worker-only.* The web process imports this module to read the shelf and to
-ask whether a restock is worth queueing, so what has to be worker-only is not the module
-but the dispatch: the LLM seam is imported inside the one function that calls it, and
-importing this module never loads it (architecture.md). A request path physically cannot
-rerank anything.
+*The shelf is a view of the verdict cache, materialised at session boundaries.* The
+restock buys verdicts and stops there; the shelf itself is rebuilt from them by
+:func:`visit`, on the owner's arrival, for the price of two queries. That split is what
+makes "engine-driven shelf changes land at session boundaries only" (discovery.md) a fact
+about the code rather than a promise: a restock finishing while the owner is reading
+writes nothing they can see, because there is nowhere for it to write. It is also what
+makes the instant backfill instant - every candidate the shelf could want is already
+judged and sitting in the cache.
+
+*The spend is worker-only.* The web process imports this module to read the shelf, to run
+the boundary, and to ask whether a restock is worth queueing, so what has to be
+worker-only is not the module but the dispatch: the LLM seam is imported inside the one
+function that calls it, and importing this module never loads it (architecture.md). A
+request path physically cannot rerank anything.
 """
 
 import logging
@@ -39,7 +48,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
-from sqlalchemy import delete, exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import catalog, features, picker, prose, readiness, trainer
@@ -55,6 +64,7 @@ from anchor.models import (
     Film,
     FitBucket,
     Suggestion,
+    SuggestionCooldown,
     Verdict,
     WeightVector,
 )
@@ -86,10 +96,17 @@ SHELF_ORDER = {FitBucket.strong_fit: 0, FitBucket.plausible: 1}
 
 @dataclass(frozen=True)
 class Shelved:
-    """One card's worth: the film, and the judgment the card is standing on."""
+    """One card's worth: the film, the judgment behind it, and whether it is new."""
 
     film: Film
     verdict: Verdict
+    fresh: bool
+    """Arrived since the owner's last visit (surfacing.md).
+
+    Freshness, not fit, so ADR 0005 is untouched: the marker says when the card landed
+    and nothing about how good a match it is. It lives on the card and stops there -
+    positions are not reordered for it and nothing at nav level counts it.
+    """
 
 
 async def shelf(db: AsyncSession, account_id: uuid.UUID) -> list[Shelved]:
@@ -100,14 +117,15 @@ async def shelf(db: AsyncSession, account_id: uuid.UUID) -> list[Shelved]:
     cursor, and engine-driven changes land at session boundaries only (discovery.md).
 
     The one thing the read does enforce is the invariant, because the invariant is about
-    what is *shown*. A restock only runs when the profile version moves, and in between
-    the owner can add a shelved film from its own page or dismiss it - so a suggestion
-    whose film has since become tracked or dismissed is left out here rather than waiting
-    for the next rebuild to notice. The shelf simply runs one shorter, which is what it
-    does whenever the pipeline has less to offer.
+    what is *shown*. Between two boundaries the owner can add a shelved film from its own
+    page - so a suggestion whose film has since become tracked or dismissed is left out
+    here rather than waiting for the next rebuild to notice. The shelf simply runs one
+    shorter, which is what it does whenever the pipeline has less to offer.
     """
+    state = await _stored(db, account_id)
+    since = state.fresh_since if state is not None else None
     rows = await db.execute(
-        select(Film, Verdict)
+        select(Film, Verdict, Suggestion.created_at)
         .select_from(Suggestion)
         .join(Film, Film.tmdb_id == Suggestion.film_id)
         .join(Verdict, Verdict.id == Suggestion.verdict_id)
@@ -125,22 +143,32 @@ async def shelf(db: AsyncSession, account_id: uuid.UUID) -> list[Shelved]:
         )
         .order_by(Suggestion.position)
     )
-    return [Shelved(film=film, verdict=verdict) for film, verdict in rows]
+    return [
+        # No line to measure against means no marker: on a first visit every card is new
+        # to the owner, and saying so about all twenty is noise rather than information.
+        Shelved(film=film, verdict=verdict, fresh=since is not None and arrived > since)
+        for film, verdict, arrived in rows
+    ]
 
 
 async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> bool:
-    """Whether a restock would have anything to do.
+    """Whether a restock would have anything to do, and be earned by anybody.
 
-    Gated on the profile version rather than on the shelf's length, because the version is
-    what the verdict cache is keyed at: a restock at a version already restocked would
-    re-source a few hundred candidates only to find every one of them already judged. An
-    account whose pipeline is thin therefore sits with a short shelf until its taste moves
-    - which is the honest outcome, and the cheap one.
+    Two gates, and they answer different questions. The profile version is what the
+    verdict cache is keyed at, so a restock at a version already restocked would re-source
+    a few hundred candidates only to find every one of them already judged. The visit is
+    the economy: an owner who has not opened the feed since the last restock gets no new
+    one however far their taste has moved, and an owner who has never opened it at all
+    gets none ever, so ignoring discovery costs exactly nothing (discovery.md).
+
+    The visit gate is invisible on the arrival path, because arriving is a visit and the
+    boundary stamps it before this is asked. Where it bites is the other trigger - the
+    profile-version bump - which fires from a retrain the owner never went near.
 
     A run the provider cut short never stamped itself, so it stays due and the next visit
-    picks up where it stopped, judging only what is still unjudged. That is what makes the
-    capped state temporary rather than permanent: the shelf is short this month and fills
-    itself in the next, without anybody being told anything went wrong.
+    picks up where it stopped, judging only what is still unjudged. That is what keeps the
+    capped state temporary: the shelf is short this month and fills itself the next,
+    without anybody being told anything went wrong.
     """
     if await readiness.state(db, account_id, settings) is Readiness.cold:
         return False
@@ -148,7 +176,11 @@ async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> bo
     if live is None:
         return False  # nothing to rank a film against; activation never fabricates
     state = await _stored(db, account_id)
-    return state is None or state.restocked_profile_version != live.version
+    if state is None or state.visited_at is None:
+        return False  # nobody has ever looked at this feed
+    if state.restocked_at is not None and state.visited_at <= state.restocked_at:
+        return False  # nothing has happened on the owner's side since the last one
+    return state.restocked_profile_version != live.version
 
 
 # --- The pipeline ---
@@ -191,10 +223,13 @@ async def restock(
     judged_all = await _rerank(db, seam, account_id, profile, version, films, judged, settings)
 
     async with db.sessions() as session:
-        await _fill(session, account_id, version, films, fit, settings)
+        # Nothing is written to the shelf here, deliberately. This job buys verdicts; the
+        # shelf is re-derived from them at the owner's next arrival (:func:`visit`), so a
+        # restock landing mid-session cannot move a card the owner is looking at.
+        #
         # Stamped only by a run that got all the way through. A restock that either
         # outside service cut short leaves the version unstamped, so it stays due and the
-        # next arrival resumes it - which is what keeps every degraded state temporary.
+        # next visit resumes it - which is what keeps every degraded state temporary.
         if bundled_all and judged_all:
             await _stamp(session, account_id, version)
         await session.commit()
@@ -385,11 +420,16 @@ def _prefilter(
 
 
 async def _known(db: AsyncSession, account_id: uuid.UUID) -> set[int]:
-    """Every film this account may not be suggested: tracked in any state, or dismissed.
+    """Every film this account may not be suggested now: tracked, dismissed, or cooling off.
 
-    One set rather than two checks, because the invariant is one sentence - only
+    One set rather than three checks, because the invariant is one sentence - only
     untracked, undismissed films are ever suggested - and splitting it across the pipeline
-    is how half of it eventually gets forgotten.
+    is how part of it eventually gets forgotten.
+
+    A film inside its re-entry cooldown is here for a different reason from the other two:
+    it is not permanently ineligible, it is merely not wanted yet. Excluding it costs
+    nothing and saves a bundled call, because its verdict is already cached - so when the
+    cooldown expires the shelf picks it back up without this pipeline running at all.
     """
     tracked = await db.scalars(
         select(AccountFilm.film_id).where(AccountFilm.account_id == account_id)
@@ -399,7 +439,14 @@ async def _known(db: AsyncSession, account_id: uuid.UUID) -> set[int]:
             Dismissal.account_id == account_id, Dismissal.lifted_at.is_(None)
         )
     )
-    return set(tracked) | set(dismissed)
+    counter = await _refresh_counter(db, account_id)
+    cooling = await db.scalars(
+        select(SuggestionCooldown.film_id).where(
+            SuggestionCooldown.account_id == account_id,
+            SuggestionCooldown.reentry_refresh > counter,
+        )
+    )
+    return set(tracked) | set(dismissed) | set(cooling)
 
 
 async def _bundled(
@@ -528,70 +575,242 @@ def _candidates(films: Sequence[Film]) -> list["Candidate"]:
     ]
 
 
+# --- The session boundary ---
+
+
+async def visit(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
+    """The owner arriving at the feed: the one moment the shelf is allowed to change.
+
+    Everything engine-driven happens here and nowhere else, which is how discovery.md's
+    rule ends up being structural rather than a promise. A restock running in the worker
+    while the owner reads writes verdicts and nothing else, so there is no path by which
+    the list can move under their cursor - the next arrival is what expresses it.
+
+    Three things, in the order they have to happen. The counter moves first, because it
+    is the clock everything below is denominated in. Then the cards that have been passed
+    over long enough rotate off, taking a re-entry cooldown with them. Then the shelf is
+    re-derived from the verdict cache, which is where a restock's work finally shows up
+    and where the rotated slots get refilled.
+
+    The visit line moves last, and only by one step: what was the last visit becomes the
+    line freshness is measured against, and now becomes the last visit. Holding it one
+    behind is what lets the marker survive the session it is shown in - every reload
+    after an action marks the same cards, because the line does not move again until the
+    owner comes back.
+
+    It moves only where the owner had a shelf to look at last time, which is the one
+    subtlety in the whole thing. An arrival that found nothing - the visit that queues an
+    account's very first restock, or any visit while the pipeline is empty - is not a
+    visit they could have seen a card at, so measuring the next one against it would mark
+    a whole first shelf "new since your last visit" and say nothing at all.
+    """
+    state = await _feed_state(db, account_id)
+    state.refresh_counter += 1
+    had_shelf = await _standing(db, account_id) > 0
+    await _rotate(db, account_id, state.refresh_counter, settings)
+    await rebuild(db, account_id, settings)
+    if had_shelf:
+        state.fresh_since = state.visited_at
+    # Stamped on every arrival regardless, because this half is the spend gate rather
+    # than the marker: an owner who arrives to an empty shelf has still arrived, and it is
+    # exactly that arrival which earns them the restock that fills it.
+    state.visited_at = datetime.now(UTC)
+
+
+async def _standing(db: AsyncSession, account_id: uuid.UUID) -> int:
+    """How many cards the shelf is holding right now."""
+    count = await db.scalar(
+        select(func.count()).select_from(Suggestion).where(Suggestion.account_id == account_id)
+    )
+    return int(count or 0)
+
+
+async def _rotate(
+    db: AsyncSession, account_id: uuid.UUID, counter: int, settings: Settings
+) -> None:
+    """Retire the cards the owner has now passed over often enough, with a cooldown.
+
+    Passed over, not rejected: a card the owner acted on left the shelf when they acted,
+    so everything still here at its third refresh is something they have looked at and
+    said nothing about. Rotation is never announced (surfacing.md) - the shelf is simply
+    its new self.
+
+    The verdict behind the film is deliberately untouched, so the film's return costs
+    nothing at all: when the cooldown expires the rebuild picks it up from the same
+    cached judgment, and nobody pays to think about it again.
+    """
+    stale = await db.scalars(
+        select(Suggestion).where(
+            Suggestion.account_id == account_id,
+            Suggestion.arrived_at_refresh <= counter - settings.discovery_rotation_refreshes,
+        )
+    )
+    for suggestion in stale:
+        await _cool_down(
+            db, account_id, suggestion.film_id, counter + settings.discovery_reentry_refreshes
+        )
+        await db.delete(suggestion)
+    await db.flush()
+
+
+async def _cool_down(db: AsyncSession, account_id: uuid.UUID, film_id: int, until: int) -> None:
+    """Hold a film off the shelf until the counter reaches ``until``; extend an existing hold."""
+    cooldown: SuggestionCooldown | None = await db.scalar(
+        select(SuggestionCooldown).where(
+            SuggestionCooldown.account_id == account_id, SuggestionCooldown.film_id == film_id
+        )
+    )
+    if cooldown is None:
+        db.add(SuggestionCooldown(account_id=account_id, film_id=film_id, reentry_refresh=until))
+    else:
+        cooldown.reentry_refresh = until
+
+
 # --- Filling the shelf ---
 
 
-async def _fill(
-    db: AsyncSession,
-    account_id: uuid.UUID,
-    version: int,
-    films: Sequence[Film],
-    fit: "Fit",
-    settings: Settings,
-) -> None:
-    """Rewrite the shelf from the verdicts that now exist.
+@dataclass(frozen=True)
+class _Candidate:
+    """One film the shelf could show, with the sort key that decides whether it does."""
 
-    The never-pad rule is the whole of the ordering logic here. A film with no verdict at
-    any version does not appear; a poor fit does not appear; and what is left sorts into
-    two groups - the ones judged against the live profile, ranked as the reranker ranked
-    them, and the stale ones behind them ordered by the linear scorer, which is the only
-    honest thing to say about a judgment made of an older description of the owner. If
-    that comes to nine films, the shelf holds nine.
+    film_id: int
+    verdict_id: uuid.UUID
+    key: tuple[int, int, int, float, int]
+
+
+async def rebuild(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
+    """Re-derive the whole shelf from the verdict cache, best first.
+
+    The never-pad rule is the whole of the ordering logic. A film with no verdict at any
+    version does not appear; a poor fit does not appear; and what is left sorts into two
+    groups - the ones judged against the live profile, ranked as the reranker ranked them,
+    and the stale ones behind them ordered by the linear scorer, which is the only honest
+    thing to say about a judgment made of an older description of the owner. If that comes
+    to nine films, the shelf holds nine.
     """
-    verdicts = await _cached(db, account_id, [film.tmdb_id for film in films])
-    shelved = []
-    for film in films:
-        verdict = verdicts.get(film.tmdb_id)
-        if verdict is None or verdict.fit is FitBucket.poor_fit:
-            continue
-        current = verdict.profile_version == version
-        score = fit.of_film(film)
-        # Live verdicts first and in the reranker's own order; stale ones behind them
-        # ordered by the scorer, which is all a judgment of an older profile supports.
-        key = (0, SHELF_ORDER[verdict.fit], verdict.rank, -score) if current else (1, 0, 0, -score)
-        shelved.append((key, film, verdict))
-    shelved.sort(key=lambda row: row[0])
+    ordered = await _ordered(db, account_id)
+    await _materialise(db, account_id, ordered[: settings.discovery_shelf])
 
-    await db.execute(delete(Suggestion).where(Suggestion.account_id == account_id))
-    await db.flush()
-    for position, (_, film, verdict) in enumerate(shelved[: settings.discovery_shelf]):
-        db.add(
-            Suggestion(
-                account_id=account_id,
-                film_id=film.tmdb_id,
-                verdict_id=verdict.id,
-                position=position,
+
+async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
+    """Close the gap an owner action left, and top the shelf back up from the cache.
+
+    Not a rebuild, deliberately. An action is the owner's own doing rather than a session
+    boundary, so the cards they did not touch keep the order they were reading: the gap
+    closes, and one candidate joins the end. The newcomer is the next-ranked film the
+    cache already holds a verdict for, which is why this costs two queries and no provider
+    call at all (discovery.md).
+    """
+    standing = {
+        film_id: position
+        for film_id, position in await db.execute(
+            select(Suggestion.film_id, Suggestion.position).where(
+                Suggestion.account_id == account_id
             )
         )
-
-
-async def _cached(
-    db: AsyncSession, account_id: uuid.UUID, film_ids: Sequence[int]
-) -> dict[int, Verdict]:
-    """The best verdict Anchor holds per film: the newest version it was judged at.
-
-    Newest rather than live, because a verdict is append-only across versions and the
-    older ones are what the degraded path serves. A film judged at the live version has
-    its live verdict here by construction, since versions only go up.
-    """
-    if not film_ids:
-        return {}
-    rows = await db.scalars(
-        select(Verdict)
-        .where(Verdict.account_id == account_id, Verdict.film_id.in_(film_ids))
-        .order_by(Verdict.film_id, Verdict.profile_version)
+    }
+    ordered = await _ordered(db, account_id)
+    held = sorted(
+        (one for one in ordered if one.film_id in standing), key=lambda one: standing[one.film_id]
     )
-    return {verdict.film_id: verdict for verdict in rows}
+    joining = [one for one in ordered if one.film_id not in standing]
+    await _materialise(db, account_id, (held + joining)[: settings.discovery_shelf])
+
+
+async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Candidate]:
+    """Every film this account could be shown right now, in the order the shelf wants them.
+
+    The eligibility rules are the shelf's invariant restated as a query: a film the owner
+    tracks in any state, one they have dismissed and not lifted, and one still inside its
+    re-entry cooldown are all out, whatever the cache thinks of them.
+    """
+    live = await prose.latest(db, account_id)
+    version = live.version if live is not None else None
+    fit = await _fit(db, account_id)
+    counter = await _refresh_counter(db, account_id)
+    rows = await db.execute(
+        select(Film, Verdict)
+        .join(Verdict, Verdict.film_id == Film.tmdb_id)
+        .where(
+            Verdict.account_id == account_id,
+            ~exists().where(
+                AccountFilm.account_id == account_id, AccountFilm.film_id == Verdict.film_id
+            ),
+            ~exists().where(
+                Dismissal.account_id == account_id,
+                Dismissal.film_id == Verdict.film_id,
+                Dismissal.lifted_at.is_(None),
+            ),
+            ~exists().where(
+                SuggestionCooldown.account_id == account_id,
+                SuggestionCooldown.film_id == Verdict.film_id,
+                SuggestionCooldown.reentry_refresh > counter,
+            ),
+        )
+        # Newest version last, so the loop below keeps the newest verdict per film: a
+        # bump appends rather than replaces, and the older rows are what a degraded read
+        # is served from.
+        .order_by(Verdict.profile_version)
+    )
+    best: dict[int, tuple[Film, Verdict]] = {}
+    for film, verdict in rows:
+        best[film.tmdb_id] = (film, verdict)
+
+    candidates = []
+    for film, verdict in best.values():
+        if verdict.fit is FitBucket.poor_fit:
+            continue
+        score = fit.of_film(film) if fit is not None else 0.0
+        # Live verdicts first and in the reranker's own order; stale ones behind them
+        # ordered by the scorer, which is all a judgment of an older profile supports.
+        # The id last, so a tie between two films is broken the same way every time.
+        candidates.append(
+            _Candidate(
+                film_id=film.tmdb_id,
+                verdict_id=verdict.id,
+                key=(0, SHELF_ORDER[verdict.fit], verdict.rank, -score, film.tmdb_id)
+                if verdict.profile_version == version
+                else (1, 0, 0, -score, film.tmdb_id),
+            )
+        )
+    candidates.sort(key=lambda one: one.key)
+    return candidates
+
+
+async def _materialise(
+    db: AsyncSession, account_id: uuid.UUID, desired: Sequence[_Candidate]
+) -> None:
+    """Make the stored shelf say exactly this, keeping the rows of films that stay.
+
+    Reconciled rather than rewritten, and that is not an optimisation. A card's row is
+    where its two clocks live - when it landed, and which refresh it landed at - so
+    deleting and re-inserting a film that never left the shelf would reset its rotation
+    counter every time the engine ran and mark it new to an owner who has been looking at
+    it for a week.
+    """
+    counter = await _refresh_counter(db, account_id)
+    existing = {
+        row.film_id: row
+        for row in await db.scalars(select(Suggestion).where(Suggestion.account_id == account_id))
+    }
+    for position, candidate in enumerate(desired):
+        held = existing.pop(candidate.film_id, None)
+        if held is None:
+            db.add(
+                Suggestion(
+                    account_id=account_id,
+                    film_id=candidate.film_id,
+                    verdict_id=candidate.verdict_id,
+                    position=position,
+                    arrived_at_refresh=counter,
+                )
+            )
+        else:
+            held.position = position
+            held.verdict_id = candidate.verdict_id
+    for leaving in existing.values():
+        await db.delete(leaving)
+    await db.flush()
 
 
 async def _stamp(db: AsyncSession, account_id: uuid.UUID, version: int) -> None:
@@ -601,6 +820,12 @@ async def _stamp(db: AsyncSession, account_id: uuid.UUID, version: int) -> None:
 
 
 # --- The feed's own row ---
+
+
+async def _refresh_counter(db: AsyncSession, account_id: uuid.UUID) -> int:
+    """The feed's clock, and zero for an account that has never had a row written."""
+    state = await _stored(db, account_id)
+    return state.refresh_counter if state is not None else 0
 
 
 async def _stored(db: AsyncSession, account_id: uuid.UUID) -> FeedState | None:
@@ -614,10 +839,10 @@ async def _stored(db: AsyncSession, account_id: uuid.UUID) -> FeedState | None:
 async def _feed_state(db: AsyncSession, account_id: uuid.UUID) -> FeedState:
     """The same row, created if this is the first thing that ever needed one.
 
-    Created by the two writers only - arming the dot and stamping a restock - so an
-    account that never reaches *forming* accumulates no discovery rows at all. Reading
-    the feed is not a reason to write to the database, and every read below treats a
-    missing row as the answer it obviously is.
+    Created by the two writers only - the owner arriving, and a restock stamping itself -
+    so an account that never reaches *forming* accumulates no discovery rows at all.
+    Reading the feed is not a reason to write to the database, and every read above treats
+    a missing row as the answer it obviously is.
     """
     state = await _stored(db, account_id)
     if state is None:

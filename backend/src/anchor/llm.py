@@ -539,7 +539,13 @@ rating and this is not where one starts.
 - Plain second-person prose. No headings, no bullet points, no preamble, and never \
 mention Anchor, this description, or that anything was generated.
 - Where they have said something about themselves outright, treat it as settled fact and \
-write around it. Do not argue with it or restate it back at them."""
+write around it. Do not argue with it or restate it back at them. It overrides anything \
+you think you see in the rest of the evidence.
+- Suggestions they turned down are evidence of a pattern and of nothing else. Say \
+something about them only where a run of them clearly points the same way, and then say \
+what the pattern is rather than what any one film was. Never mention a specific film they \
+turned down, never treat one refusal as a fact about them, and never contradict what they \
+have said about themselves outright."""
 
 RERANK_SYSTEM = f"""\
 {ANCHOR_CONTEXT}
@@ -656,6 +662,13 @@ def _evidence_text(evidence: "prose.Evidence") -> str:
         ("Their least favourite films, least favourite first", evidence.disliked),
         ("Bonus questions they answered about specific qualities", evidence.criteria),
         ("What they have said about themselves outright", evidence.constraints),
+        # Last, and after the constraints deliberately: the weakest evidence in the
+        # prompt sits furthest from the instruction, and the sentence that overrides it
+        # is the one immediately above it (ADR 0006).
+        (
+            "Suggestions they turned down - a pattern to read, never a verdict on any one",
+            evidence.dismissed,
+        ),
     )
     written = "\n\n".join(f"{heading}:\n{_bulleted(lines)}" for heading, lines in sections if lines)
     return (

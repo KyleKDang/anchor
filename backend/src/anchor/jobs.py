@@ -234,7 +234,7 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
         if trigger is None:
             return
         mark = await prose.watermark(session, account)
-        evidence = await prose.evidence(session, account)
+        evidence = await prose.evidence(session, account, settings_of(context))
 
     try:
         text = await seam.regenerate_prose_profile(account, evidence)
@@ -287,7 +287,7 @@ async def refresh_quality_suggestions(context: JobContext, account_id: str) -> N
     async with db.sessions() as session:
         if not await qualities.picker_unanswered(session, account):
             return
-        evidence = await prose.evidence(session, account)
+        evidence = await prose.evidence(session, account, settings_of(context))
         listed = [entry.name for entry in await qualities.listing(session, account)]
 
     try:

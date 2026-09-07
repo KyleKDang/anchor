@@ -734,17 +734,28 @@ button.anchor-badge {
 }
 
 /* The discovery shelf's row: the same poster-and-body shape every film list uses, with
-   room for the sentence the engine wrote and the plot folded away under it. Two columns
-   rather than three, because a suggestion carries no inline verbs in this slice - and
-   aligned to the top, since the body is now taller than the poster. */
+   room for the sentence the engine wrote and the plot folded away under it. Aligned to
+   the top rather than centred, because the body is a good deal taller than the poster
+   and a centred action column would float in the middle of nothing. */
 .suggestion {
-  grid-template-columns: auto 1fr;
   align-items: start;
   padding: var(--s4) 0;
 }
 
 .suggestion .poster {
   width: 4.5rem;
+}
+
+/* The affirmative action holds the top of its column, level with the title it is about.
+   Left to stretch it would sit against the plot toggle three lines lower down. */
+.suggestion .film-row-actions {
+  align-self: start;
+}
+
+/* The dismissed list sits under the shelf as an overflow rather than a section, so it
+   gets the shelf's own breathing room above it and none of a heading's weight. */
+details.spoiler.section {
+  margin-top: var(--s6);
 }
 
 /* The pitch: the only thing the engine ever says out loud about an unwatched film, so it

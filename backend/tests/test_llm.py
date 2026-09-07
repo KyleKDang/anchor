@@ -54,6 +54,10 @@ def evidence():
         disliked=["Film 04 (1984)"],
         criteria=["Screenplay: Film 00 (1980) over Film 04 (1984)"],
         constraints=["They have said they care about: Pacing"],
+        # Empty, which is what the magnitude guard answers for almost every account: a
+        # pile of dismissals has to build up before one is evidence of anything (ADR
+        # 0006), and the prompt has no wording for the pile until it does.
+        dismissed=[],
         rated_films=5,
         judgments=9,
     )

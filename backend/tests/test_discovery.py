@@ -479,6 +479,7 @@ async def test_the_card_carries_what_the_screen_draws_and_nothing_else(owner, ru
         "directors",
         "overview",
         "pitch",
+        "fresh",
     }
 
 

@@ -655,10 +655,12 @@ async def assert_shelf_stands_on_verdicts(db: Database, account_id: uuid.UUID) -
 
 
 async def dismiss(db: Database, account_id: uuid.UUID, film_id: int) -> None:
-    """Suppress a film as the feed's own "not interested" will (#39 owns the endpoint).
+    """Suppress a film without going through the shelf, for the tests that are not about it.
 
-    Written directly because the write path is a later ticket and the invariant is this
-    one's: only untracked, undismissed films are ever suggested, whoever created the row.
+    The endpoint refuses a film that is not on the owner's shelf, which is right for the
+    product and useless for a test whose whole subject is that a dismissed film never
+    reaches the shelf in the first place. Everything reading a dismissal reads this row,
+    so the invariant under test is the same one either way.
     """
     async with db.sessions() as session:
         await session.execute(
@@ -669,3 +671,96 @@ async def dismiss(db: Database, account_id: uuid.UUID, film_id: int) -> None:
             {"account": account_id, "film": film_id},
         )
         await session.commit()
+
+
+async def feed_state(db: Database, account_id: uuid.UUID) -> tuple[Any, ...] | None:
+    """The feed's bookkeeping: the counter, and the two clocks the economy reads.
+
+    Returned raw rather than interpreted, because the claims made about it are about the
+    relationships between the columns - a restock stamped after the visit that earned it,
+    a fresh line one visit behind the current one - and an interpreted reader would be
+    asserting those relationships instead of the test.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT refresh_counter, visited_at, fresh_since,
+                       restocked_at, restocked_profile_version
+                FROM feed_states WHERE account_id = :id
+                """
+            ),
+            {"id": account_id},
+        )
+        row = rows.first()
+        return tuple(row) if row is not None else None
+
+
+async def suggestion_clocks(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every shelved card with the refresh it arrived at, in shelf order.
+
+    Refreshes survived is deliberately not a column - it is the counter now less this -
+    so the tests read the stamp and do the subtraction themselves, exactly as the engine
+    does. A stored count would be a second copy of one fact and would drift.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, position, arrived_at_refresh
+                FROM suggestions WHERE account_id = :id ORDER BY position
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def cooldowns(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every re-entry cooldown a rotation has written, film first."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, reentry_refresh
+                FROM suggestion_cooldowns WHERE account_id = :id ORDER BY film_id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def dismissal_rows(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every dismissal the account has ever made, lifted ones included, oldest first.
+
+    Lifted rows are in deliberately: the design's claim is that taking a dismissal back
+    stamps it rather than deleting it, and a reader that only returned live rows could
+    not tell the difference.
+    """
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, lifted_at IS NOT NULL
+                FROM dismissals WHERE account_id = :id ORDER BY created_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
+
+
+async def watch_origins(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
+    """Every watch event's provenance stamp, oldest first (evaluation.md)."""
+    async with db.sessions() as session:
+        rows = await session.execute(
+            text(
+                """
+                SELECT film_id, origin FROM watch_events
+                WHERE account_id = :id ORDER BY watched_at, id
+                """
+            ),
+            {"id": account_id},
+        )
+        return [tuple(row) for row in rows]
