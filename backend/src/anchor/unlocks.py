@@ -64,6 +64,16 @@ async def arm(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> se
     return set(lit)
 
 
+def ordered(unlocks: set[Unlock]) -> list[Unlock]:
+    """One crossing set as a list, in the ladder's own order rather than a set's.
+
+    Every screen that names what just unlocked hands back a list, and two of them naming
+    the same pair in different orders would be a difference the owner could see. The
+    order is the enum's, which is the order the bars are crossed in.
+    """
+    return [unlock for unlock in Unlock if unlock in unlocks]
+
+
 async def pending(db: AsyncSession, account_id: uuid.UUID) -> set[Unlock]:
     """The dots the nav should currently be showing."""
     return {mark.unlock for mark in await _marks(db, account_id) if mark.seen_at is None}

@@ -134,7 +134,11 @@ export function EditableWall({
       if (film.tmdb_id === highlighted) onMoved();
       enqueue(film, async () => {
         const moved = await api.move(film.tmdb_id, target.band, target.rank);
-        if (moved.unlocked.length > 0) setUnlocked(moved.unlocked);
+        // Added to rather than replacing what is showing: one drop can cross one bar and
+        // the next drop the other, and the first line has not been read yet.
+        if (moved.unlocked.length > 0) {
+          setUnlocked((current) => [...current, ...moved.unlocked.filter((one) => !current.includes(one))]);
+        }
       });
     },
     [enqueue, highlighted, onMoved],

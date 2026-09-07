@@ -35,6 +35,7 @@ from anchor import anchors as anchors_module
 from anchor import jobs
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
+from anchor import unlocks as unlocks_module
 from anchor import warmup as warmup_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
@@ -222,7 +223,7 @@ async def move(
         band=placement.band,
         rank=placement.rank,
         anchor=placement.anchored_at is not None,
-        unlocked=[unlock for unlock in Unlock if unlock in crossed],
+        unlocked=unlocks_module.ordered(crossed),
     )
     await db.commit()
     return moved

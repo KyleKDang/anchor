@@ -47,6 +47,7 @@ from anchor import criteria, jobs
 from anchor import narrowing as narrowing_module
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
+from anchor import unlocks as unlocks_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
 from anchor.criteria import CriteriaCard
@@ -404,7 +405,7 @@ async def _landed(
             above=cards.get(standing.above) if standing.above else None,
             below=cards.get(standing.below) if standing.below else None,
         ),
-        unlocked=[unlock for unlock in Unlock if unlock in unlocked],
+        unlocked=unlocks_module.ordered(unlocked),
         anchor_nudge=not await anchors_module.counts(db, account.id),
         criteria=card,
     )

@@ -40,7 +40,7 @@ export function Designate({
 }) {
   // Opened straight onto a half-star band: the owner is already past the continuation's
   // door, so it is open behind them rather than a thing to ask about again.
-  const [continuing, setContinuing] = useState(from !== null && from % 1 !== 0);
+  const [continuing, setContinuing] = useState(from !== null && isHalfStar(from));
   // The band the run is standing on, once the owner has answered it. Any number may be
   // marked per band, so a mark does not carry the run on by itself: the second anchor is
   // in the same list the first came from, and advancing on the first would take that
@@ -49,7 +49,6 @@ export function Designate({
   const queue = continuing ? [...phase.prompts, ...phase.continuation] : phase.prompts;
   const open = queue.find((prompt) => prompt.state === "todo") ?? null;
   const current = queue.find((prompt) => prompt.band === held) ?? open;
-  const done = queue.filter((prompt) => prompt.state !== "todo").length;
 
   return (
     <>
@@ -69,7 +68,7 @@ export function Designate({
         <Prompt
           prompt={current}
           fill={fill}
-          position={current === open ? done + 1 : queue.indexOf(current) + 1}
+          position={queue.indexOf(current) + 1}
           total={queue.length}
           onMarked={() => setHeld(current.band)}
           onNext={() => setHeld(null)}
@@ -78,6 +77,11 @@ export function Designate({
       )}
     </>
   );
+}
+
+/** A band the continuation holds rather than the five the run prompts for outright. */
+function isHalfStar(band: number): boolean {
+  return band % 1 !== 0;
 }
 
 /** One band's standing in the run, so the owner can see how much is left of it. */

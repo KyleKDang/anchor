@@ -3,6 +3,7 @@ import { Link, useNavigate, useSearchParams } from "react-router";
 
 import {
   api,
+  BANDS,
   messageOf,
   type PromptState,
   type RatingPhase as RatingPhaseState,
@@ -36,7 +37,10 @@ export function Warmup() {
   const [error, setError] = useState<string | null>(null);
   // The band the picker was opened from, so a film rated mid-prompt comes back to the
   // prompt that sent it rather than to wherever the run would otherwise have moved on to.
-  const from = params.has("band") ? Number(params.get("band")) : null;
+  // Checked against the ten values here as well as where it is written: this reads the
+  // URL bar, and anything that came out of there is a claim rather than a fact.
+  const asked = Number(params.get("band"));
+  const from = BANDS.includes(asked) ? asked : null;
 
   useEffect(() => {
     api

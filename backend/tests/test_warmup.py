@@ -273,7 +273,7 @@ async def test_the_import_fill_swaps_the_rating_phase_for_the_wall(owner, run_jo
 
     assert state["fill"] == "imported"
     assert state["rating"] is None
-    assert state["wall"] == {"state": "todo", "moved": 0, "target": 3, "explain": True}
+    assert state["wall"] == {"state": "todo", "moved": 0, "target": 3}
 
 
 async def test_the_fresh_fill_has_no_wall_step(owner):
@@ -395,35 +395,38 @@ async def test_the_wall_step_completes_once_the_owner_has_moved_a_few_films(owne
     assert phase["state"] == "done"
 
 
-async def test_the_explanation_goes_the_moment_the_owner_has_dragged_anything(owner, run_jobs):
-    """One-time, and presence-based like every other ambient line (surfacing.md).
-
-    Nothing records that it was shown: a film the owner has moved is the trace, and it is
-    a truer one than a "seen" flag, which would go on hiding the explanation for an owner
-    who never worked out what it was explaining.
-    """
-    await _import(owner, run_jobs, ratings=_rated_group())
-    assert (await warmup(owner))["wall"]["explain"] is True
-
-    await move(owner, GROUP[0], BAND, 4)
-
-    phase = (await warmup(owner))["wall"]
-    assert phase["explain"] is False, "the gesture has been learned"
-    assert phase["state"] == "todo", "which is not the same as the step being done"
-
-
 async def test_the_explanation_rides_edit_mode_rather_than_the_warmup_screen(owner, run_jobs):
     """It explains dragging, so it belongs where the dragging happens.
 
     The Rated screen is where the step sends the owner, and the line has to be waiting
-    there when they arrive rather than on the page they just left.
+    there when they arrive rather than on the page they just left - which is why it is
+    read off there and not off the warmup at all.
     """
     await _import(owner, run_jobs, ratings=_rated_group())
     assert (await rated(owner))["wall_hint"] is True
 
     await move(owner, GROUP[0], BAND, 4)
 
+    assert (await rated(owner))["wall_hint"] is False, "the gesture has been learned"
+    assert (await warmup(owner))["wall"]["state"] == "todo", (
+        "which is not the same as the step being done"
+    )
+
+
+async def test_dismissing_the_warmup_silences_its_line_on_the_wall(owner, run_jobs):
+    """The one place a dismissal does more than close a screen.
+
+    The phases go on reporting "todo" after one, because put away is not answered - but
+    this line is the warmup speaking on somebody else's screen, and an owner who put the
+    warmup away has said they do not want to be spoken to by it.
+    """
+    await _import(owner, run_jobs, ratings=_rated_group())
+    assert (await rated(owner))["wall_hint"] is True
+
+    await dismiss_warmup(owner)
+
     assert (await rated(owner))["wall_hint"] is False
+    assert (await warmup(owner))["wall"]["state"] == "todo", "put away, not answered"
 
 
 async def test_the_fresh_fill_never_shows_the_wall_s_explanation(owner):
@@ -439,8 +442,7 @@ async def test_the_wall_step_is_skippable_like_every_other(owner, run_jobs):
     state = await skip_warmup(owner, "wall")
 
     assert state["wall"]["state"] == "skipped"
-    assert state["wall"]["explain"] is False, "put away is put away"
-    assert (await rated(owner))["wall_hint"] is False
+    assert (await rated(owner))["wall_hint"] is False, "put away is put away"
 
 
 async def test_a_band_on_the_wall_step_is_refused(owner, run_jobs):
