@@ -195,20 +195,17 @@ function ProseSection({
   const [naming, setNaming] = useState<string | null>(null);
   const [vocabulary, setVocabulary] = useState<Vocabulary | null>(null);
 
-  // Fetched with the section rather than when a form opens, because it is also what
-  // spells a standing correction's language out: "Italian" rather than "it". Not before
-  // there is prose, though: an account too new to have been described has nothing to
-  // correct, and the catalog read would be bought for a section that renders nothing.
-  // Failing is survivable and deliberately silent - the catalog being unreachable costs
-  // the owner the footprint offer, not the ability to say a paragraph is wrong.
-  const described = prose !== null;
+  // Bought when the first form opens rather than with the section: only the offer needs
+  // it, and most visits to this screen correct nothing. Failing is survivable and
+  // deliberately silent - the catalog being unreachable costs the owner the footprint
+  // offer, not the ability to say a paragraph is wrong.
   useEffect(() => {
-    if (!described) return;
+    if (naming === null || vocabulary !== null) return;
     api
       .footprintVocabulary()
       .then(setVocabulary)
       .catch(() => setVocabulary(null));
-  }, [described]);
+  }, [naming, vocabulary]);
 
   if (prose === null) return null;
   const paragraphs = prose.text
@@ -260,9 +257,13 @@ function ProseSection({
                 disabled={busy !== null || corrected.has(paragraph)}
                 onClick={() => setNaming(naming === paragraph ? null : paragraph)}
                 aria-expanded={naming === paragraph}
-                aria-label={`Tell Anchor this is wrong: ${paragraph}`}
+                aria-label={`Not right: ${paragraph}`}
               >
-                {corrected.has(paragraph) ? "Noted" : "Not right"}
+                {/* The ellipsis is doing real work: the press opens the offer rather than
+                    filing the correction, and a control that reads as final while only
+                    opening a panel is one an owner can press, scroll past, and believe
+                    they have corrected something. */}
+                {corrected.has(paragraph) ? "Noted" : "Not right…"}
               </button>
             </p>
             {naming === paragraph && (
@@ -300,7 +301,7 @@ function ProseSection({
                       owner cannot see is one they cannot weigh when deciding whether to
                       undo - and it is the half of the correction that silently changes
                       what they are shown, so it is the half that most needs saying. */}
-                  {rulesOut(correction.excludes, vocabulary).map((said) => (
+                  {phrasedFootprint(correction.excludes).map((said) => (
                     <span key={said} className="chip rules-out">
                       {said}
                     </span>
@@ -323,7 +324,8 @@ function ProseSection({
   );
 }
 
-const NOTHING = "";
+/** The select value standing for "nothing named". Not a genre, and never sent. */
+const UNSET = "";
 
 /**
  * What a correction rules out, offered after the thumb-down and before it is sent.
@@ -353,23 +355,29 @@ function RulesOut({
   onCancel: () => void;
   onSave: (excludes: Footprint | null) => void;
 }) {
-  const [genre, setGenre] = useState(NOTHING);
-  const [language, setLanguage] = useState(NOTHING);
-  const stated = genre !== NOTHING || language !== NOTHING;
+  const [genre, setGenre] = useState(UNSET);
+  const [language, setLanguage] = useState(UNSET);
+  const stated = genre !== UNSET || language !== UNSET;
 
   return (
     <div className="rules-out-form">
       <p className="muted">
         Does this rule anything out? Most corrections don&rsquo;t &ndash; leave this alone and
         Anchor simply stops saying it. Naming a genre or a language stops those films being
-        suggested at all.
+        suggested at all. They are two separate rules: name both and Anchor drops a film
+        that matches either one.
       </p>
       {vocabulary !== null && (
         <div className="rules-out-fields">
+          {/* Each select carries its own whole label rather than sharing a sentence with
+              the other. "Rule out [Horror] and films in [Italian]" reads as one rule about
+              Italian horror; the stored footprint is two rules joined by "or", and a film
+              matching either goes. And the resting option says "no genre" rather than "any
+              genre", which would parse as ruling out every genre there is. */}
           <label className="field">
-            <span>Stop suggesting</span>
+            <span>Rule out a genre</span>
             <select value={genre} onChange={(event) => setGenre(event.target.value)}>
-              <option value={NOTHING}>any genre</option>
+              <option value={UNSET}>no genre</option>
               {vocabulary.genres.map((one) => (
                 <option key={one} value={one}>
                   {one}
@@ -378,9 +386,9 @@ function RulesOut({
             </select>
           </label>
           <label className="field">
-            <span>and films in</span>
+            <span>Rule out a language</span>
             <select value={language} onChange={(event) => setLanguage(event.target.value)}>
-              <option value={NOTHING}>any language</option>
+              <option value={UNSET}>no language</option>
               {vocabulary.languages.map((one) => (
                 <option key={one.code} value={one.code}>
                   {one.name}
@@ -399,14 +407,14 @@ function RulesOut({
             onSave(
               stated
                 ? {
-                    genre: genre === NOTHING ? null : genre,
-                    language: language === NOTHING ? null : language,
+                    genre: genre === UNSET ? null : genre,
+                    language: language === UNSET ? null : language,
                   }
                 : null,
             )
           }
         >
-          {stated ? "Save the rule" : "Just tell Anchor"}
+          {stated ? "Save the rule" : "Save"}
         </button>
         <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
           Cancel
@@ -416,18 +424,29 @@ function RulesOut({
   );
 }
 
-/** A footprint as the standing list says it, one phrase per half. Empty where there is none. */
-function rulesOut(excludes: Footprint | null, vocabulary: Vocabulary | null): string[] {
+/**
+ * A footprint as the standing list says it, one phrase per half. Empty where there is none.
+ *
+ * The language is spelled out by the browser rather than by the catalog vocabulary the
+ * form uses. The vocabulary is fetched, and a fetch that failed would leave the rule
+ * reading "Nothing in it" - unreadable exactly where the owner most needs to know what
+ * they ruled out. `Intl.DisplayNames` is local, always there, and cannot fail that way.
+ */
+function phrasedFootprint(excludes: Footprint | null): string[] {
   if (excludes === null) return [];
-  const named =
-    excludes.language === null
-      ? null
-      : (vocabulary?.languages.find((one) => one.code === excludes.language)?.name ??
-        excludes.language);
   return [
     excludes.genre === null ? null : `No ${excludes.genre.toLowerCase()}`,
-    named === null ? null : `Nothing in ${named}`,
+    excludes.language === null ? null : `Nothing in ${languageName(excludes.language)}`,
   ].filter((one): one is string => one !== null);
+}
+
+/** A language code as a person reads it, falling back to the code where the browser cannot. */
+function languageName(code: string): string {
+  try {
+    return new Intl.DisplayNames(undefined, { type: "language" }).of(code) ?? code;
+  } catch {
+    return code;
+  }
 }
 
 /**

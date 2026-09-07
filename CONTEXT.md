@@ -220,6 +220,12 @@ Selections become profile constraints; free text is an optional escape hatch tha
 A durable owner-stated fact about their taste: a quality-picker selection or a correction made on the prose profile.
 Stored structurally, never as text edits, and respected by every regeneration.
 
+**Structural footprint**:
+The mechanical exclusion a prose correction amounts to, where it amounts to one: a genre or a language the owner has ruled out, stored inside the correction.
+Most corrections are about the shape of the writing and carry none; a footprint is the half that is a rule rather than an instruction, and the discovery prefilter enforces it by dropping candidates before the reranker sees them.
+Named from the catalog's own vocabulary rather than typed, so a footprint can never name a genre no film carries; lifting the correction lifts the exclusion with it.
+A quality pick has no genre or language in it, so a prose correction is the only constraint that can carry one.
+
 **Taste profile readiness**:
 The evidence-based gate on recommendation features: cold (too few rated films to train anything), forming (enough films across enough bands for a stable weight vector; discovery lights up), ready (more films, same spread; the ranked tier unlocks).
 A seed import of any real size lands at ready the moment matching completes.

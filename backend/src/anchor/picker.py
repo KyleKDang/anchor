@@ -25,8 +25,7 @@ to accumulate change it will never make.
 """
 
 import uuid
-from collections.abc import AsyncIterator, Iterable
-from contextlib import asynccontextmanager
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -100,7 +99,7 @@ class Footprint(BaseModel):
         return self.genre is not None or self.language is not None
 
 
-class Language(BaseModel):
+class FootprintLanguage(BaseModel):
     """One language a footprint may name: the code that is stored, and the name shown."""
 
     code: str
@@ -117,7 +116,7 @@ class Vocabulary(BaseModel):
     """
 
     genres: list[str]
-    languages: list[Language]
+    languages: list[FootprintLanguage]
 
 
 class Claim(BaseModel):
@@ -281,16 +280,14 @@ async def footprint(account: CurrentAccount, tmdb: AppTmdb) -> Vocabulary:
     caches on the client - and it is deliberately the same source the write validates
     against, so the form can never offer something the write would then refuse.
     """
-    async with _translated_errors():
-        genres = await tmdb.genre_ids()
-        languages = await tmdb.languages()
+    genres, languages = await _vocabulary(tmdb)
     return Vocabulary(
         # Alphabetical in both halves. Neither vocabulary has an order that means
         # anything - TMDB hands genres back in its own id order - so the only ordering
         # that helps someone looking for one entry is the one they can predict.
         genres=sorted(genres),
         languages=[
-            Language(code=code, name=name)
+            FootprintLanguage(code=code, name=name)
             for code, name in sorted(languages.items(), key=lambda entry: entry[1])
         ],
     )
@@ -390,23 +387,35 @@ async def _in_vocabulary(excludes: Footprint, tmdb: Tmdb) -> None:
     nothing is worse than no rule: the owner believes they have stopped seeing something,
     and nothing about the feed ever tells them otherwise.
     """
-    async with _translated_errors():
-        genres = await tmdb.genre_ids()
-        languages = await tmdb.languages()
+    genres, languages = await _vocabulary(tmdb)
     if excludes.genre is not None and excludes.genre not in genres:
         raise ApiError(422, "no_such_genre", "No film is filed under that genre.")
     if excludes.language is not None and excludes.language not in languages:
         raise ApiError(422, "no_such_language", "No film is in that language.")
 
 
-@asynccontextmanager
-async def _translated_errors() -> AsyncIterator[None]:
-    """The catalog being unreachable is a 503, never a footprint quietly let through."""
+async def _vocabulary(tmdb: Tmdb) -> tuple[dict[str, int], dict[str, str]]:
+    """The catalog's two vocabularies, read together.
+
+    One reader rather than two identical pairs, because the offer and the write have to
+    be reading the same thing: a form that could offer a genre the write would refuse
+    would be a footprint the owner could see and not state. Both lists are cached on the
+    client for the life of the process, so the second caller of a process pays nothing.
+
+    The catalog being unreachable is a 503, never a footprint quietly let through. On the
+    write that costs the owner the whole correction rather than half of it, which is the
+    right half to lose: a claim stored with the rule silently dropped would leave them
+    believing they had stopped seeing something they had not. Only a correction that names
+    a footprint gets here at all, so the common case never touches the catalog.
+    """
     try:
-        yield
+        return await tmdb.genre_ids(), await tmdb.languages()
     except TmdbUnavailable as error:
         raise ApiError(
-            503, "tmdb_unavailable", "Film data is unavailable right now; try again soon."
+            503,
+            "tmdb_unavailable",
+            "Film data is unavailable right now, so that rule cannot be checked. "
+            "Nothing was saved; try again soon.",
         ) from error
 
 
