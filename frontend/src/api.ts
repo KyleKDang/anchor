@@ -83,6 +83,50 @@ export interface Picker {
   current_rank: number | null;
 }
 
+/** A comparison's four answers, as the owner meets them on screen. */
+export type NarrowVerdict = "better" | "worse" | "same" | "skip";
+
+/** The film a comparison sets the subject against, and the band it stands for. */
+export interface PickerOpponent {
+  film: FilmCard;
+  /** What the question is about: the band, never this film's own worth. */
+  band: number;
+  /** An anchor of that band, or the stand-in a band with no anchor left is shown by. */
+  anchor: boolean;
+}
+
+/** The boundary question: the two seam films, and which the film is closer to. */
+export interface PickerBoundary {
+  upper: FilmCard;
+  upper_band: number;
+  lower: FilmCard;
+  lower_band: number;
+}
+
+/**
+ * Where a narrowing stands. Exactly one of the four is set: a comparison to ask, the
+ * boundary question, the bands to hand the owner when nothing is left to ask, or the
+ * band the answers settled on.
+ */
+export interface NarrowStep {
+  /** The bands still in the range, best first. */
+  bands: number[];
+  question: PickerOpponent | null;
+  boundary: PickerBoundary | null;
+  choose: boolean;
+  band: number | null;
+}
+
+/** What a pick carries when it ends a range rather than being made outright. */
+export interface Narrowed {
+  /** The range the owner selected. */
+  bands: number[];
+  /** Every answer given, in order: what the landing is clipped to. */
+  answered: NarrowVerdict[];
+  /** The boundary film the owner judged it closer to, and null for every other pick. */
+  closer?: number | null;
+}
+
 /** The done screen: where the film landed, and the two ways on from it. */
 export interface Landed {
   film: FilmCard;
@@ -637,9 +681,22 @@ export const api = {
     request<void>("DELETE", `/api/films/${tmdbId}/rate-later`),
   /** Open the band picker on a watched film, or on a rated one to re-rate it. */
   picker: (tmdbId: number) => request<Picker>("GET", `/api/placements/${tmdbId}`),
-  /** Tap a band, which is the whole of rating a film. */
-  pickBand: (tmdbId: number, band: number) =>
-    request<Landed>("POST", `/api/placements/${tmdbId}/band`, { band }),
+  /**
+   * One step of narrowing a range: hand back the transcript, get the next question.
+   *
+   * The screen carries the answers rather than the server storing them, so a narrowing
+   * has nothing to resume and nothing to clean up: walking away is walking away, and the
+   * answers already given are in the log from the moment they were given.
+   */
+  narrow: (
+    tmdbId: number,
+    bands: number[],
+    answered: NarrowVerdict[],
+    verdict: NarrowVerdict | null = null,
+  ) => request<NarrowStep>("POST", `/api/placements/${tmdbId}/narrow`, { bands, answered, verdict }),
+  /** Tap a band, which is the whole of rating a film - or land the range it narrowed to. */
+  pickBand: (tmdbId: number, band: number, narrowed?: Narrowed) =>
+    request<Landed>("POST", `/api/placements/${tmdbId}/band`, { band, ...narrowed }),
   rated: (filters: RatedFilters = {}) => request<Rated>("GET", `/api/rated${ratedQuery(filters)}`),
   anchors: () => request<Anchors>("GET", "/api/anchors"),
   markAnchor: (tmdbId: number) => request<void>("POST", `/api/anchors/${tmdbId}`),

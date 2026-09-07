@@ -80,6 +80,73 @@ test("an owner re-rates a film from its page and the wall follows", async ({ pag
   await expect(rows.nth(0)).toHaveAccessibleName("2.0 stars");
 });
 
+/**
+ * The range: two bands the owner cannot choose between, narrowed by the comparisons.
+ *
+ * The journey the ticket names, end to end through the browser: select 5.0 and 4.5, lose
+ * to the 5.0 anchor, beat the 4.5 one, and land at the seam the boundary question settles.
+ * The rules underneath are pinned at the API seam; what this proves is that every door in
+ * the flow is reachable and that the film comes to rest beside the film it was measured
+ * against.
+ */
+test("an owner unsure between two bands narrows the range and lands at the seam", async ({
+  page,
+  request,
+}) => {
+  await signUpOwner(page, request, "range");
+
+  // One film in each of the two bands, both marked as anchors, so each band has a
+  // reference to ask about and a seam film to show at the boundary.
+  await markWatched(page, "Fight Club", "Rate now");
+  await pick(page, 5);
+  await page.getByRole("link", { name: "Leave it where it is" }).click();
+  await markWatched(page, "Arrival", "Rate now");
+  await pick(page, 4.5);
+  await page.getByRole("link", { name: "Leave it where it is" }).click();
+  for (const title of ["Fight Club", "Arrival"]) {
+    await page
+      .getByRole("region", { name: "Your ordering" })
+      .getByRole("link", { name: title, exact: true })
+      .click();
+    await page.getByRole("button", { name: "Mark as an anchor" }).click();
+    await expect(page.getByRole("button", { name: "Retire this anchor" })).toBeVisible();
+    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
+  }
+
+  await markWatched(page, "Heat", "Rate now");
+  await page.getByRole("button", { name: "Torn between two?" }).click();
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Which are you between?");
+  for (const band of [5, 4.5]) await select(page, band);
+  await page.getByRole("button", { name: "Narrow it down" }).click();
+
+  // Worse than the weakest 5.0 anchor, and better than the strongest 4.5 one: the two
+  // answers anchors cannot settle, because an anchor bounds and never floors.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("How does it compare?");
+  await page.getByRole("button", { name: "Fight Club is better" }).click();
+  await page.getByRole("button", { name: "Heat is better" }).click();
+
+  // The boundary question: the two films either side of the line, and which it belongs next to.
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Which is it closer to?");
+  await page.getByRole("button").filter({ hasText: "Arrival" }).click();
+
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Heat landed");
+  await expect(page.getByText("Number 1 of 2")).toBeVisible();
+  await page.getByRole("button", { name: "Adjust on the wall" }).click();
+  const banded = page.getByRole("region", { name: "4.5 stars" });
+  await expect(banded.getByRole("listitem").nth(0)).toContainText("Heat");
+  await expect(banded.getByRole("listitem").nth(1)).toContainText("Arrival");
+});
+
+/** Add a band to the range being selected. The row is a toggle in this mode, not a pick. */
+async function select(page: Page, band: number): Promise<void> {
+  await page
+    .getByRole("list", { name: "Choose a range" })
+    .getByRole("button")
+    .filter({ hasText: `${band.toFixed(1)}` })
+    .first()
+    .click();
+}
+
 /** Tap a band on the picker. The row is the target, and its value is its name. */
 async function pick(page: Page, band: number): Promise<void> {
   await page

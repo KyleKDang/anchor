@@ -1386,6 +1386,82 @@ select {
   font-size: var(--text-xs);
 }
 
+/* A band picked into a range, before the comparisons start. Amber like the re-rate mark
+   but filled rather than tinted, because this one *is* a selection the owner made and the
+   screen is waiting on them to confirm it. */
+.picker-band[aria-pressed="true"] {
+  border-color: var(--star);
+  background: color-mix(in srgb, var(--star) 14%, transparent);
+}
+
+/* Narrowing a range: two films, side by side, and one question about them. ---------------- */
+
+/* Symmetric on purpose. The question is which of the two is better, and a layout that
+   gave either film more room would be answering part of it before the owner does. */
+.compare {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--s4);
+  width: min(100%, 34rem);
+}
+
+.compare-side {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--s1);
+  text-align: center;
+}
+
+.compare-side .poster {
+  width: 100%;
+  max-width: 10rem;
+  flex: none;
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-1);
+}
+
+/* A film title spans its own line in the flex *rows* it was written for, and asks for a
+   basis of 100% to do it. In a column that reads as "as tall as the card", which squashes
+   the poster above it to fit; here the title is simply as tall as the title. */
+.compare-side .film-title {
+  flex-basis: auto;
+  font-size: var(--text-base);
+}
+
+/* What the film is standing for: its band on the opponent, a plain line on the subject.
+   It sits under the title rather than over the poster because it is the question's
+   subject, not a label on the artwork. */
+.compare-caption {
+  margin-top: var(--s1);
+  font-size: var(--text-sm);
+}
+
+/* The boundary question's two answers: the whole card is the button, because the answer
+   is "that one" and half a film being clickable would be the wrong half. */
+.compare-choice {
+  display: block;
+  padding: var(--s3);
+  border: var(--hairline);
+  border-radius: var(--r-lg);
+  background: var(--surface);
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  transition:
+    border-color var(--fast),
+    transform var(--fast) var(--ease);
+}
+
+.compare-choice:hover:not(:disabled) {
+  border-color: var(--star);
+  transform: translateY(-2px);
+}
+
+.compare-choice:disabled {
+  cursor: progress;
+}
+
 /* The bonus question: a card the owner has already earned the right to ignore. ------------ */
 
 /* Tinted and unbordered, like a notice, because it is an aside on a screen that is already

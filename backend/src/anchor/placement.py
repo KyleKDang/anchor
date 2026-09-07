@@ -20,18 +20,30 @@ without the client having to signal that it happened.
 current band marked. Landing in the same band keeps the rank, landing in another takes
 the default rank there and retires the anchor mark (rating-system.md).
 
-Ranges, comparisons, the boundary question and the last-resort pick are the picker
-ticket that follows this one; what stands here is the single pick, which is the path
-every range ends on anyway.
+*A range is narrowed by the client carrying the transcript.* An owner unsure between two
+or three adjacent bands selects them, and comparisons narrow the range down. None of
+that is stored while it runs: the screen holds the verdicts it has given and hands them
+back, and :mod:`anchor.narrowing` replays them to the same question every time. So the
+picker still holds no state, abandoning is still walking away, and the next attempt
+starts fresh however far the last one got - while the answers themselves are in the log
+from the moment they are given, because each one is a judgment the owner made.
+
+The client never names its opponent, only its answer. Which film each verdict was about
+is re-derived here from the range and the answers before it, so a transcript cannot ask
+for a film the rule would not have offered.
 """
 
+import uuid
+from dataclasses import dataclass
+
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
 from anchor import criteria, jobs, tags
+from anchor import narrowing as narrowing_module
 from anchor import ordering as ordering_module
 from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
@@ -47,10 +59,23 @@ from anchor.models import (
     ComparisonContext,
     ComparisonKind,
     ComparisonLogEntry,
+    ComparisonVerdict,
     Film,
     LifecycleState,
     Unlock,
 )
+from anchor.narrowing import Narrowing, Verdict
+
+LOGGED = {
+    # ``film_a`` is always the film being rated and ``film_b`` the one it was set
+    # against, so the verdict reads directly: ``a`` means the subject won (taste.py).
+    Verdict.better: ComparisonVerdict.a,
+    Verdict.worse: ComparisonVerdict.b,
+    Verdict.same: ComparisonVerdict.tied,
+    Verdict.skip: ComparisonVerdict.skip,
+}
+"""How the picker's four answers are written down. A skip is recorded saying nothing,
+which is the honest record of the owner declining to judge."""
 
 router = APIRouter(prefix="/api/placements")
 
@@ -112,10 +137,68 @@ class Landed(BaseModel):
     """
 
 
+class Opponent(BaseModel):
+    """The film a comparison sets the subject against, and the band it stands for."""
+
+    film: FilmCard
+    band: float
+    """What the question is about: the band, never this film's own worth."""
+    anchor: bool
+    """An anchor of that band, or the stand-in a band with no anchor left is shown by."""
+
+
+class Boundary(BaseModel):
+    """The boundary question: the two seam films, and which the owner says it is closer to."""
+
+    upper: FilmCard
+    upper_band: float
+    lower: FilmCard
+    lower_band: float
+
+
+class Step(BaseModel):
+    """Where a narrowing stands, and the one thing the screen does about it.
+
+    Exactly one of the four is set. ``question`` and ``boundary`` are questions to ask,
+    ``choose`` hands the owner what is left because nothing can be asked of it, and
+    ``band`` is the answer: the range narrowed to one, ready to land.
+    """
+
+    bands: list[float]
+    """The bands still in the range, best first."""
+    question: Opponent | None = None
+    boundary: Boundary | None = None
+    choose: bool = False
+    band: float | None = None
+
+
+class Narrow(BaseModel):
+    """A step of narrowing: the range, the answers already given, and the newest one.
+
+    ``answered`` is the transcript the screen is carrying, and ``verdict`` the answer the
+    owner has just given - the one, and the only one, this call writes to the log. A call
+    with no verdict asks the range where it stands and writes nothing, which is how the
+    first question is fetched and how a reloaded screen finds its place again.
+    """
+
+    bands: list[float] = Field(min_length=2, max_length=3)
+    answered: list[Verdict] = Field(default_factory=list, max_length=16)
+    verdict: Verdict | None = None
+
+
 class Pick(BaseModel):
-    """The owner's answer: one of the ten bands, and nothing else to decide."""
+    """The owner's answer: one of the ten bands, and what got them to it.
+
+    An outright pick names a band and nothing else. A pick that ends a range carries the
+    range and its transcript, because the landing is clipped to what the comparisons
+    proved and the log entry says what was being narrowed. A boundary answer names the
+    exemplar the film was judged closer to, and the band follows from it.
+    """
 
     band: float
+    bands: list[float] = Field(default_factory=list, max_length=3)
+    answered: list[Verdict] = Field(default_factory=list, max_length=16)
+    closer: int | None = None
 
 
 # --- The flow ---
@@ -154,6 +237,48 @@ async def picker(tmdb_id: int, account: CurrentAccount, db: DbSession) -> Picker
     )
 
 
+@router.post("/{tmdb_id}/narrow")
+async def narrow(tmdb_id: int, body: Narrow, account: CurrentAccount, db: DbSession) -> Step:
+    """Where a range stands, and the answer that got it there.
+
+    The owner unsure between two or three adjacent bands selects them and this is every
+    step of the narrowing that follows: hand back the transcript, get the next question.
+    The answer just given is appended to the log before the next question is worked out,
+    so walking away from the screen at any point leaves every judgment already made
+    recorded and nothing else behind.
+    """
+    await _rateable(db, account, tmdb_id)
+    await _film(db, tmdb_id)
+    selected = _selected(body.bands)
+    ordering = await ordering_module.load(db, account.id)
+    seed = narrowing_module.seed_for(account.id, tmdb_id)
+    if body.verdict is not None:
+        # The verdict answers whatever question the transcript so far leads to, and the
+        # rule is what says which film that was. A transcript that leads somewhere with
+        # nothing to answer is a screen out of step with itself, not a judgment.
+        pending = narrowing_module.narrow(ordering, tmdb_id, selected, body.answered, seed)
+        if pending.question is None:
+            raise ApiError(409, "nothing_asked", "There is no question waiting for an answer.")
+        db.add(
+            ComparisonLogEntry(
+                account_id=account.id,
+                kind=ComparisonKind.band_comparison,
+                subject_film_id=tmdb_id,
+                film_a_id=tmdb_id,
+                film_b_id=pending.question.film_id,
+                verdict=LOGGED[body.verdict],
+                band=None,
+                range_top=pending.bands[0],
+                range_bottom=pending.bands[-1],
+                context=await _context(db, account.id, tmdb_id),
+            )
+        )
+    verdicts = [*body.answered, *([body.verdict] if body.verdict is not None else [])]
+    step = await _step(db, narrowing_module.narrow(ordering, tmdb_id, selected, verdicts, seed))
+    await db.commit()
+    return step
+
+
 @router.post("/{tmdb_id}/band")
 async def pick(
     tmdb_id: int,
@@ -163,10 +288,16 @@ async def pick(
     queue: AppJobs,
     settings: AppSettings,
 ) -> Landed:
-    """Rate the film: the band the owner tapped, at the rank the default order gives it.
+    """Rate the film: the band the owner settled on, at the rank the landing rule gives it.
 
-    This is the one write in the whole flow. It appends the band pick to the log, seats
+    This is the one write that seats a film. It appends the band pick to the log, seats
     the film, arms whatever readiness bar it just crossed, and hands back the done screen.
+
+    A landing never contradicts an answer just given (rating-system.md), so where the
+    band came out of a range the rank is clipped to the transcript: above every film the
+    owner said it beat, below every film they said it lost to, and beside the seam film
+    they judged it closer to. An outright pick has nothing to clip against and takes the
+    rank the default order gives it, which is every rating before ranges existed.
     """
     if body.band not in BANDS:
         raise ApiError(422, "not_a_band", "A rating is one of the ten half-star values.")
@@ -175,6 +306,8 @@ async def pick(
     order = ordering_module.default_order(settings)
     placement = await ordering_module.placement_of(db, account.id, tmdb_id)
     context = ComparisonContext.re_rate if placement else ComparisonContext.placement
+    ordering = await ordering_module.load(db, account.id)
+    landing = await _landing(db, account.id, tmdb_id, body, ordering)
 
     db.add(
         ComparisonLogEntry(
@@ -184,20 +317,36 @@ async def pick(
             film_a_id=tmdb_id,
             film_b_id=None,
             verdict=None,
-            band=body.band,
+            band=landing.band,
+            # The range the whole rating came out of, rather than whatever was left of it
+            # at the end: this row is the answer to the question the owner asked when
+            # they selected it. Empty on an outright pick, which narrowed nothing.
+            range_top=body.bands[0] if body.bands else None,
+            range_bottom=body.bands[-1] if body.bands else None,
+            exemplar_upper_id=landing.seam.upper if landing.seam else None,
+            exemplar_lower_id=landing.seam.lower if landing.seam else None,
             context=context,
         )
     )
     if placement is None:
-        rank = await ordering_module.default_rank(db, account.id, body.band, film, order)
-        await ordering_module.land(db, account_film, band=body.band, rank=rank)
-    else:
-        rank = (
-            placement.rank
-            if body.band == placement.band
-            else await ordering_module.default_rank(db, account.id, body.band, film, order)
+        rank = landing.rank or await ordering_module.default_rank(
+            db, account.id, landing.band, film, order
         )
-        await ordering_module.re_rate(db, placement, band=body.band, rank=rank)
+        rank = _clipped(ordering, tmdb_id, landing, rank)
+        await ordering_module.land(db, account_film, band=landing.band, rank=rank)
+    elif landing.band == placement.band:
+        # The re-rate that keeps its rank: the owner re-affirmed the rating and where
+        # they had put the film inside it was never the question - unless they have just
+        # answered comparisons that say otherwise, which the clip is what honours.
+        rank = _clipped(ordering, tmdb_id, landing, landing.rank or placement.rank)
+        await ordering_module.re_rate(db, placement, band=landing.band, rank=rank)
+        await ordering_module.shift(db, placement, rank=rank)
+    else:
+        rank = landing.rank or await ordering_module.default_rank(
+            db, account.id, landing.band, film, order
+        )
+        rank = _clipped(ordering, tmdb_id, landing, rank)
+        await ordering_module.re_rate(db, placement, band=landing.band, rank=rank)
 
     await jobs.schedule_retrain(db, queue, account.id)
     # Through the tier rather than straight at the dots: arming the watchlist's one has a
@@ -245,7 +394,115 @@ async def _landed(
     )
 
 
+# --- The range ---
+
+
+@dataclass(frozen=True)
+class Landing:
+    """Where a pick puts the film, and what the owner's answers say about it."""
+
+    band: float
+    rank: int | None
+    """Fixed by the boundary question, or None to let the default order seat it."""
+    seam: narrowing_module.Seam | None
+    """The boundary question this pick answered, and None for every other pick."""
+    narrowing: Narrowing | None
+    """The transcript to clip against, and None where the pick narrowed nothing."""
+
+
+def _selected(bands: list[float]) -> tuple[float, ...]:
+    """The range the owner selected: two or three adjacent bands, best first.
+
+    Adjacency is the whole meaning of a range - "I am unsure between these" is a claim
+    about neighbours - so a selection that skips a band is not a range that any of the
+    narrowing rules were written for.
+    """
+    selected = tuple(bands)
+    start = BANDS.index(selected[0]) if selected and selected[0] in BANDS else None
+    if start is None or selected != BANDS[start : start + len(selected)]:
+        raise ApiError(422, "not_a_range", "A range is two or three adjacent bands.")
+    return selected
+
+
+async def _landing(
+    db: AsyncSession,
+    account_id: uuid.UUID,
+    tmdb_id: int,
+    body: Pick,
+    ordering: ordering_module.Ordering,
+) -> Landing:
+    """What the owner's pick amounts to, checked against the narrowing that produced it.
+
+    An outright pick is taken as given: with the pools on screen it was made against the
+    owner's own references and there is nothing to check it against. A pick inside a
+    range is checked against the range as the answers left it, because the client carries
+    the transcript and a band the comparisons ruled out is not one the owner chose.
+    """
+    if not body.bands:
+        return Landing(band=body.band, rank=None, seam=None, narrowing=None)
+
+    selected = _selected(body.bands)
+    seed = narrowing_module.seed_for(account_id, tmdb_id)
+    narrowing = narrowing_module.narrow(ordering, tmdb_id, selected, body.answered, seed)
+    if body.closer is not None:
+        if narrowing.seam is None or body.closer not in (
+            narrowing.seam.upper,
+            narrowing.seam.lower,
+        ):
+            raise ApiError(409, "not_the_boundary", "That is not one of the boundary films.")
+        band, rank = narrowing_module.beside(ordering, tmdb_id, narrowing.seam, body.closer)
+        return Landing(band=band, rank=rank, seam=narrowing.seam, narrowing=narrowing)
+    if body.band not in narrowing.bands:
+        raise ApiError(409, "outside_the_range", "Your answers have ruled that band out.")
+    return Landing(band=body.band, rank=None, seam=None, narrowing=narrowing)
+
+
+def _clipped(ordering: ordering_module.Ordering, tmdb_id: int, landing: Landing, rank: int) -> int:
+    """The rank the film takes, moved only as far as the owner's own answers require."""
+    if landing.narrowing is None:
+        return rank
+    return narrowing_module.landing_rank(ordering, tmdb_id, landing.band, rank, landing.narrowing)
+
+
+async def _step(db: AsyncSession, narrowing: Narrowing) -> Step:
+    """One step of a narrowing as the screen meets it, with the films it has to show."""
+    named = [one.film_id for one in (narrowing.question,) if one is not None]
+    if narrowing.seam is not None:
+        named += [narrowing.seam.upper, narrowing.seam.lower]
+    cards = await ordering_module.cards(db, named)
+    return Step(
+        bands=list(narrowing.bands),
+        question=(
+            Opponent(
+                film=cards[narrowing.question.film_id],
+                band=narrowing.question.band,
+                anchor=narrowing.question.anchor,
+            )
+            if narrowing.question is not None
+            else None
+        ),
+        boundary=(
+            Boundary(
+                upper=cards[narrowing.seam.upper],
+                upper_band=narrowing.seam.upper_band,
+                lower=cards[narrowing.seam.lower],
+                lower_band=narrowing.seam.lower_band,
+            )
+            if narrowing.seam is not None
+            else None
+        ),
+        choose=narrowing.choose,
+        band=narrowing.settled,
+    )
+
+
 # --- Helpers ---
+
+
+async def _context(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> ComparisonContext:
+    """Which moment a judgment belongs to: a first placement, or a re-rate."""
+    placement = await ordering_module.placement_of(db, account_id, tmdb_id)
+    return ComparisonContext.re_rate if placement else ComparisonContext.placement
 
 
 async def _rateable(db: AsyncSession, account: Account, tmdb_id: int) -> AccountFilm:
