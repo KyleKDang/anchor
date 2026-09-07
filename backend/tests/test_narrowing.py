@@ -43,6 +43,16 @@ SUBJECT = LIBRARY[11]
 """The film being rated in every flow here, kept out of every band the ranges cover."""
 
 
+async def the_pick(db, account):
+    """The band pick the landing just wrote.
+
+    Named by kind rather than taken as the last row, because a landing can carry the
+    first card of a criteria run, written in the same transaction as the pick and so
+    with the same timestamp; which of the two sorts last is then the luck of the id.
+    """
+    return [row for row in await comparison_log(db, account) if row[1] == "band_pick"][-1]
+
+
 @pytest.fixture(autouse=True)
 def stocked(tmdb):
     return tmdb.with_films(*LIBRARY)
@@ -465,7 +475,7 @@ async def test_a_boundary_pick_names_both_exemplars_and_the_range(owner, db):
         closer=LIBRARY[3].tmdb_id,
     )
 
-    row = (await comparison_log(db, account))[-1]
+    row = await the_pick(db, account)
     assert row[1] == "band_pick" and row[6] == 4.5
     assert tuple(row[column] for column in RANGE_COLUMNS) == (5.0, 4.5)
     assert tuple(row[column] for column in EXEMPLAR_COLUMNS) == (
@@ -481,7 +491,7 @@ async def test_a_pick_the_comparisons_settled_names_the_one_band_they_left(owner
 
     await land(owner, SUBJECT, 5.0, bands=[5.0, 4.5], answered=["better"])
 
-    row = (await comparison_log(db, account))[-1]
+    row = await the_pick(db, account)
     assert row[1] == "band_pick" and row[6] == 5.0
     assert tuple(row[column] for column in RANGE_COLUMNS) == (5.0, 5.0)
     assert tuple(row[column] for column in EXEMPLAR_COLUMNS) == (None, None)
@@ -494,7 +504,7 @@ async def test_a_last_resort_pick_names_the_bands_it_was_picked_from(owner, db):
 
     await land(owner, SUBJECT, 1.5, bands=[2.0, 1.5])
 
-    row = (await comparison_log(db, account))[-1]
+    row = await the_pick(db, account)
     assert row[1] == "band_pick" and row[6] == 1.5
     assert tuple(row[column] for column in RANGE_COLUMNS) == (2.0, 1.5), "more than one band left"
     assert tuple(row[column] for column in EXEMPLAR_COLUMNS) == (None, None)
@@ -505,7 +515,7 @@ async def test_an_outright_pick_names_no_range_and_no_exemplars(owner, db):
     account = await account_id(owner)
     await rate(owner, LIBRARY[0], 4.0)
 
-    row = (await comparison_log(db, account))[-1]
+    row = await the_pick(db, account)
     assert row[1] == "band_pick"
     assert tuple(row[column] for column in RANGE_COLUMNS) == (None, None)
     assert tuple(row[column] for column in EXEMPLAR_COLUMNS) == (None, None)
