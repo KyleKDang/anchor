@@ -27,6 +27,7 @@ from flows import (
     build_ordering,
     compared_in_picker,
     dismiss_criteria,
+    film_page,
     given_tags,
     mark_anchor,
     mark_watched,
@@ -488,6 +489,26 @@ async def test_the_card_takes_only_the_three_answers_it_offers(owner):
     assert card is not None
 
     await answer_criteria(owner, card, "skip", expect=422)
+
+
+async def test_the_film_page_lists_what_the_owner_answered_and_not_what_they_were_asked(
+    owner,
+):
+    """An offer nobody answered is not something the owner said about the film."""
+    await ask_criteria(owner, "off")
+    await build_ordering(owner, [FIRST, SECOND], band=3.0)
+    card = await open_session(owner, SECOND)
+    assert card is not None
+    following = await answer_criteria(owner, card, "a")
+    assert following is not None  # and left on screen, unanswered
+
+    said = (await film_page(owner, SECOND))["judgments"]
+
+    assert [(one["kind"], one["verdict"]) for one in said] == [
+        ("criteria", "a"),
+        ("band_pick", None),
+    ]
+    assert said[0]["quality"] == card["quality"]
 
 
 # --- The hard wall: answers are evidence, never an ordering (ADR 0007) ---

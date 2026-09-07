@@ -14,7 +14,7 @@ from typing import Annotated, Literal
 
 from fastapi import APIRouter, Query
 from pydantic import BaseModel
-from sqlalchemy import delete, select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import catalog, rewatch
@@ -319,7 +319,12 @@ async def _detail(
 
 
 async def _judgments(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> list[Judgment]:
-    """This film's own log entries, newest first, read against the ordering as it stands."""
+    """This film's own log entries, newest first, read against the ordering as it stands.
+
+    What the owner *said*: a criteria card they were offered and never answered is a row
+    in the log, because the offer is what the frequency dial counts, but it is not a
+    judgment, and a session's passed-over cards would otherwise fill the page.
+    """
     rows = list(
         await db.execute(
             select(ComparisonLogEntry, QualityListEntry.name)
@@ -327,6 +332,10 @@ async def _judgments(db: AsyncSession, account_id: uuid.UUID, tmdb_id: int) -> l
             .where(
                 ComparisonLogEntry.account_id == account_id,
                 ComparisonLogEntry.subject_film_id == tmdb_id,
+                or_(
+                    ComparisonLogEntry.kind != ComparisonKind.criteria,
+                    ComparisonLogEntry.verdict != ComparisonVerdict.skip,
+                ),
             )
             .order_by(ComparisonLogEntry.created_at.desc(), ComparisonLogEntry.id)
         )

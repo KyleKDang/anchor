@@ -147,13 +147,15 @@ a:hover {
   text-decoration-color: var(--faint);
 }
 
-p a {
+p a,
+.film-page-links a {
   text-decoration: underline;
   text-decoration-color: var(--border-control);
   text-underline-offset: 0.2em;
 }
 
-p a:hover {
+p a:hover,
+.film-page-links a:hover {
   text-decoration-color: var(--faint);
 }
 
@@ -1722,7 +1724,7 @@ button.anchor-badge {
    never leaves - the way out on one side, the count of answers on the other, the only
    thing the session says about itself (screens-and-flows.md). */
 .questions-bar {
-  width: min(100%, 34rem);
+  width: min(100%, 26rem);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1730,18 +1732,12 @@ button.anchor-badge {
 }
 
 .questions-leave {
-  text-decoration: none;
+  margin: 0;
 }
 
 .questions-count {
   margin: 0;
   font-variant-numeric: tabular-nums;
-}
-
-.questions-title {
-  margin: 0;
-  font-size: var(--text-lg);
-  text-align: center;
 }
 
 .questions-over {
@@ -2132,6 +2128,18 @@ button.anchor-badge {
    it is context under the rating, not a second statement competing with it. */
 .standing {
   margin: 0 0 var(--s3);
+}
+
+/* The ways on from a rating, one to a line and set as a list rather than as prose, so
+   two links do not read as one sentence with a gap in it. */
+.film-page-links {
+  margin: var(--s3) 0 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--s1);
+  font-size: var(--text-sm);
 }
 
 .standing-neighbours {
