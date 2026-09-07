@@ -171,6 +171,18 @@ class Settings(BaseSettings):
     the number is tuning - a hundred is roughly where TMDB's own weighted rating sits.
     """
 
+    picker_seed: int = 0
+    """The base seed the band picker's opponent choice folds into its own.
+
+    Opponent choice is advisory (ADR 0001) and almost entirely determined by the rules of
+    rating-system.md; the one thing left to chance is which of two equally central anchors
+    a three-band range asks about. That is sampled, and anything sampled accepts a seed so
+    that a scripted answer sequence lands deterministically (testing.md). Production
+    leaves it at zero and every account is still asked its own way, because the seed is
+    per account and per film; a test moves it to ask the same library the other way and
+    check the rule holds either way rather than which film it happened to pick.
+    """
+
     tier_swap_budget: int = 3
     """Engine-initiated swaps one session-boundary refresh may make.
 

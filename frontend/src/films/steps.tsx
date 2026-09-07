@@ -8,8 +8,8 @@ import {
   type CriteriaVerdict,
   type FilmCard,
   type Landed as LandedStep,
+  type ComparisonAnswer,
   type NarrowStep,
-  type NarrowVerdict,
   type Picker as PickerStep,
   type Unlock,
 } from "../api";
@@ -31,9 +31,11 @@ import { useAsyncAction } from "./useAsyncAction";
  * this flow must never render.
  */
 
+/**
+ * The most bands a range may hold. Two or three adjacent bands is what being unsure
+ * between neighbours means (rating-system.md); a fourth is a different problem.
+ */
 const RANGE_MAX = 3;
-/** A range is two or three adjacent bands: more than that is not being unsure, it is
-    not having watched the film (rating-system.md). */
 
 /**
  * The bands selected after tapping ``band``, kept a contiguous run of at most three.
@@ -89,7 +91,10 @@ export function Picker({
             <Plot overview={picker.film.overview} />
           </div>
         </div>
-        {rating && !choosing && (
+        {/* On a re-rate the current band is marked and the current rank shown
+            (screens-and-flows.md), and it stays shown while a range is being selected:
+            where the film sits now is exactly what the owner is reconsidering. */}
+        {rating && (
           <p className="muted picker-current">
             Currently <Band band={picker.current_band} />, number {picker.current_rank} of that
             band.
@@ -168,7 +173,7 @@ export function Picker({
 /**
  * Narrowing a range: the comparisons, the boundary question, and the last-resort pick.
  *
- * The transcript lives here rather than on the server, which is what keeps the picker
+ * The answers live here rather than on the server, which is what keeps the picker
  * stateless: every call hands back the answers given so far and gets the next question
  * from them. Nothing is left behind by walking away - the answers are already in the log
  * as judgments the owner made, and the next attempt starts fresh.
@@ -191,7 +196,7 @@ export function Narrowing({
   footer: ReactNode;
 }) {
   const [step, setStep] = useState<NarrowStep | null>(null);
-  const [answered, setAnswered] = useState<NarrowVerdict[]>([]);
+  const [answered, setAnswered] = useState<ComparisonAnswer[]>([]);
   const [failed, setFailed] = useState<string | null>(null);
   const { busy, error, run } = useAsyncAction();
 
@@ -212,7 +217,7 @@ export function Narrowing({
   const land = async (band: number, closer?: number) =>
     onLanded(await api.pickBand(tmdbId, band, { bands, answered, closer }));
 
-  const say = (verdict: NarrowVerdict) =>
+  const say = (verdict: ComparisonAnswer) =>
     void run(async () => {
       const next = await api.narrow(tmdbId, bands, answered, verdict);
       const transcript = [...answered, verdict];
