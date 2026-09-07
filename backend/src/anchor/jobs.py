@@ -86,6 +86,7 @@ async def enqueue(
     task: TaskFunction,
     *,
     lock: str | None = None,
+    queueing_lock: str | None = None,
     **kwargs: Any,
 ) -> int:
     """Enqueue ``task`` in the session's open transaction.
@@ -93,12 +94,18 @@ async def enqueue(
     The job row commits or rolls back together with the session's data changes,
     so a data change can never be persisted with its follow-up job lost.
 
-    Jobs sharing a ``lock`` run one at a time, in the order they were enqueued.
+    Jobs sharing a ``lock`` run one at a time, in the order they were enqueued. Only one
+    job sharing a ``queueing_lock`` may be waiting at a time; a second raises
+    :class:`procrastinate.exceptions.AlreadyEnqueued`, from a failed insert the caller
+    has to have wrapped in a savepoint.
     """
     connection = await session.connection()
     raw = await connection.get_raw_connection()
     deferrer = jobs.configure_task(
-        name=task_name(task), connection=raw.driver_connection, lock=lock
+        name=task_name(task),
+        connection=raw.driver_connection,
+        lock=lock,
+        queueing_lock=queueing_lock,
     )
     return await deferrer.defer_async(**kwargs)
 
@@ -112,10 +119,30 @@ async def schedule_retrain(
     flow's own transaction: a rating that lands with its retrain lost would leave the
     taste profile quietly describing an ordering that no longer exists.
     The account lock keeps two retrains from regenerating the same artifacts at once.
+
+    A burst of changes coalesces into one retrain. The job rebuilds the profile from
+    scratch off the ordering as it stands, so while one is still *waiting* for this
+    account a second would only repeat it - and a drag session on the wall is a dozen
+    drops in a minute. The queueing lock is the queue's own "one waiting per key": a
+    retrain already running does not count, since it may have read the ordering before
+    this change, and the change owes a fresh one behind it.
+
+    The refused insert has to fail inside a savepoint: Postgres aborts the whole
+    transaction on a constraint violation otherwise, and the change this rides with
+    would be lost along with the duplicate job.
     """
-    await enqueue(
-        session, jobs, retrain_taste_profile, lock=str(account_id), account_id=str(account_id)
-    )
+    try:
+        async with session.begin_nested():
+            await enqueue(
+                session,
+                jobs,
+                retrain_taste_profile,
+                lock=str(account_id),
+                queueing_lock=f"retrain:{account_id}",
+                account_id=str(account_id),
+            )
+    except procrastinate.exceptions.AlreadyEnqueued:
+        return
 
 
 async def schedule_prose_check(

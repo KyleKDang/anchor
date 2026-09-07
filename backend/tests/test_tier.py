@@ -313,6 +313,21 @@ async def test_a_re_rate_that_crosses_the_bar_still_opens_on_a_real_tier(owner):
     assert set(tier_ids(payload)) == {film.tmdb_id for film in BACKLOG[:5]}
 
 
+@tuned(readiness_forming_bands=3, **PATIENT)
+async def test_a_move_that_crosses_the_bar_still_opens_on_a_real_tier(owner):
+    """A move across bands is the same crossing as a re-rate, and moves nothing else."""
+    await fill(owner, BACKLOG[:5])
+    await build_ordering(owner, WESTERNS, band=4.0)
+    await build_ordering(owner, HORRORS, band=2.0)
+    assert (await flows.tier(owner))["unlocked"] is False, "six films, but only two bands"
+
+    await flows.move(owner, HORRORS[2], 1.0, 1)
+
+    payload = await flows.tier(owner)
+    assert payload["unlocked"] is True
+    assert set(tier_ids(payload)) == {film.tmdb_id for film in BACKLOG[:5]}
+
+
 @tuned(**PATIENT)
 async def test_the_tier_is_there_the_moment_it_unlocks(owner):
     """The one announced moment must not open onto an empty screen.

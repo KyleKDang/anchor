@@ -13,6 +13,13 @@ set so narrowing never empties the menu that did the narrowing.
 The screen is a pull surface through and through (surfacing.md). No film is marked as
 wanting attention and no move is suggested; what the owner sees is their ordering, and
 the way to change it is to move a film.
+
+Moving one is the screen's one write, and it lives here because it is the wall's own
+verb: edit mode is the Rated screen with its posters draggable, and a drop is a move
+saved at once (rating-system.md, "Moves"). The endpoint takes the film, the band, and the
+rank the film should hold once it has landed; the wall computes that rank from where the
+poster was dropped, which is what lets a drop between two visible films under a filter
+land directly after the upper one whatever is hidden between them.
 """
 
 import uuid
@@ -25,11 +32,14 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import anchors as anchors_module
+from anchor import jobs
 from anchor import ordering as ordering_module
+from anchor import tier as tier_module
 from anchor.accounts import CurrentAccount
 from anchor.catalog import FilmCard
-from anchor.deps import DbSession
-from anchor.models import AccountFilm, Film, LifecycleState, Placement, WatchEvent
+from anchor.deps import AppJobs, AppSettings, DbSession
+from anchor.errors import ApiError
+from anchor.models import BANDS, AccountFilm, Film, LifecycleState, Placement, WatchEvent
 
 router = APIRouter(prefix="/api/rated")
 
@@ -131,6 +141,63 @@ async def rated(
         anchor_nudge=not counts,
         rate_later=[cards[film_id] for film_id in seated if film_id in cards],
     )
+
+
+class Move(BaseModel):
+    """Where the owner dropped the film: a band, and the rank to hold in it."""
+
+    band: float
+    rank: int
+
+
+class Moved(BaseModel):
+    """Where the film now sits. The wall re-reads itself; this confirms the one poster."""
+
+    tmdb_id: int
+    band: float
+    rank: int
+    anchor: bool
+    """False after a cross-band move, which is the badge going as the film lands."""
+
+
+@router.post("/{tmdb_id}/move")
+async def move(
+    tmdb_id: int,
+    body: Move,
+    account: CurrentAccount,
+    db: DbSession,
+    queue: AppJobs,
+    settings: AppSettings,
+) -> Moved:
+    """Drop a film at a rank in a band. Saves at once; the visible result is the confirmation.
+
+    A move inside a band renumbers that band; a move across bands renumbers both, changes
+    the rating, and retires the anchor mark. A drop that lands the film where it already
+    sits is not a move and is left entirely alone.
+    """
+    if body.band not in BANDS:
+        raise ApiError(422, "not_a_band", "A rating is one of the ten half-star values.")
+    placement = await ordering_module.placement_of(db, account.id, tmdb_id)
+    if placement is None:
+        raise ApiError(404, "not_rated", "Only a rated film can be moved on the wall.")
+    crossed_bands = body.band != placement.band
+    try:
+        changed = await ordering_module.move(db, placement, band=body.band, rank=body.rank)
+    except ValueError as error:
+        raise ApiError(422, "rank_off_the_end", str(error)) from error
+    if changed:
+        await jobs.schedule_retrain(db, queue, account.id)
+        if crossed_bands:
+            # The bands spanned may just have grown, and the tier owns what that means.
+            await tier_module.note_unlock(db, account.id, settings)
+    moved = Moved(
+        tmdb_id=tmdb_id,
+        band=placement.band,
+        rank=placement.rank,
+        anchor=placement.anchored_at is not None,
+    )
+    await db.commit()
+    return moved
 
 
 def _row(placed: ordering_module.Placed, stored: Film) -> RatedFilm:

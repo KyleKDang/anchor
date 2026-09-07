@@ -317,6 +317,45 @@ async def shift(db: AsyncSession, placement: Placement, *, rank: int) -> None:
     await db.flush()
 
 
+async def move(db: AsyncSession, placement: Placement, *, band: float, rank: int) -> bool:
+    """Put a rated film at a rank in a band: the owner's drag on the wall, saved at once.
+
+    ``rank`` is the place the film holds once it has landed - 1..n inside its own band,
+    1..n+1 in another - and the films it passes shift by one to keep the band dense. A
+    move inside the band changes only ranks. A move across bands changes the rating,
+    retires the anchor mark, because a reference that moved is no longer certain, and
+    renumbers both rows (rating-system.md, "Moves").
+
+    Returns whether anything moved. Dropping a film where it already sits is not a move:
+    nothing is stamped and nothing retrains, so a slip of the pointer costs nothing.
+    """
+    if band not in BANDS:
+        raise ValueError(f"not a half-star band: {band}")
+    if band == placement.band:
+        row_size = await _band_size(db, placement.account_id, band)
+        if not 1 <= rank <= row_size:
+            raise ValueError(f"rank {rank} is off the end of a band of {row_size}")
+        if rank == placement.rank:
+            return False
+        if rank < placement.rank:
+            await _shift(db, placement, from_rank=rank, to_rank=placement.rank - 1, by=+1)
+        else:
+            await _shift(db, placement, from_rank=placement.rank + 1, to_rank=rank, by=-1)
+        placement.rank = rank
+    else:
+        row_size = await _band_size(db, placement.account_id, band)
+        if not 1 <= rank <= row_size + 1:
+            raise ValueError(f"rank {rank} is off the end of a band of {row_size}")
+        await _close_rank(db, placement.account_id, placement.band, placement.rank)
+        await _open_rank(db, placement.account_id, band, rank)
+        placement.band = band
+        placement.rank = rank
+        placement.anchored_at = None
+    placement.moved_at = func.now()
+    await db.flush()
+    return True
+
+
 async def unrate(db: AsyncSession, placement: Placement) -> None:
     """Take a film out of the ordering and close the gap it leaves behind."""
     await _close_rank(db, placement.account_id, placement.band, placement.rank)
@@ -335,6 +374,32 @@ async def _open_rank(db: AsyncSession, account_id: uuid.UUID, band: float, rank:
         )
         .values(rank=Placement.rank + 1)
     )
+
+
+async def _shift(
+    db: AsyncSession, placement: Placement, *, from_rank: int, to_rank: int, by: int
+) -> None:
+    """Move every other film of the band holding a rank in [from_rank, to_rank] by ``by``."""
+    await db.execute(
+        update(Placement)
+        .where(
+            Placement.account_id == placement.account_id,
+            Placement.band == placement.band,
+            Placement.id != placement.id,
+            Placement.rank >= from_rank,
+            Placement.rank <= to_rank,
+        )
+        .values(rank=Placement.rank + by)
+    )
+
+
+async def _band_size(db: AsyncSession, account_id: uuid.UUID, band: float) -> int:
+    size: int | None = await db.scalar(
+        select(func.count())
+        .select_from(Placement)
+        .where(Placement.account_id == account_id, Placement.band == band)
+    )
+    return size or 0
 
 
 async def _close_rank(db: AsyncSession, account_id: uuid.UUID, band: float, rank: int) -> None:
