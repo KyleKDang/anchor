@@ -25,7 +25,8 @@ to accumulate change it will never make.
 """
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import AsyncIterator, Iterable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -39,9 +40,10 @@ from anchor import jobs
 from anchor import prose as prose_module
 from anchor import qualities as qualities_module
 from anchor.accounts import CurrentAccount
-from anchor.deps import AppJobs, DbSession
+from anchor.deps import AppJobs, AppTmdb, DbSession
 from anchor.errors import ApiError
 from anchor.models import ConstraintKind, ProfileConstraint, QualityListEntry, QualityOrigin
+from anchor.tmdb import Tmdb, TmdbUnavailable
 
 router = APIRouter(prefix="/api/profile")
 
@@ -96,6 +98,26 @@ class Footprint(BaseModel):
 
     def stated(self) -> bool:
         return self.genre is not None or self.language is not None
+
+
+class Language(BaseModel):
+    """One language a footprint may name: the code that is stored, and the name shown."""
+
+    code: str
+    name: str
+
+
+class Vocabulary(BaseModel):
+    """Everything a footprint is allowed to name, as the correction form offers it.
+
+    The catalog's own words in both halves, which is the whole point: a genre typed by
+    hand could name something no film carries, and a rule that matches nothing is a rule
+    the owner believes they have and does not. Offering the vocabulary is what makes the
+    common case - naming nothing - cost a glance rather than a decision about spelling.
+    """
+
+    genres: list[str]
+    languages: list[Language]
 
 
 class Claim(BaseModel):
@@ -250,9 +272,33 @@ async def add_quality(body: CustomQuality, account: CurrentAccount, db: DbSessio
     )
 
 
+@router.get("/footprint")
+async def footprint(account: CurrentAccount, tmdb: AppTmdb) -> Vocabulary:
+    """What a correction may rule out: the catalog's own genres and languages.
+
+    Read by the correction form so the footprint is chosen rather than typed. It costs
+    nothing after the first call of a process - both lists are fixed vocabularies TMDB
+    caches on the client - and it is deliberately the same source the write validates
+    against, so the form can never offer something the write would then refuse.
+    """
+    async with _translated_errors():
+        genres = await tmdb.genre_ids()
+        languages = await tmdb.languages()
+    return Vocabulary(
+        # Alphabetical in both halves. Neither vocabulary has an order that means
+        # anything - TMDB hands genres back in its own id order - so the only ordering
+        # that helps someone looking for one entry is the one they can predict.
+        genres=sorted(genres),
+        languages=[
+            Language(code=code, name=name)
+            for code, name in sorted(languages.items(), key=lambda entry: entry[1])
+        ],
+    )
+
+
 @router.post("/constraints", response_model=Correction)
 async def correct(
-    body: Claim, account: CurrentAccount, db: DbSession, jobs_app: AppJobs
+    body: Claim, account: CurrentAccount, db: DbSession, jobs_app: AppJobs, tmdb: AppTmdb
 ) -> Correction:
     """Thumb down a claim in the prose profile: it is wrong about them, and stays recorded.
 
@@ -273,6 +319,8 @@ async def correct(
         raise ApiError(422, "invalid_claim", "That is not a claim.")
     live = await prose_module.latest(db, account.id)
     excludes = body.excludes if body.excludes is not None and body.excludes.stated() else None
+    if excludes is not None:
+        await _in_vocabulary(excludes, tmdb)
     constraint = ProfileConstraint(
         account_id=account.id,
         kind=ConstraintKind.prose_correction,
@@ -331,6 +379,35 @@ async def corrections(db: AsyncSession, account_id: uuid.UUID) -> list[Correctio
         for constraint in await prose_module.active_constraints(db, account_id)
         if constraint.kind is ConstraintKind.prose_correction
     ]
+
+
+async def _in_vocabulary(excludes: Footprint, tmdb: Tmdb) -> None:
+    """Refuse a footprint the catalog cannot answer for.
+
+    The form offers the vocabulary rather than a text box, so this is not a typo guard -
+    it is what makes "a footprint can never name a genre no film carries" a property of
+    the account's rows rather than of one client's markup. A rule that silently matches
+    nothing is worse than no rule: the owner believes they have stopped seeing something,
+    and nothing about the feed ever tells them otherwise.
+    """
+    async with _translated_errors():
+        genres = await tmdb.genre_ids()
+        languages = await tmdb.languages()
+    if excludes.genre is not None and excludes.genre not in genres:
+        raise ApiError(422, "no_such_genre", "No film is filed under that genre.")
+    if excludes.language is not None and excludes.language not in languages:
+        raise ApiError(422, "no_such_language", "No film is in that language.")
+
+
+@asynccontextmanager
+async def _translated_errors() -> AsyncIterator[None]:
+    """The catalog being unreachable is a 503, never a footprint quietly let through."""
+    try:
+        yield
+    except TmdbUnavailable as error:
+        raise ApiError(
+            503, "tmdb_unavailable", "Film data is unavailable right now; try again soon."
+        ) from error
 
 
 def _footprint(content: dict[str, Any]) -> Footprint | None:

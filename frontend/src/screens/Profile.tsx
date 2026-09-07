@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { Fragment, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 
 import {
@@ -7,12 +7,14 @@ import {
   type Correction,
   type CriteriaFrequency,
   type Dimension,
+  type Footprint,
   type Picker,
   type Profile as ProfileData,
   type Prose as ProseData,
   type Readiness,
   type Stage,
   type Threshold,
+  type Vocabulary,
   type Warmup as WarmupData,
 } from "../api";
 import { useAuth } from "../auth";
@@ -188,6 +190,26 @@ function ProseSection({
 }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The claim whose footprint form is open. One at a time: two open forms would be two
+  // half-written corrections, and the owner would have no way to tell which one Save meant.
+  const [naming, setNaming] = useState<string | null>(null);
+  const [vocabulary, setVocabulary] = useState<Vocabulary | null>(null);
+
+  // Fetched with the section rather than when a form opens, because it is also what
+  // spells a standing correction's language out: "Italian" rather than "it". Not before
+  // there is prose, though: an account too new to have been described has nothing to
+  // correct, and the catalog read would be bought for a section that renders nothing.
+  // Failing is survivable and deliberately silent - the catalog being unreachable costs
+  // the owner the footprint offer, not the ability to say a paragraph is wrong.
+  const described = prose !== null;
+  useEffect(() => {
+    if (!described) return;
+    api
+      .footprintVocabulary()
+      .then(setVocabulary)
+      .catch(() => setVocabulary(null));
+  }, [described]);
+
   if (prose === null) return null;
   const paragraphs = prose.text
     .split(/\n\s*\n/)
@@ -195,11 +217,12 @@ function ProseSection({
     .filter((paragraph) => paragraph.length > 0);
   const corrected = new Set(corrections.map((one) => one.claim));
 
-  async function correct(claim: string) {
+  async function correct(claim: string, excludes: Footprint | null) {
     setBusy(claim);
     setError(null);
     try {
-      onCorrections([...corrections, await api.correctProse(claim)]);
+      onCorrections([...corrections, await api.correctProse(claim, excludes)]);
+      setNaming(null);
     } catch (caught) {
       setError(messageOf(caught));
     } finally {
@@ -225,21 +248,32 @@ function ProseSection({
       <h2 id="prose-heading">What Anchor thinks you like</h2>
       <div className="prose">
         {paragraphs.map((paragraph, index) => (
-          <p key={index} className={`prose-claim${corrected.has(paragraph) ? " corrected" : ""}`}>
-            <span>{paragraph}</span>
-            {/* One control per paragraph, because a paragraph is the smallest thing a
-                regeneration actually writes - splitting it finer would hand the engine
-                back a sentence it never composed as a claim of its own. */}
-            <button
-              type="button"
-              className="thumb-down"
-              disabled={busy !== null || corrected.has(paragraph)}
-              onClick={() => void correct(paragraph)}
-              aria-label={`Tell Anchor this is wrong: ${paragraph}`}
-            >
-              {corrected.has(paragraph) ? "Noted" : "Not right"}
-            </button>
-          </p>
+          <Fragment key={index}>
+            <p className={`prose-claim${corrected.has(paragraph) ? " corrected" : ""}`}>
+              <span>{paragraph}</span>
+              {/* One control per paragraph, because a paragraph is the smallest thing a
+                  regeneration actually writes - splitting it finer would hand the engine
+                  back a sentence it never composed as a claim of its own. */}
+              <button
+                type="button"
+                className="thumb-down"
+                disabled={busy !== null || corrected.has(paragraph)}
+                onClick={() => setNaming(naming === paragraph ? null : paragraph)}
+                aria-expanded={naming === paragraph}
+                aria-label={`Tell Anchor this is wrong: ${paragraph}`}
+              >
+                {corrected.has(paragraph) ? "Noted" : "Not right"}
+              </button>
+            </p>
+            {naming === paragraph && (
+              <RulesOut
+                vocabulary={vocabulary}
+                busy={busy !== null}
+                onCancel={() => setNaming(null)}
+                onSave={(excludes) => void correct(paragraph, excludes)}
+              />
+            )}
+          </Fragment>
         ))}
       </div>
       {error && (
@@ -260,7 +294,18 @@ function ProseSection({
           <ul>
             {corrections.map((correction) => (
               <li key={correction.id}>
-                <span className="muted">{correction.claim}</span>
+                <span className="muted">
+                  {correction.claim}
+                  {/* The rule, said beside the claim that carries it. A footprint the
+                      owner cannot see is one they cannot weigh when deciding whether to
+                      undo - and it is the half of the correction that silently changes
+                      what they are shown, so it is the half that most needs saying. */}
+                  {rulesOut(correction.excludes, vocabulary).map((said) => (
+                    <span key={said} className="chip rules-out">
+                      {said}
+                    </span>
+                  ))}
+                </span>
                 <button
                   type="button"
                   className="button secondary"
@@ -276,6 +321,113 @@ function ProseSection({
       )}
     </section>
   );
+}
+
+const NOTHING = "";
+
+/**
+ * What a correction rules out, offered after the thumb-down and before it is sent.
+ *
+ * Offered, not inferred. Reading the claim and pre-selecting the genre it names would be
+ * backwards exactly where it mattered: a paragraph saying "you avoid horror" that the
+ * owner thumbs down means they do *not* avoid horror, so the guess would encode the
+ * opposite rule and the owner would have to spot it to escape it. Two selects starting at
+ * nothing cannot be wrong about them.
+ *
+ * Naming nothing is the common case, so it is the default and it is one press away. The
+ * cost of the affordance is that one press on the common path, and it is the only shape
+ * that lets the footprint be stated at all: a correction is written once and there is no
+ * amending it afterwards, so the offer has to come before it is sent rather than after.
+ *
+ * The selects are absent rather than empty where the catalog is unreachable. A select
+ * with nothing in it reads as a control that is broken, and the correction still works.
+ */
+function RulesOut({
+  vocabulary,
+  busy,
+  onCancel,
+  onSave,
+}: {
+  vocabulary: Vocabulary | null;
+  busy: boolean;
+  onCancel: () => void;
+  onSave: (excludes: Footprint | null) => void;
+}) {
+  const [genre, setGenre] = useState(NOTHING);
+  const [language, setLanguage] = useState(NOTHING);
+  const stated = genre !== NOTHING || language !== NOTHING;
+
+  return (
+    <div className="rules-out-form">
+      <p className="muted">
+        Does this rule anything out? Most corrections don&rsquo;t &ndash; leave this alone and
+        Anchor simply stops saying it. Naming a genre or a language stops those films being
+        suggested at all.
+      </p>
+      {vocabulary !== null && (
+        <div className="rules-out-fields">
+          <label className="field">
+            <span>Stop suggesting</span>
+            <select value={genre} onChange={(event) => setGenre(event.target.value)}>
+              <option value={NOTHING}>any genre</option>
+              {vocabulary.genres.map((one) => (
+                <option key={one} value={one}>
+                  {one}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="field">
+            <span>and films in</span>
+            <select value={language} onChange={(event) => setLanguage(event.target.value)}>
+              <option value={NOTHING}>any language</option>
+              {vocabulary.languages.map((one) => (
+                <option key={one.code} value={one.code}>
+                  {one.name}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+      )}
+      <div className="rules-out-save">
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          onClick={() =>
+            onSave(
+              stated
+                ? {
+                    genre: genre === NOTHING ? null : genre,
+                    language: language === NOTHING ? null : language,
+                  }
+                : null,
+            )
+          }
+        >
+          {stated ? "Save the rule" : "Just tell Anchor"}
+        </button>
+        <button type="button" className="button secondary" disabled={busy} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** A footprint as the standing list says it, one phrase per half. Empty where there is none. */
+function rulesOut(excludes: Footprint | null, vocabulary: Vocabulary | null): string[] {
+  if (excludes === null) return [];
+  const named =
+    excludes.language === null
+      ? null
+      : (vocabulary?.languages.find((one) => one.code === excludes.language)?.name ??
+        excludes.language);
+  return [
+    excludes.genre === null ? null : `No ${excludes.genre.toLowerCase()}`,
+    named === null ? null : `Nothing in ${named}`,
+  ].filter((one): one is string => one !== null);
 }
 
 /**

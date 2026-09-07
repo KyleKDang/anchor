@@ -28,6 +28,7 @@ from flows import (
     account_id,
     build_ordering,
     discovery,
+    lift_correction,
     mark_anchor,
     seen_discovery,
     shelf,
@@ -288,6 +289,27 @@ async def test_a_ruled_out_language_is_enforced_mechanically(owner, run_jobs, pr
 
     assert SUBTITLED.tmdb_id not in ids(films)
     assert films
+
+
+async def test_lifting_the_correction_brings_the_films_back(owner, run_jobs, provider, tmdb):
+    """A rule the owner cannot undo is not a rule they would risk stating in the first place.
+
+    The lift has to reach the prefilter, not merely the next regeneration: the exclusion
+    is enforced by dropping candidates, so an owner who took the correction back and
+    still never saw a horror film again would have no way to tell it had worked.
+    """
+    tmdb.with_neighbours(RATED[0].tmdb_id, *CANDIDATES, SCARY)
+    await rating_films(owner, run_jobs)
+    correction = await thumb_down(
+        owner, "You would enjoy a horror film.", excludes={"genre": "Horror"}
+    )
+    provider.will_say(**ranked(SCARY, *CANDIDATES))
+    assert SCARY.tmdb_id not in ids(await visit(owner, run_jobs))
+
+    await lift_correction(owner, correction["id"])
+    provider.will_say(**ranked(SCARY, *CANDIDATES))
+
+    assert SCARY.tmdb_id in ids(await visit(owner, run_jobs))
 
 
 async def test_a_prose_only_correction_excludes_nothing(owner, run_jobs, provider, tmdb):
