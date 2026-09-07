@@ -75,6 +75,8 @@ class BandRow(BaseModel):
     Counted over the whole band rather than over the filtered films, because the header
     is a fact about the band and a filter is a way of looking at it.
     """
+    size: int
+    """How many films the whole band holds: the last rank a move to its end can take."""
 
 
 class Rated(BaseModel):
@@ -126,7 +128,11 @@ async def rated(
     cards = await ordering_module.cards(db, seated)
     return Rated(
         sort=sort,
-        rows=_wall(kept, counts) if sort == "position" else None,
+        rows=(
+            _wall(kept, counts, {band: len(ordering.row(band)) for band in ordering.bands()})
+            if sort == "position"
+            else None
+        ),
         films=None if sort == "position" else await _flatten(db, account.id, kept, sort),
         bands=sorted({row.band for row in rows}, reverse=True),
         genres=sorted({name for row in rows for name in films[row.tmdb_id].genres}),
@@ -237,7 +243,9 @@ def _passes(
     return True
 
 
-def _wall(rows: list[RatedFilm], counts: dict[float, int]) -> list[BandRow]:
+def _wall(
+    rows: list[RatedFilm], counts: dict[float, int], sizes: dict[float, int]
+) -> list[BandRow]:
     """The films grouped into their bands, best band first, ranks left as they stand.
 
     A filter thins a row without renumbering it: the rank on a poster is the film's
@@ -248,7 +256,9 @@ def _wall(rows: list[RatedFilm], counts: dict[float, int]) -> list[BandRow]:
     for row in rows:
         grouped.setdefault(row.band, []).append(row)
     return [
-        BandRow(band=band, films=grouped[band], anchors=counts.get(band, 0))
+        BandRow(
+            band=band, films=grouped[band], anchors=counts.get(band, 0), size=sizes.get(band, 0)
+        )
         for band in sorted(grouped, reverse=True)
     ]
 

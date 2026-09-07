@@ -25,8 +25,11 @@ test("an owner watches films, rates them, and reads the wall and the queue back"
   await markWatched(page, "Arrival", "Rate now");
   await pick(page, 3);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Arrival landed");
+  // The way on from a landing is the wall in edit mode, with the landed film ringed.
   await page.getByRole("button", { name: "Adjust on the wall" }).click();
-  await expect(page).toHaveURL(/\/rated\?film=/);
+  await expect(page).toHaveURL(/\/rated\?edit=1&film=/);
+  await expect(page.getByRole("button", { name: "Done editing" })).toBeVisible();
+  await page.getByRole("button", { name: "Done editing" }).click();
 
   // Best band first, with the half-star value as each row's header.
   const rows = page.getByRole("region", { name: "Your ordering" }).getByRole("region");
@@ -74,6 +77,8 @@ test("an owner re-rates a film from its page and the wall follows", async ({ pag
 
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Fight Club landed");
   await page.getByRole("button", { name: "Adjust on the wall" }).click();
+  // Edit mode draws every band as a drop target; the read-only wall draws the one that holds a film.
+  await page.getByRole("button", { name: "Done editing" }).click();
   const rows = page.getByRole("region", { name: "Your ordering" }).getByRole("region");
   await expect(rows).toHaveCount(1);
   await expect(rows.nth(0)).toContainText("Fight Club");

@@ -98,7 +98,7 @@ export function Place() {
             <button
               type="button"
               className="button"
-              onClick={() => void navigate(`/rated?film=${landed.film.tmdb_id}`)}
+              onClick={() => void navigate(`/rated?edit=1&film=${landed.film.tmdb_id}`)}
             >
               Adjust on the wall
             </button>
