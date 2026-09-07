@@ -170,8 +170,6 @@ export interface BandRow {
   films: RatedFilm[];
   /** The count of the band's anchors - the whole band's, not the filtered view's. */
   anchors: number;
-  /** How many films the whole band holds, whatever a filter is showing of it. */
-  size: number;
 }
 
 /** Where a film sits after a move; `anchor` is false once a cross-band move retired it. */
@@ -191,6 +189,8 @@ export interface Rated {
   bands: number[];
   genres: string[];
   decades: number[];
+  /** How many films each band holds, filter or no filter, keyed by the band as a string. */
+  sizes: Record<string, number>;
   /** No anchor exists yet: the one line saying what marking one does. */
   anchor_nudge: boolean;
   rate_later: FilmCard[];

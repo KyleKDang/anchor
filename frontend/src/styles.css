@@ -577,6 +577,35 @@ select {
   background: var(--star);
 }
 
+/* The badge as a toggle, on the wall in edit mode: the same badge, pressable. Pressed it
+   is the badge; unpressed it is the badge's outline waiting to be filled, so the two
+   states read as one control rather than as a badge and a separate button. */
+button.anchor-badge {
+  font: inherit;
+  font-size: var(--text-xs);
+  cursor: pointer;
+  transition:
+    color var(--fast) var(--ease),
+    border-color var(--fast) var(--ease),
+    background-color var(--fast) var(--ease);
+}
+
+.anchor-badge[aria-pressed="false"] {
+  color: var(--muted);
+  border-color: var(--border-control);
+  background: transparent;
+}
+
+.anchor-badge[aria-pressed="false"]::before {
+  background: transparent;
+  border: 1px solid currentColor;
+}
+
+.anchor-badge[aria-pressed="false"]:hover {
+  color: var(--text);
+  border-color: var(--border-strong);
+}
+
 .state-flag {
   padding: 0.2rem 0.45rem;
   color: var(--muted);
@@ -1085,11 +1114,6 @@ select {
   user-select: none;
 }
 
-.ordering-handle:focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 3px;
-}
-
 .ordering-handle .poster {
   pointer-events: none;
 }
@@ -1121,8 +1145,8 @@ select {
 }
 
 /* A band holding nothing is still a row in edit mode, because it is somewhere a film can
-   be dropped and the only way to make it hold something. The row lights when a drag is
-   over it so an empty target reads as one. */
+   be dropped and the only way to make it hold something. The row firms up when a drag is
+   over it so an empty target reads as one - in ink, not amber, which is spent elsewhere. */
 .ordering-editable[data-empty] {
   min-height: 5rem;
   display: block;
@@ -1142,56 +1166,9 @@ select {
 }
 
 .ordering-editable[data-empty][data-over] .ordering-empty {
-  border-color: var(--star);
-  background: color-mix(in srgb, var(--star) 7%, transparent);
-}
-
-/* The anchor toggle is the badge made pressable, in the badge's place under the title.
-   Pressed, it is the badge; unpressed, it is the badge's outline waiting to be filled, so
-   the two states read as one control rather than as a badge and a separate button. */
-.anchor-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.3rem;
-  padding: 0.2rem 0.4rem;
-  border-radius: var(--r-sm);
-  border: 1px solid var(--border-control);
-  background: transparent;
-  color: var(--muted);
-  font-size: var(--text-xs);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition:
-    color var(--fast) var(--ease),
-    border-color var(--fast) var(--ease),
-    background-color var(--fast) var(--ease);
-}
-
-.anchor-toggle::before {
-  content: "";
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 50%;
-  border: 1px solid currentColor;
-}
-
-.anchor-toggle:hover {
-  color: var(--text);
-  border-color: var(--border-strong);
-}
-
-.anchor-toggle[aria-pressed="true"] {
-  color: var(--star-text);
-  border-color: color-mix(in srgb, var(--star) 55%, transparent);
-  background: color-mix(in srgb, var(--star) 10%, transparent);
-}
-
-.anchor-toggle[aria-pressed="true"]::before {
-  border: 0;
-  background: var(--star);
+  border-style: solid;
+  border-color: var(--border-control);
+  background: color-mix(in srgb, var(--ink) 4%, transparent);
 }
 
 .ordering-error {

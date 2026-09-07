@@ -47,18 +47,18 @@ export function AnchorBadge({ band }: { band: number | null }) {
  */
 export function AnchorNudge({
   film,
-  action,
+  onWall = false,
 }: {
   film?: { tmdb_id: number; title: string };
-  /** What to do about it, where the toggle is on this very screen. */
-  action?: string;
+  /** Shown on the wall in edit mode, where the toggle is on every poster. */
+  onWall?: boolean;
 }) {
   return (
     <p className="nudge">
       Marking a film an anchor says you are certain of its rating. Anchors are what the band
       picker shows you when you rate, so you are choosing against your own references.{" "}
-      {action ? (
-        action
+      {onWall ? (
+        "Tap Anchor under any poster here to mark your first."
       ) : film ? (
         <Link to={filmPath(film.tmdb_id)}>Start with {film.title}</Link>
       ) : (

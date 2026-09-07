@@ -18,14 +18,22 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
 import { Link } from "react-router";
 
-import { api, messageOf, type BandRow, type Rated, type RatedFilm } from "../../api";
+import { api, messageOf, type Rated, type RatedFilm } from "../../api";
 import { Band } from "../../films/Band";
 import { Poster } from "../../films/Poster";
 import { filmPath, releaseYear } from "../../films/tmdb";
-import { applyMove, ensureRow, rankAfter, stepTarget, type Step, type Target } from "./moves";
+import {
+  applyMove,
+  editableRows,
+  rankAfter,
+  stepTarget,
+  type EditableRow,
+  type Step,
+  type Target,
+} from "./moves";
 
 /**
  * The wall in edit mode: every poster drags, within its band and into any other.
@@ -62,20 +70,22 @@ export function EditableWall({
   /** Every queued save has settled: time to re-read the wall. */
   onSettled: () => Promise<void>;
 }) {
-  const [rows, setRows] = useState<BandRow[]>(() => withBands(rated.rows ?? [], bands));
+  const [rows, setRows] = useState<EditableRow[]>(() => editableRows(rated, bands));
   const [active, setActive] = useState<RatedFilm | null>(null);
   const [failed, setFailed] = useState<{ tmdb_id: number; message: string } | null>(null);
   const rowsRef = useRef(rows);
   rowsRef.current = rows;
-  const snapshot = useRef<BandRow[] | null>(null);
+  const snapshot = useRef<EditableRow[] | null>(null);
   const pending = useRef(0);
   const chain = useRef<Promise<void>>(Promise.resolve());
+  const burst = useRef(0);
   const refocus = useRef<number | null>(null);
+  const reducedMotion = useReducedMotion();
 
   // The server's answer replaces the local wall only while nothing is still saving: a
   // read that resolved mid-burst would put a poster back where it was three drops ago.
   useEffect(() => {
-    if (pending.current === 0) setRows(withBands(rated.rows ?? [], bands));
+    if (pending.current === 0) setRows(editableRows(rated, bands));
   }, [rated, bands]);
 
   // A keyboard move can unmount the focused poster (a cross-band move changes its
@@ -89,13 +99,20 @@ export function EditableWall({
   /**
    * Queue one save behind the last. Saves run one at a time, in order, because a burst
    * of keyboard steps is a burst of moves whose ranks each assume the one before landed.
+   * For the same reason a failure abandons the rest of its burst: every save queued
+   * behind it was computed on a wall the server never reached. The re-read once the
+   * queue drains is what puts the wall back.
    */
   const enqueue = useCallback(
     (film: RatedFilm, work: () => Promise<void>) => {
+      const mine = burst.current;
       pending.current += 1;
       chain.current = chain.current
-        .then(work)
-        .catch((caught: unknown) => setFailed({ tmdb_id: film.tmdb_id, message: messageOf(caught) }))
+        .then(() => (mine === burst.current ? work() : undefined))
+        .catch((caught: unknown) => {
+          burst.current += 1;
+          setFailed({ tmdb_id: film.tmdb_id, message: messageOf(caught) });
+        })
         .finally(() => {
           pending.current -= 1;
           if (pending.current === 0) void onSettled();
@@ -106,7 +123,7 @@ export function EditableWall({
 
   /** Apply a move to the wall as shown and queue its save. `base` is the wall to apply it to. */
   const move = useCallback(
-    (film: RatedFilm, target: Target, base: BandRow[] = rowsRef.current) => {
+    (film: RatedFilm, target: Target, base: EditableRow[] = rowsRef.current) => {
       setFailed(null);
       setRows(applyMove(base, film, target));
       if (film.tmdb_id === highlighted) onMoved();
@@ -230,11 +247,6 @@ export function EditableWall({
     setActive(null);
   }
 
-  const reducedMotion = useMemo(
-    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    [],
-  );
-
   return (
     <DndContext
       sensors={sensors}
@@ -283,7 +295,7 @@ function EditableBand({
   onStep,
   onToggleAnchor,
 }: {
-  row: BandRow;
+  row: EditableRow;
   activeId: number | null;
   highlighted: number | null;
   failed: { tmdb_id: number; message: string } | null;
@@ -314,7 +326,9 @@ function EditableBand({
         >
           {row.films.length === 0 && (
             <li className="ordering-empty muted" aria-hidden="true">
-              Drop a film here to make it a {row.band.toFixed(1)}
+              {row.size === 0
+                ? `Drop a film here to make it a ${row.band.toFixed(1)}`
+                : `${row.size} ${row.size === 1 ? "film" : "films"} hidden by the filter; a drop lands at the top`}
             </li>
           )}
           {row.films.map((film) => (
@@ -384,6 +398,9 @@ function EditableCell({
     >
       <span className="ordering-rank">{film.rank}</span>
       <div className="ordering-film">
+        {/* The arrow handler goes after the sensor listeners on purpose: the pointer and
+            touch sensors bind no key handler today, and this keeps ours the one that wins
+            if one ever does. */}
         <button
           type="button"
           id={handleId(film.tmdb_id)}
@@ -402,7 +419,7 @@ function EditableCell({
           <span className="film-year muted">{releaseYear(film.year)}</span>
           <button
             type="button"
-            className="anchor-toggle"
+            className="anchor-badge"
             aria-pressed={film.anchor}
             aria-label={film.anchor ? `Retire ${film.title} as an anchor` : `Mark ${film.title} as an anchor`}
             title={
@@ -423,6 +440,20 @@ function EditableCell({
       </div>
     </li>
   );
+}
+
+/** Whether the viewer asked for less motion, kept current if they change their mind mid-session. */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia("(prefers-reduced-motion: reduce)");
+    const onChange = (event: MediaQueryListEvent) => setReduced(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
 }
 
 // --- The keyboard ---
@@ -513,7 +544,7 @@ function bandData(data: unknown): number | null {
   return typeof band === "number" ? band : null;
 }
 
-function findFilm(rows: BandRow[], id: UniqueIdentifier): RatedFilm | null {
+function findFilm(rows: EditableRow[], id: UniqueIdentifier): RatedFilm | null {
   for (const row of rows) {
     const film = row.films.find((one) => one.tmdb_id === id);
     if (film) return film;
@@ -522,7 +553,7 @@ function findFilm(rows: BandRow[], id: UniqueIdentifier): RatedFilm | null {
 }
 
 /** The band a film is currently drawn in, which during a drag may not be its own. */
-function bandOf(rows: BandRow[], id: UniqueIdentifier): number | null {
+function bandOf(rows: EditableRow[], id: UniqueIdentifier): number | null {
   return rows.find((row) => row.films.some((one) => one.tmdb_id === id))?.band ?? null;
 }
 
@@ -530,11 +561,7 @@ function sameOrder(a: RatedFilm[], b: RatedFilm[]): boolean {
   return a.length === b.length && a.every((film, index) => film.tmdb_id === b[index]?.tmdb_id);
 }
 
-function withBands(rows: BandRow[], bands: number[]): BandRow[] {
-  return bands.reduce(ensureRow, rows).filter((row) => bands.includes(row.band));
-}
-
-function withAnchor(rows: BandRow[], film: RatedFilm, anchor: boolean): BandRow[] {
+function withAnchor(rows: EditableRow[], film: RatedFilm, anchor: boolean): EditableRow[] {
   return rows.map((row) =>
     row.band === film.band
       ? {
