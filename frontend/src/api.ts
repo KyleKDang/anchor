@@ -4,6 +4,8 @@ export interface Account {
   id: string;
   email: string;
   verified: boolean;
+  /** The shared read-only demo account, whose wall has no edit mode. */
+  demo: boolean;
 }
 
 export interface Credentials {
@@ -168,6 +170,16 @@ export interface BandRow {
   films: RatedFilm[];
   /** The count of the band's anchors - the whole band's, not the filtered view's. */
   anchors: number;
+  /** How many films the whole band holds, whatever a filter is showing of it. */
+  size: number;
+}
+
+/** Where a film sits after a move; `anchor` is false once a cross-band move retired it. */
+export interface Moved {
+  tmdb_id: number;
+  band: number;
+  rank: number;
+  anchor: boolean;
 }
 
 export interface Rated {
@@ -698,6 +710,9 @@ export const api = {
   pickBand: (tmdbId: number, band: number, narrowed?: Narrowed) =>
     request<Landed>("POST", `/api/placements/${tmdbId}/band`, { band, ...narrowed }),
   rated: (filters: RatedFilters = {}) => request<Rated>("GET", `/api/rated${ratedQuery(filters)}`),
+  /** Drop a film at a rank in a band on the wall. Every drop saves at once. */
+  move: (tmdbId: number, band: number, rank: number) =>
+    request<Moved>("POST", `/api/rated/${tmdbId}/move`, { band, rank }),
   anchors: () => request<Anchors>("GET", "/api/anchors"),
   markAnchor: (tmdbId: number) => request<void>("POST", `/api/anchors/${tmdbId}`),
   retireAnchor: (tmdbId: number) => request<void>("DELETE", `/api/anchors/${tmdbId}`),

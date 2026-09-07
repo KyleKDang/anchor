@@ -45,12 +45,21 @@ export function AnchorBadge({ band }: { band: number | null }) {
  * Presence-based, and it vanishes the moment the first anchor exists (surfacing.md), so
  * it explains itself once and then never speaks again. Nothing anywhere else asks.
  */
-export function AnchorNudge({ film }: { film?: { tmdb_id: number; title: string } }) {
+export function AnchorNudge({
+  film,
+  action,
+}: {
+  film?: { tmdb_id: number; title: string };
+  /** What to do about it, where the toggle is on this very screen. */
+  action?: string;
+}) {
   return (
     <p className="nudge">
       Marking a film an anchor says you are certain of its rating. Anchors are what the band
       picker shows you when you rate, so you are choosing against your own references.{" "}
-      {film ? (
+      {action ? (
+        action
+      ) : film ? (
         <Link to={filmPath(film.tmdb_id)}>Start with {film.title}</Link>
       ) : (
         <Link to="/rated">Mark one from any film's page</Link>

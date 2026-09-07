@@ -140,6 +140,7 @@ async def test_a_filter_thins_a_row_without_renumbering_it(owner, tmdb):
 
     [only] = filtered["rows"][0]["films"]
     assert only["rank"] == whole.index(9202) + 1
+    assert filtered["rows"][0]["size"] == 2, "the row still says how big the band is"
 
 
 async def test_the_filter_menus_are_computed_over_the_whole_rated_set(owner):

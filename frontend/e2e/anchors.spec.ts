@@ -18,10 +18,14 @@ test("an owner marks an anchor and the wall badges it in its band row", async ({
   await expect(page.getByRole("region", { name: "4.0 stars" })).toContainText("Arrival");
   await expect(page.getByRole("region", { name: "2.5 stars" })).toContainText("Fight Club");
 
-  // No anchors yet, so the one ambient line says what marking one does.
-  await expect(page.getByRole("link", { name: /^Start with/ })).toBeVisible();
+  // No anchors yet, so the one ambient line says what marking one does - in edit mode,
+  // which is where the toggle is on this screen; the read-only wall says nothing.
+  await expect(page.getByText(/Marking a film an anchor/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit the wall" }).click();
+  await expect(page.getByText(/Marking a film an anchor/)).toBeVisible();
+  await page.getByRole("button", { name: "Done editing" }).click();
 
-  // The toggle lives on the film's own page, and marking changes nothing else.
+  // The toggle also lives on the film's own page, and marking changes nothing else.
   await page.goto(`/films/${ARRIVAL}`);
   await page.getByRole("button", { name: "Mark as an anchor" }).click();
   // Scoped to the film, not the page: the nav's wordmark is also the word "Anchor", and
@@ -34,7 +38,9 @@ test("an owner marks an anchor and the wall badges it in its band row", async ({
   await expect(banded.getByRole("heading", { level: 3 })).toContainText("4.0");
   await expect(banded).toContainText("1 anchor");
   await expect(banded.getByRole("listitem")).toContainText("Arrival");
-  await expect(page.getByRole("link", { name: /^Start with/ })).toHaveCount(0);
+  await page.getByRole("button", { name: "Edit the wall" }).click();
+  await expect(page.getByText(/Marking a film an anchor/)).toHaveCount(0);
+  await page.getByRole("button", { name: "Done editing" }).click();
 
   // The anchors-only filter is the one way the wall narrows to them.
   await page.getByLabel("Anchors only").check();

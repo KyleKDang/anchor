@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 
 import {
@@ -12,10 +12,13 @@ import {
   type RatedFilters,
   type RatedSort,
 } from "../api";
+import { useAuth } from "../auth";
 import { AnchorBadge, AnchorNudge, Band } from "../films/Band";
 import { Poster } from "../films/Poster";
 import { filmPath, placePath, releaseYear } from "../films/tmdb";
 import { useAsyncAction } from "../films/useAsyncAction";
+import { EditableWall } from "./rated/EditableWall";
+import { editableBands } from "./rated/moves";
 
 /**
  * The Rated screen: the ordering as ten band rows, and the rate-later queue below it.
@@ -30,13 +33,25 @@ import { useAsyncAction } from "../films/useAsyncAction";
  *
  * The screen is a pull surface through and through (ADR 0011). No film is marked as
  * wanting attention and no move is ever suggested.
+ *
+ * One toggle turns the wall into the editor (screens-and-flows.md, "Edit mode"). It is
+ * there only on the position sort, since a flat list has no rank to drag to, and never
+ * on the demo account, whose wall is content rather than a control. Edit mode lives in
+ * the URL: "Adjust on the wall" is then a plain link, and the back button leaves it.
  */
 export function Rated() {
+  const { account } = useAuth();
   const [filters, setFilters] = useState<RatedFilters>({ sort: "position" });
   const [rated, setRated] = useState<RatedScreen | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const highlighted = Number(params.get("film")) || null;
+  const editable = (filters.sort ?? "position") === "position" && account?.demo === false;
+  const editing = editable && params.has("edit");
+  const bands = useMemo(
+    () => editableBands(filters.bandMax ?? null, filters.bandMin ?? null),
+    [filters.bandMax, filters.bandMin],
+  );
 
   const load = useCallback(async () => {
     try {
@@ -54,10 +69,26 @@ export function Rated() {
   // "Adjust on the wall" lands here with the film named, and the poster it points at does
   // not exist until this screen's fetch resolves - so the browser has nothing to scroll to
   // at navigation time. Scroll once the wall is actually on the page.
+  const loaded = rated !== null;
   useEffect(() => {
-    if (rated === null || highlighted === null) return;
+    // Once the wall is on the page, and not again on every re-read behind a drop.
+    if (!loaded || highlighted === null) return;
     document.getElementById(`film-${highlighted}`)?.scrollIntoView({ block: "center" });
-  }, [rated, highlighted]);
+  }, [loaded, highlighted]);
+
+  // The ring goes when the film is moved or the owner leaves; both live in the URL.
+  const unring = useCallback(
+    () => setParams((current) => without(current, "film"), { replace: true }),
+    [setParams],
+  );
+  const toggleEditing = useCallback(
+    () =>
+      setParams(
+        (current) => (current.has("edit") ? without(current, "edit", "film") : withEdit(current)),
+        { replace: true },
+      ),
+    [setParams],
+  );
 
   return (
     <>
@@ -69,12 +100,29 @@ export function Rated() {
       )}
       {rated !== null && (
         <>
-          {rated.anchor_nudge && <AnchorNudge film={firstFilm(rated)} />}
-          <Controls rated={rated} filters={filters} onChange={setFilters} />
+          <Controls
+            rated={rated}
+            filters={filters}
+            onChange={setFilters}
+            editable={editable}
+            editing={editing}
+            onToggleEditing={toggleEditing}
+          />
 
           <section className="section" aria-labelledby="ordering-heading">
             <h2 id="ordering-heading">Your ordering</h2>
-            {isEmpty(rated) ? (
+            {editing && rated.anchor_nudge && (
+              <AnchorNudge action="Tap Anchor under any poster here to mark your first." />
+            )}
+            {editing && rated.rows !== null ? (
+              <EditableWall
+                rated={rated}
+                bands={bands}
+                highlighted={highlighted}
+                onMoved={unring}
+                onSettled={load}
+              />
+            ) : isEmpty(rated) ? (
               <div className="empty">
                 <p className="muted">
                   {hasFilters(filters)
@@ -128,20 +176,52 @@ const SORTS: { value: RatedSort; label: string }[] = [
   { value: "year", label: "Release year" },
 ];
 
-/** The sort, the filters, and the jump-to-band strip that only the wall can offer. */
+/**
+ * The sort, the filters, the edit toggle, and the jump-to-band strip that only the wall
+ * can offer. Filters stay usable in edit mode: filtering a big band down to the films the
+ * owner is thinking about is the intended way to work a long row.
+ */
 function Controls({
   rated,
   filters,
   onChange,
+  editable,
+  editing,
+  onToggleEditing,
 }: {
   rated: RatedScreen;
   filters: RatedFilters;
   onChange: (filters: RatedFilters) => void;
+  editable: boolean;
+  editing: boolean;
+  onToggleEditing: () => void;
 }) {
   const set = (patch: RatedFilters) => onChange({ ...filters, ...patch });
 
   return (
-    <div className="rated-controls">
+    <div className="rated-controls" data-editing={editing ? "true" : undefined}>
+      {editable && (
+        <div className="edit-bar">
+          <button
+            type="button"
+            className={editing ? "button" : "button secondary"}
+            aria-pressed={editing}
+            onClick={onToggleEditing}
+          >
+            {editing ? "Done editing" : "Edit the wall"}
+          </button>
+          {editing && (
+            <p className="muted edit-hint">
+              Drag a poster to move it, within its band or into another. Every move saves at
+              once.{" "}
+              <span className="edit-hint-keys">
+                With a poster selected, ← and → move it one rank, Shift for the ends, ↑ and ↓
+                across bands; Esc drops a drag where it started.
+              </span>
+            </p>
+          )}
+        </div>
+      )}
       <div className="filters">
         <label className="field">
           <span>Sort</span>
@@ -383,6 +463,18 @@ function QueuedFilm({ film, onLeft }: { film: FilmCard; onLeft: () => void }) {
   );
 }
 
+function without(params: URLSearchParams, ...keys: string[]): URLSearchParams {
+  const next = new URLSearchParams(params);
+  for (const key of keys) next.delete(key);
+  return next;
+}
+
+function withEdit(params: URLSearchParams): URLSearchParams {
+  const next = new URLSearchParams(params);
+  next.set("edit", "1");
+  return next;
+}
+
 function isEmpty(rated: RatedScreen): boolean {
   return (rated.rows?.length ?? rated.films?.length ?? 0) === 0;
 }
@@ -391,9 +483,4 @@ function hasFilters(filters: RatedFilters): boolean {
   return Boolean(
     filters.bandMin || filters.bandMax || filters.genre || filters.decade || filters.anchorsOnly,
   );
-}
-
-/** The nudge points at the owner's best film, which is the easiest one to have an opinion about. */
-function firstFilm(rated: RatedScreen): RatedFilm | undefined {
-  return rated.rows?.[0]?.films[0] ?? rated.films?.[0];
 }
