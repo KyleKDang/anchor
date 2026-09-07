@@ -235,16 +235,18 @@ async def tagged_films(db: Database) -> list[int]:
 
 
 async def criteria_log(db: Database, account_id: uuid.UUID) -> list[tuple[Any, ...]]:
-    """Every criteria offer, oldest first, as (quality, film a, film b, verdict).
+    """Every criteria offer, oldest first, as (quality, film a, film b, verdict, context).
 
     An offer reading ``skip`` is one the owner never engaged with - dismissed, or simply
-    left alone, which the spec requires be recorded identically.
+    left alone, which the spec requires be recorded identically. The context says which
+    home asked: a placement or re-rate for the done screen's run, spontaneous for a
+    session opened from the film's page.
     """
     async with db.sessions() as session:
         rows = await session.execute(
             text(
                 """
-                SELECT quality_list_entries.name, film_a_id, film_b_id, verdict
+                SELECT quality_list_entries.name, film_a_id, film_b_id, verdict, context
                 FROM comparison_log_entries
                 JOIN quality_list_entries ON quality_list_entries.id = quality_id
                 WHERE comparison_log_entries.account_id = :id

@@ -285,11 +285,84 @@ async def ask_criteria(client, frequency):
     return response.json()
 
 
-async def answer_criteria(client, card, verdict, expect=204):
-    """Answer the bonus card. Not answering is the other half of the flow, and is nothing."""
+async def answer_criteria(client, card, verdict, expect=200):
+    """Answer a card, and hand back the next one in its home - or None when the home is done.
+
+    Not answering is the other half of the flow, and is nothing: dismissing the card and
+    leaving the screen are both the absence of this call.
+    """
     response = await client.post(f"/api/criteria/{card['id']}", json={"verdict": verdict})
     assert response.status_code == expect, response.text
-    return response.json() if expect not in (204,) else None
+    return response.json()["next"] if expect == 200 else response.json()
+
+
+async def dismiss_criteria(client, card, expect=200):
+    """Wave a card away. In a session the next one comes; in a run, nothing does."""
+    response = await client.post(f"/api/criteria/{card['id']}/dismiss")
+    assert response.status_code == expect, response.text
+    return response.json()["next"] if expect == 200 else response.json()
+
+
+async def answer_run(client, card, verdicts="a", limit=200):
+    """Answer card after card until the home has nothing left, or ``limit`` cards have been met.
+
+    Hands back every card the owner met, first to last. ``verdicts`` cycles, so one letter
+    answers everything the same way; a string of several scripts the sequence.
+    """
+    met = []
+    turn = 0
+    while card is not None and turn < limit:
+        met.append(card)
+        card = await answer_criteria(client, card, verdicts[turn % len(verdicts)])
+        turn += 1
+    return met
+
+
+async def open_session(client, film, expect=200):
+    """Open the session from a film's page: its first card, or None when nothing is left."""
+    response = await client.post(f"/api/criteria/session/{film.tmdb_id}")
+    assert response.status_code == expect, response.text
+    return response.json()["card"] if expect == 200 else response.json()
+
+
+async def compared_in_picker(db, account_id, subject, opponent, verdict="a"):
+    """Record that the picker set ``subject`` against ``opponent``, below the seam.
+
+    The band picker's range comparisons are their own ticket, so until they exist this is
+    the only way a film reaches the ladder's third rung. Written exactly as the picker
+    will write it: a band comparison whose subject is the film being rated.
+    """
+    from anchor.models import (
+        ComparisonContext,
+        ComparisonKind,
+        ComparisonLogEntry,
+        ComparisonVerdict,
+    )
+
+    async with db.sessions() as session:
+        session.add(
+            ComparisonLogEntry(
+                account_id=account_id,
+                kind=ComparisonKind.band_comparison,
+                subject_film_id=subject.tmdb_id,
+                film_a_id=subject.tmdb_id,
+                film_b_id=opponent.tmdb_id,
+                verdict=ComparisonVerdict(verdict),
+                context=ComparisonContext.placement,
+            )
+        )
+        await session.commit()
+
+
+def pair_of(card):
+    """The two films a card names, as a set of tmdb ids."""
+    return {card["film_a"]["tmdb_id"], card["film_b"]["tmdb_id"]}
+
+
+def opponent_of(card, subject):
+    """The film a card sets ``subject`` against."""
+    (other,) = pair_of(card) - {subject.tmdb_id}
+    return other
 
 
 async def backlog(client, **params):

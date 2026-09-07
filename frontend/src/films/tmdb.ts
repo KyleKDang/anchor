@@ -23,3 +23,7 @@ export function releaseYear(year: number | null): string {
 export function placePath(tmdbId: number): string {
   return `/place/${tmdbId}`;
 }
+
+export function questionsPath(tmdbId: number): string {
+  return `/films/${tmdbId}/questions`;
+}
