@@ -469,3 +469,34 @@ async def test_a_language_no_film_carries_cannot_be_ruled_out(owner):
     await thumb_down(owner, "You read subtitles.", excludes={"language": "zz"}, expect=422)
 
     assert await corrections(owner) == []
+
+
+async def test_an_unreachable_catalog_refuses_the_rule_rather_than_half_storing_it(owner, tmdb):
+    """A claim kept with its rule silently dropped is worse than a claim refused outright.
+
+    The owner would believe they had stopped seeing horror films, and nothing about the
+    feed would ever tell them otherwise. Refusing hands them back something they can retry.
+    """
+    tmdb.down = True
+
+    await thumb_down(
+        owner, "You would enjoy a horror film.", excludes={"genre": "Horror"}, expect=503
+    )
+
+    assert await corrections(owner) == []
+
+
+async def test_a_prose_only_correction_never_touches_the_catalog(owner, tmdb):
+    """The common case is unaffected by an outage, because it names nothing to check."""
+    tmdb.down = True
+
+    await thumb_down(owner, "You love a big finish.")
+
+    assert [one["claim"] for one in await corrections(owner)] == ["You love a big finish."]
+
+
+async def test_the_offer_is_unavailable_rather_than_empty_when_the_catalog_is(owner, tmdb):
+    """An empty vocabulary would read as "no genres exist"; the screen hides the offer instead."""
+    tmdb.down = True
+
+    await footprint_vocabulary(owner, expect=503)
