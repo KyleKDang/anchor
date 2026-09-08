@@ -39,7 +39,7 @@ Doc and config one-liners may go straight to `main`.
 
 **Validation green.**
 In `backend/`: `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`, `uv run pytest`.
-In `frontend/`: `npm run build`.
+In `frontend/`: `npm run lint`, `npm run format:check`, `npm run build`.
 CI additionally runs the Playwright smoke suite against `docker compose`, and `.github/workflows/ci.yml` is the authority on all of it.
 
 **Code review** means `mattpocock-skills:code-review`, named in full.
