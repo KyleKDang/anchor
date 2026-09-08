@@ -847,13 +847,15 @@ async def _materialise(
 async def _stamp(db: AsyncSession, account_id: uuid.UUID, version: int) -> None:
     state = await _feed_state(db, account_id)
     state.restocked_profile_version = version
-    # Read from the database for the same reason ``visited_at`` is, and it is the same
-    # comparison: the spend gate asks whether the visit came after the restock, and two
-    # clocks either side of a "<=" is #67 again. This half is stamped by the worker, whose
-    # process clock is a different machine's from Postgres's - and a worker that leads
-    # stamps the future, so every arrival until the database catches up declines to
-    # restock. A silent freeze rather than an overspend, which is the worse kind.
-    state.restocked_at = await db.scalar(select(func.now()))
+    # Left to the database for the same reason ``visited_at`` is read from it, and against
+    # the same comparison: the spend gate asks whether the visit came after the restock,
+    # and two clocks either side of a "<=" is #67 again. This half is written by the
+    # worker, whose process clock is a different machine's from Postgres's, so taking it
+    # from here would let a worker that leads stamp the future - and every arrival until
+    # the database caught up would decline to restock. A silent freeze rather than an
+    # overspend, which is the worse kind. Sent as SQL rather than fetched first, so there
+    # is no Python value for a process clock to get into.
+    state.restocked_at = func.now()
     # Counted here rather than at the start, so the counter means completed restocks: it
     # is the denominator the accept and dismissal rates are read against (evaluation.md),
     # and a run the provider cut short bought the owner no cards to answer.
