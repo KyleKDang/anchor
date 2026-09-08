@@ -1252,6 +1252,13 @@ class FeedState(Base):
     restocked_profile_version: Mapped[int | None] = mapped_column(Integer)
     """The version the last restock ran for; None until one ever has."""
     restocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    """When the last restock finished; None until one ever has.
+
+    The other half of the spend gate, and stamped from the database's clock for that
+    reason: it is only ever read against ``visited_at``, which the database stamps too. A
+    worker process leading Postgres would write this into the future and every arrival
+    until the database caught up would decline to restock (#67).
+    """
     restock_counter: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
     """Restocks this account has completed since counting began: the rates' denominator.
 

@@ -32,7 +32,14 @@ Cached per (film, profile version): a coarse fit bucket (strong-fit / plausible 
 
 - Engine-driven shelf changes land at session boundaries only.
 - Owner actions remove a film instantly, and the slot backfills instantly from the next-ranked already-cached shortlist candidate (no LLM call).
-- Two spend triggers, both engagement-gated: the profile-version bump schedules the batch rerank, and pool restocks happen lazily and only when the owner has visited the feed since the last one - an owner who ignores discovery costs nothing.
+- **One spend trigger, the owner's visit.**
+  Restocks happen lazily and only when the owner has visited the feed since the last one, so an owner who ignores discovery costs nothing - and that is an absolute, true because the visit gate is asked by every caller rather than by one of them.
+- A profile-version bump *schedules* a restock; it does not earn one.
+  The restock it queues asks the same visit question as any other and declines when nobody has been back, so a bump on its own costs a queue row and a query rather than a rerank.
+  What the bump is for is resumption: a run an outside service cut short stamped nothing, so it stays due and the next bump finishes it without waiting for the owner to arrive again - as does the first restock for an account that has visited but never completed one.
+- The cost of that reading is one arrival of staleness, and it is accepted.
+  The shelf an owner sees on the arrival right after their taste moves is built on the previous version's verdicts, and the restock that arrival earns lands before the next one.
+  That is the same rhythm as every other restock, the first one included, and stale-version verdicts stay usable ordered by the linear scorer (below).
 - A suggestion passed over ~3 refreshes without action rotates out with a re-entry cooldown, measured in refreshes survived, never calendar time; its verdict cache is untouched, so return is free.
 
 ## Actions
