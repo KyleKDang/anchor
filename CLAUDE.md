@@ -18,6 +18,12 @@ The [`bug` label](https://github.com/KyleKDang/anchor/issues?q=is%3Aissue+label%
 The dividing question is what the issue changes: a slice of the spec that does not exist yet is a feature, and shipped behaviour that does not match its own ticket is a bug.
 Everything reaches `main` the same way regardless, so this is about what the map measures, not about how the work is done.
 
+**Every issue is filed with both labels, a category and a state.**
+The category is `bug` or `enhancement`; the state is one of the five in `docs/agents/triage-labels.md`.
+An issue written out in full, with its citations and acceptance criteria, is filed `ready-for-agent` in the same breath, because it is already triaged and the label is what `/ship` and the frontier query read.
+Leave it `needs-triage` only when it genuinely still needs a decision from the owner.
+An issue carrying no state label at all is the failure mode to avoid: it is invisible to every query that looks for work.
+
 ## Implementing a ticket
 
 `/ship #N` is the whole prompt: it drives one ticket from claim to close, and the ticket carries everything needed, feature or bug.
