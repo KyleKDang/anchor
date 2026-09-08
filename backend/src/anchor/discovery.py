@@ -217,6 +217,7 @@ async def accept(
         )
     )
     await db.flush()
+    await feed_module.note_answer(db, account.id, accepted=True)
     await tier_module.reconcile(db, account.id, settings, admit=tmdb_id)
     return await _acted(db, account.id, settings)
 
@@ -246,6 +247,7 @@ async def dismiss(
         db.add(Dismissal(account_id=account.id, film_id=tmdb_id))
     else:
         existing.lifted_at = None
+    await feed_module.note_answer(db, account.id, accepted=False)
     await db.flush()
     return await _acted(db, account.id, settings)
 

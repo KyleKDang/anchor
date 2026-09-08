@@ -854,6 +854,26 @@ async def _stamp(db: AsyncSession, account_id: uuid.UUID, version: int) -> None:
     state.restock_counter += 1
 
 
+async def note_answer(db: AsyncSession, account_id: uuid.UUID, *, accepted: bool) -> None:
+    """Count one card answered, for the operator's accept and dismissal rates.
+
+    Counted rather than derived from what the answer wrote, because neither side is
+    durable in the shape the rate needs. An accept writes an account-film that removing
+    the film from the backlog deletes outright, so the worst accepts would quietly leave
+    the numerator. A dismissal does leave a row, but that row runs from the account's
+    first day while the restock counter runs from the day it was added, and a rate whose
+    two sides cover different spans is not a rate. Turning a lifted film down again counts
+    as the second answer it was.
+
+    Measurement only, and nothing in the feed's own rules reads either counter (ADR 0012).
+    """
+    state = await _feed_state(db, account_id)
+    if accepted:
+        state.accept_counter += 1
+    else:
+        state.dismissal_counter += 1
+
+
 # --- The feed's own row ---
 
 

@@ -25,8 +25,10 @@ from pathlib import Path
 import pytest
 from sqlalchemy import text, update
 
+import export
 import flows
 from anchor.models import Account
+from export import Row
 from faketmdb import FilmFixture
 from flows import (
     accept,
@@ -43,6 +45,7 @@ from flows import (
     seen_it,
     shelf,
     tier_ids,
+    upload_export,
 )
 
 QUERIES = Path(__file__).resolve().parents[1] / "sql" / "evaluation"
@@ -272,8 +275,8 @@ async def test_landings_compare_engine_picks_with_same_window_hand_picked_watche
     account, *_ = await a_stretch_of_activity(owner, run_jobs, provider)
 
     row = await only(db, "landings", account, watches_per_window=100)
-    assert row["engine_landings"] == 2, "both engine-sourced watches were rated"
-    assert row["owner_landings"] >= 1, "and the hand-picked watch landed too"
+    assert row["engine_placed"] == 2, "both engine-sourced watches were rated"
+    assert row["owner_placed"] >= 1, "and the hand-picked watch landed too"
     assert row["engine_landing"] > row["owner_landing"], (
         "the engine's picks landed higher in the ordering than the owner's own"
     )
@@ -281,6 +284,25 @@ async def test_landings_compare_engine_picks_with_same_window_hand_picked_watche
     # and the context the means above have to be read against.
     assert row["owner_unplaced"] >= 4, "the watches nobody has placed yet are counted apart"
     assert row["engine_unplaced"] == 0
+
+
+async def test_landings_make_the_same_comparison_for_the_discovery_feed(
+    owner, db, run_jobs, provider
+):
+    """The second half of the ground truth: an accepted film against a hand-added one.
+
+    Read off the origin stamp rather than the standing, so it is a different question from
+    the tier's - and one watch can honestly answer both, which is what an accepted film
+    that took a seat before it was watched does.
+    """
+    account, *_ = await a_stretch_of_activity(owner, run_jobs, provider)
+
+    row = await only(db, "landings", account, watches_per_window=100)
+    assert row["discovery_placed"] == 1, "the accepted film was watched and placed"
+    assert row["hand_added_placed"] >= 1, "against the films the owner brought themselves"
+    assert row["discovery_landing"] > row["hand_added_landing"], (
+        "the feed's pick landed higher than the owner's own hand-added watches"
+    )
 
 
 async def test_a_landing_is_read_at_computation_time_so_a_later_move_counts(
@@ -299,6 +321,72 @@ async def test_a_landing_is_read_at_computation_time_so_a_later_move_counts(
     after = (await only(db, "landings", account, watches_per_window=100))["engine_landing"]
 
     assert after < before, "the move dropped it, and the indicator read the ordering as it now is"
+
+
+async def test_an_imported_back_catalogue_is_not_an_opportunity_anybody_had(
+    owner, db, run_jobs, tmdb
+):
+    """A diary row is history, not a watch the tier or the feed was ever in the room for.
+
+    It is a real watch event and it moves the watch clock, exactly as seeding.py intends.
+    What it is not is an opportunity: nothing could have put those films in front of the
+    owner, so counting them in a denominator would read years of Letterboxd as a tier that
+    was passed over the whole time.
+    """
+    tmdb.with_films(*RATED, *SPARE)
+    await upload_export(
+        owner,
+        export.export(
+            ratings=tuple(Row(film.title, 1999, rating=4.0) for film in RATED),
+            diary=tuple(
+                Row(film.title, 1999, watched_date=f"2024-04-{n + 1:02d}")
+                for n, film in enumerate(RATED)
+            ),
+        ),
+    )
+    await run_jobs()
+    account = uuid.UUID(await account_id(owner))
+
+    # One watch the owner logs here and now, on top of the imported history.
+    await rate(owner, SPARE[0], 3.0)
+
+    row = await only(db, "tier_adoption", account)
+    assert row["watches_before_the_account"] == len(RATED), "the diary rows are set aside"
+    assert row["logged_watches"] == 1, "and the denominator is the watch Anchor was there for"
+
+    rotation = await only(db, "rotation_rate", account)
+    assert rotation["watches_before_the_account"] == len(RATED), "the same history, set aside"
+    assert rotation["logged_watches"] == 1, "and the same denominator: the one watch Anchor saw"
+
+    landings = await only(db, "landings", account, watches_per_window=100)
+    assert landings["owner_placed"] == 1, "only the watch the owner logged here can land"
+    assert landings["hand_added_placed"] == 1, "and it was hand-added, not import-seeded"
+
+
+async def test_a_window_is_a_stretch_of_the_watch_clock(owner, db, run_jobs, provider):
+    """ "Same window" is the whole of the comparison, so the partition has to be real.
+
+    Numbered off every watch event the account has, imported history included, because
+    that is what the watch clock is - and it is what keeps a back catalogue out of the
+    windows the engine's picks land in.
+    """
+    account, *_ = await a_stretch_of_activity(owner, run_jobs, provider)
+
+    whole = await run(db, "landings", watches_per_window=100)
+    split = [
+        row
+        for row in await run(db, "landings", watches_per_window=3)
+        if row["account_id"] == account
+    ]
+    assert len(split) > 1, "a smaller window cuts the same watches into more of them"
+    assert [row["window_index"] for row in split] == sorted({row["window_index"] for row in split})
+
+    one = next(row for row in whole if row["account_id"] == account)
+    counted = ("engine_placed", "engine_unplaced", "owner_placed", "owner_unplaced")
+    for column in counted:
+        assert sum(row[column] for row in split) == one[column], (
+            f"{column} is the same watches however they are windowed"
+        )
 
 
 async def test_every_indicator_is_denominated_in_opportunities(owner, db, run_jobs, provider):

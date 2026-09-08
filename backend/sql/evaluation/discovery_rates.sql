@@ -5,40 +5,28 @@
 -- a restock only runs for an owner who has opened the feed since the last one - an owner
 -- who ignores discovery for a month has been offered nothing and has turned nothing down.
 --
--- Accepts are counted off the account-film's origin stamp, which is written once, at the
--- moment the card was accepted, and read at watch time by nothing else. A seen-it is
--- deliberately absent from both numerators: it is stamped hand-added, because the owner
--- had watched the film before Anchor ever mentioned it (discovery.md).
+-- All three numbers are counters on the feed's own row, started on the same day, so both
+-- rates cover one span on both sides. Neither answer is countable from what it wrote: an
+-- accept writes an account-film that removing the film from the backlog deletes outright,
+-- which would quietly drop exactly the accepts the owner thought better of; and while a
+-- dismissal does leave a durable row, those rows run from the account's first day while
+-- the restock counter runs from the day it was added.
 --
--- Dismissals count films the owner has ever ruled out. Lifting stamps rather than deletes,
--- so a lifted dismissal stays counted - it happened - and `standing_dismissals` is what
--- the feed is currently suppressing.
+-- A seen-it is deliberately in neither numerator: it is stamped hand-added, because the
+-- owner had watched the film before Anchor ever mentioned it (discovery.md).
+--
+-- Turning a film down again after lifting it counts as the second answer it was.
 
 SELECT
     a.id AS account_id,
     coalesce(f.restock_counter, 0) AS restocks,
-    coalesce(accepted.accepts, 0) AS accepts,
-    coalesce(turned_down.dismissals, 0) AS dismissals,
-    coalesce(turned_down.standing_dismissals, 0) AS standing_dismissals,
-    coalesce(accepted.accepts, 0)::numeric
+    coalesce(f.accept_counter, 0) AS accepts,
+    coalesce(f.dismissal_counter, 0) AS dismissals,
+    coalesce(f.accept_counter, 0)::numeric
         / nullif(f.restock_counter, 0) AS accepts_per_restock,
-    coalesce(turned_down.dismissals, 0)::numeric
+    coalesce(f.dismissal_counter, 0)::numeric
         / nullif(f.restock_counter, 0) AS dismissals_per_restock
 FROM accounts a
 LEFT JOIN feed_states f ON f.account_id = a.id
-LEFT JOIN (
-    SELECT account_id, count(*) AS accepts
-    FROM account_films
-    WHERE origin = 'discovery_accept'
-    GROUP BY account_id
-) accepted ON accepted.account_id = a.id
-LEFT JOIN (
-    SELECT
-        account_id,
-        count(*) AS dismissals,
-        count(*) FILTER (WHERE lifted_at IS NULL) AS standing_dismissals
-    FROM dismissals
-    GROUP BY account_id
-) turned_down ON turned_down.account_id = a.id
 WHERE NOT a.is_demo
 ORDER BY a.id;
