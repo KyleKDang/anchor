@@ -125,6 +125,21 @@ async def test_a_box_with_no_credential_skips_rather_than_fails():
         await built.complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
 
 
+async def test_an_empty_credential_is_no_credential():
+    """#109: the deploy renders every ``ANCHOR_*`` line whether or not its secret is set.
+
+    An unset repo secret therefore reaches the container as an empty string rather than
+    as nothing at all, and a blank key builds a real client whose every call 401s - which
+    is a worse failure than skipping, and one ``/api/health`` would call ``configured``.
+    """
+    assert llm.credential_configured(Settings(anthropic_api_key="   ")) is False
+
+    built = llm.build_adapter(Settings(anthropic_api_key=""))
+
+    with pytest.raises(llm.Unconfigured):
+        await built.complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+
 async def test_a_provider_nobody_wrote_an_adapter_for_is_refused():
     with pytest.raises(llm.ProviderRefused):
         llm.build_adapter(Settings(llm_provider="openai"))

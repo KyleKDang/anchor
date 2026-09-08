@@ -822,10 +822,20 @@ class AnthropicAdapter:
 class UnconfiguredAdapter:
     """No provider credential: every operation skips, and the app serves what it cached.
 
-    Skipping rather than failing is the dev default working as designed. A box with no
-    key runs Anchor with a prose profile that never refreshes and a discovery feed on the
-    classical scorer, which is the same degradation a spent cap produces - so the
-    unconfigured path is exercised by the same code every cap already exercises.
+    Skipping rather than failing is the dev default working as designed, and it is the
+    same code path a spent cap takes - so the unconfigured path is exercised by every
+    test a cap already exercises.
+
+    What it degrades to depends entirely on what the box cached before the key went away,
+    and a box that never had one cached nothing (#109). Losing a key leaves a prose
+    profile that no longer refreshes and a shelf the classical scorer keeps re-ordering
+    until its verdicts run out. Never having one leaves no ``Verdict`` row ever written,
+    so ``feed.shelf``'s inner join returns nothing and the shelf is empty rather than
+    short - permanently, and wearing the same "nothing to suggest just now" the honest
+    empty state wears. No ``ProseProfileVersion`` is appended either, so the Profile
+    screen's prose section renders nothing at all, and quality tags never compute, so
+    criteria questions stay on rotation. ``/api/health`` reports the credential beside
+    ``backlog`` precisely because none of that is visible from the outside.
 
     It still declares the configured provider, so a box misconfigured to a provider that
     is not allowlisted is refused at boot rather than the first time it has a key.
@@ -841,13 +851,27 @@ class UnconfiguredAdapter:
         pass
 
 
+def credential_configured(settings: Settings) -> bool:
+    """Would this box's settings build a real client? What ``/api/health`` reports.
+
+    Here rather than in the health check so the answer cannot drift from the question
+    ``build_adapter`` asks below - a second provider would add a field to one and have to
+    add it to the other. The key itself never leaves this module.
+
+    Blank counts as absent: the deploy renders every ``ANCHOR_*`` line whether or not its
+    secret is set (#109), so an unset one arrives as an empty string, and a blank key
+    would otherwise build a real client whose every call 401s.
+    """
+    return bool((settings.anthropic_api_key or "").strip())
+
+
 def build_adapter(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> Adapter:
     """The real client when a key is configured or a transport is injected."""
     if settings.llm_provider != "anthropic":
         # Refused here rather than silently unconfigured: a box naming a provider nobody
         # wrote an adapter for is misconfigured, and the allowlist below would pass it.
         raise ProviderRefused(f"no adapter exists for provider {settings.llm_provider!r}")
-    if transport is None and settings.anthropic_api_key is None:
+    if transport is None and not credential_configured(settings):
         return UnconfiguredAdapter(settings.llm_provider)
     return AnthropicAdapter(
         api_key=settings.anthropic_api_key or "unset",

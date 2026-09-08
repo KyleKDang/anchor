@@ -162,6 +162,7 @@ jobs:
           POSTGRES_PASSWORD: ${{ secrets.ANCHOR_POSTGRES_PASSWORD }}
           SENTRY_DSN: ${{ secrets.ANCHOR_SENTRY_DSN }}
           TMDB_ACCESS_TOKEN: ${{ secrets.ANCHOR_TMDB_ACCESS_TOKEN }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANCHOR_ANTHROPIC_API_KEY }}
         run: |
           printf '%s=%s\n' \
             ANCHOR_IMAGE_TAG "$GITHUB_SHA" \
@@ -171,6 +172,7 @@ jobs:
             ANCHOR_POSTGRES_PASSWORD "$POSTGRES_PASSWORD" \
             ANCHOR_SENTRY_DSN "$SENTRY_DSN" \
             ANCHOR_TMDB_ACCESS_TOKEN "$TMDB_ACCESS_TOKEN" \
+            ANCHOR_ANTHROPIC_API_KEY "$ANTHROPIC_API_KEY" \
             > deploy/.env
       - name: Ship to the box and restart the stack
         env:
