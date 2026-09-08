@@ -85,13 +85,38 @@ jobs:
     # main green until the box from #24's errands exists.
     if: github.event_name == 'push' && vars.ANCHOR_DEPLOY_HOST != ''
     needs: [backend, frontend, smoke]
+    # One deploy at a time. Two merges landing seconds apart used to rsync conflicting
+    # .env files and race their `docker compose up`, so whichever landed last decided
+    # what served, and their image prunes collided and reddened a deploy that had
+    # already shipped (#107).
+    #
+    # The group only serialises them, though - it cannot order them, because these
+    # jobs queue in the order their tests happen to finish, not in commit order. So
+    # the group is half the fix and the ancestry guard in the ship step is the other
+    # half: the lock makes reading the box and then shipping to it safe from anyone
+    # else's deploy, and the guard refuses to move production backwards.
+    #
+    # cancel-in-progress stays false because abandoning a half-swapped stack is worse
+    # than waiting out the deploy in front of it. A deploy still *pending* when a
+    # newer one queues is dropped rather than run - that is Actions keeping one
+    # pending entry per group, and it is the right outcome here, since a dropped
+    # commit's work is already inside the newer commit's tree.
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       contents: read
       packages: write
+    env:
+      TARGET: ${{ vars.ANCHOR_DEPLOY_USER }}@${{ vars.ANCHOR_DEPLOY_HOST }}
     steps:
+      # Full history: the ancestry guard has to decide whether the commit on the box
+      # is a descendant of this one, which a depth-1 checkout cannot answer.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
@@ -151,17 +176,33 @@ jobs:
         env:
           SSH_KEY: ${{ secrets.ANCHOR_DEPLOY_SSH_KEY }}
           KNOWN_HOSTS: ${{ vars.ANCHOR_DEPLOY_KNOWN_HOSTS }}
-          TARGET: ${{ vars.ANCHOR_DEPLOY_USER }}@${{ vars.ANCHOR_DEPLOY_HOST }}
         run: |
           mkdir -p ~/.ssh
           printf '%s\n' "$SSH_KEY" > ~/.ssh/anchor_deploy
           chmod 600 ~/.ssh/anchor_deploy
           printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+          # Ordering, which the concurrency group cannot give on its own: a child's
+          # tests can finish before its parent's, putting the parent second in the
+          # queue and one `up` away from undoing the child. Nobody else can deploy
+          # while this job holds the group, so reading the box and then acting on
+          # what it said is safe. The rsync is inside the guard too - skipping the
+          # `up` but leaving an older ANCHOR_IMAGE_TAG in the box's .env would arm
+          # a downgrade for whatever ran compose there next.
+          if .github/scripts/box-serves-this-commit.sh "$TARGET" "$GITHUB_SHA"; then
+            echo "a newer commit got here first; leaving production alone"
+            exit 0
+          fi
           # The prod Caddyfile is baked into the caddy image; a copy on the box would be dead.
           rsync -az --delete --delete-excluded --exclude=Caddyfile \
             -e "ssh -i ~/.ssh/anchor_deploy" deploy/ "$TARGET:/opt/anchor/"
           ssh -i ~/.ssh/anchor_deploy "$TARGET" \
             "cd /opt/anchor && docker compose pull -q && docker compose up -d --wait"
+      - name: Check the box is serving this commit
+        # The same question the guard asked, now as the assertion: whether this job
+        # shipped or stood aside for a newer one, production must be at this commit
+        # or ahead of it by the time the job goes green. This is what makes a green
+        # deploy mean "this merge is live" without anyone curling production.
+        run: .github/scripts/box-serves-this-commit.sh "$TARGET" "$GITHUB_SHA"
       - name: Wait for HTTPS to answer
         # Caddy fetches its certificate from Let's Encrypt on first boot for a name
         # it has not served before, which takes about a minute. compose's --wait does
@@ -187,7 +228,8 @@ jobs:
         env:
           ANCHOR_BASE_URL: ${{ vars.ANCHOR_PUBLIC_URL }}
       - name: Prune old images
-        # Only after a green smoke, so the previous build stays on the box for a fast rollback.
-        env:
-          TARGET: ${{ vars.ANCHOR_DEPLOY_USER }}@${{ vars.ANCHOR_DEPLOY_HOST }}
+        # Only after a green smoke, so the previous build stays on the box for a fast
+        # rollback. Housekeeping cannot fail a deploy that already shipped and proved
+        # itself: the step still goes red on its own, but the job does not.
+        continue-on-error: true
         run: ssh -i ~/.ssh/anchor_deploy "$TARGET" "docker image prune -af --filter until=72h"
