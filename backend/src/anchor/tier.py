@@ -143,7 +143,10 @@ async def refresh(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -
     state.due = False
     state.refreshed_trained_at = trained_at
     state.refreshed_watch_clock = clock
-    await _maintain(
+    # The one counter the tier keeps for the operator rather than for itself: rotation
+    # rate is an indicator (evaluation.md), and a rotation leaves nothing behind that
+    # could be counted afterwards. Written here because this is the only path that rotates.
+    state.staleness_rotations += await _maintain(
         db,
         account_id,
         settings,
@@ -187,14 +190,17 @@ async def _maintain(
     budget: int,
     rotating: bool,
     admit: int | None = None,
-) -> None:
-    """Bring the one persisted tier into line with what the rules now say it should be."""
+) -> int:
+    """Bring the one persisted tier into line with what the rules now say it should be.
+
+    Hands back the seats staleness took, for the caller that keeps the count.
+    """
     await _clear_departed(db, account_id)
     if await readiness_module.state(db, account_id, settings) is not Readiness.ready:
         await _clear_all(db, account_id)
-        return
+        return 0
     candidates = await _candidates(db, account_id, vector)
-    _seat(
+    return _seat(
         candidates,
         clock=clock,
         budget=budget,
@@ -215,8 +221,8 @@ def _seat(
     rotating: bool,
     admit: int | None,
     settings: Settings,
-) -> None:
-    """Decide who holds a seat, and write the decision onto the account-films.
+) -> int:
+    """Decide who holds a seat, write the decision, and report the seats staleness took.
 
     The order of the steps is the policy. Pins are settled first and are never revisited,
     because they are immune to all automatic maintenance. Then seats are *lost* - to a
@@ -224,6 +230,11 @@ def _seat(
     refresh can fill. Vacancies are filled free, since a seat standing empty is not
     damping anything. Only then does the engine displace anybody, and that is the one
     step the swap budget and the hysteresis margin govern.
+
+    The staleness count comes back out because nothing it writes survives to be counted
+    later: the re-entry mark a rotation leaves is overwritten, cleared, and shared with
+    every other way a film can lose a seat. It is measurement only, and no decision here
+    reads it (ADR 0012).
     """
     pins = sorted(
         (candidate for candidate in candidates if candidate.pinned),
@@ -233,6 +244,7 @@ def _seat(
     capacity = CAP - len(pins)
 
     held: list[Candidate] = []
+    rotations = 0
     for candidate in candidates:
         if candidate.film_id in pinned_ids or not candidate.seated:
             continue
@@ -241,6 +253,7 @@ def _seat(
             _unseat(candidate)  # a veto is answered now and lifted the same way
         elif stale:
             _unseat(candidate, reentry=clock + settings.tier_reentry_cooldown)
+            rotations += 1
         else:
             held.append(candidate)
 
@@ -282,6 +295,7 @@ def _seat(
     for candidate in admitted:
         candidate.account_film.tier_entered_watch = clock
     _place(pins, sorted(held + admitted, key=lambda one: (-one.score, one.film_id)))
+    return rotations
 
 
 def _displace(

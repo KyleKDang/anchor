@@ -12,6 +12,8 @@ Implementation is tracked by [issue #21](https://github.com/KyleKDang/anchor/iss
 - `frontend/` - the React + TypeScript single-page app (Vite), served as static files by Caddy.
   `frontend/e2e/` holds the browser smoke suite (Playwright) that runs over the full composed stack.
 - `Dockerfile`, `docker-compose.yml`, `Caddyfile` - the composed stack: PostgreSQL, a one-shot migration, the web process, the worker, a fake Resend, and Caddy.
+- `backend/sql/evaluation/` - the operator's recommender-quality queries, run by hand against the database.
+  They are read-only artifacts that no application code loads: evaluation reads every recorded event and feeds none of them back ([ADR 0012](docs/adr/0012-evaluation-reads-but-never-feeds.md)).
 - `backend/tools/` - development stand-ins that never ship: `fake_resend.py` is the composed stack's mail sink.
 
 ## Running the stack

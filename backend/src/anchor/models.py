@@ -407,6 +407,17 @@ class TierState(Base):
     already up to date with exactly that - which is how an account can sit at *ready*
     looking at an empty tier that nothing will ever fill.
     """
+    staleness_rotations: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """Seats this account's tier has lost to staleness, ever: the rotation-rate numerator.
+
+    Counted rather than derived, because a rotation leaves no trace that outlives it. The
+    re-entry mark it writes is overwritten by the next one, says nothing about what caused
+    it - a displacement and a not-now write the same mark - and is cleared outright when
+    the film comes back, so by the time anybody asks, the rotations are simply gone.
+
+    Read by the operator's evaluation queries and by nothing else. It is a measurement,
+    not an input: nothing in the tier's rules may branch on it (ADR 0012).
+    """
     due: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     """The next boundary has work to do that the fingerprint cannot see.
 
@@ -1232,6 +1243,17 @@ class FeedState(Base):
     restocked_profile_version: Mapped[int | None] = mapped_column(Integer)
     """The version the last restock ran for; None until one ever has."""
     restocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    restock_counter: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """Restocks this account has ever completed: the accept and dismissal denominator.
+
+    The version stamp beside it answers "should another one run", which is a question
+    about the present and keeps no history. Rates per restock need the history, and a
+    restock is the opportunity the feed gets to put a film in front of the owner
+    (evaluation.md), so the count of them is what those rates are denominated in.
+
+    Advanced only by a run that got all the way through, exactly like the stamp: a
+    provider cutting a run short leaves it due rather than counted.
+    """
     visited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     """When the owner last arrived at the feed. None until they ever have.
 

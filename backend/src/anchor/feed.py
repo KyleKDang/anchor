@@ -848,6 +848,10 @@ async def _stamp(db: AsyncSession, account_id: uuid.UUID, version: int) -> None:
     state = await _feed_state(db, account_id)
     state.restocked_profile_version = version
     state.restocked_at = datetime.now(UTC)
+    # Counted here rather than at the start, so the counter means completed restocks: it
+    # is the denominator the accept and dismissal rates are read against (evaluation.md),
+    # and a run the provider cut short bought the owner no cards to answer.
+    state.restock_counter += 1
 
 
 # --- The feed's own row ---
