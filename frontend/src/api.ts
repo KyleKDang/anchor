@@ -770,7 +770,10 @@ export const api = {
   deleteAccount: (password: string) => request<void>("DELETE", "/api/account", { password }),
 
   searchFilms: (query: string) =>
-    request<{ results: SearchResult[] }>("GET", `/api/films/search?query=${encodeURIComponent(query)}`),
+    request<{ results: SearchResult[] }>(
+      "GET",
+      `/api/films/search?query=${encodeURIComponent(query)}`,
+    ),
   browseFilms: (kind: Browse) =>
     request<{ results: SearchResult[] }>("GET", `/api/films/browse?kind=${kind}`),
   film: (tmdbId: number) => request<FilmDetail>("GET", `/api/films/${tmdbId}`),
@@ -778,8 +781,7 @@ export const api = {
   removeFromBacklog: (tmdbId: number) => request<void>("DELETE", `/api/films/${tmdbId}/backlog`),
   markWatched: (tmdbId: number, rate: Rate) =>
     request<FilmDetail>("POST", `/api/films/${tmdbId}/watched`, { rate }),
-  leaveRateLater: (tmdbId: number) =>
-    request<void>("DELETE", `/api/films/${tmdbId}/rate-later`),
+  leaveRateLater: (tmdbId: number) => request<void>("DELETE", `/api/films/${tmdbId}/rate-later`),
   /** Open the band picker on a watched film, or on a rated one to re-rate it. */
   picker: (tmdbId: number) => request<Picker>("GET", `/api/placements/${tmdbId}`),
   /**
@@ -794,7 +796,8 @@ export const api = {
     bands: number[],
     answered: ComparisonAnswer[],
     verdict: ComparisonAnswer | null = null,
-  ) => request<NarrowStep>("POST", `/api/placements/${tmdbId}/narrow`, { bands, answered, verdict }),
+  ) =>
+    request<NarrowStep>("POST", `/api/placements/${tmdbId}/narrow`, { bands, answered, verdict }),
   /** Tap a band, which is the whole of rating a film - or land the range it narrowed to. */
   pickBand: (tmdbId: number, band: number, narrowed?: Narrowed) =>
     request<Landed>("POST", `/api/placements/${tmdbId}/band`, { band, ...narrowed }),
@@ -860,8 +863,7 @@ export const api = {
   feed: ({ boundary = true }: { boundary?: boolean } = {}) =>
     request<Feed>("GET", `/api/discovery${boundary ? "" : "?boundary=false"}`),
   /** "I want to watch this": the film joins the backlog, and nothing learns anything. */
-  acceptSuggestion: (tmdbId: number) =>
-    request<Acted>("POST", `/api/discovery/${tmdbId}/accept`),
+  acceptSuggestion: (tmdbId: number) => request<Acted>("POST", `/api/discovery/${tmdbId}/accept`),
   /** "Not interested": suppressed until lifted, and kept on the dismissed list. */
   dismissSuggestion: (tmdbId: number) =>
     request<Acted>("POST", `/api/discovery/${tmdbId}/dismissal`),
@@ -869,8 +871,7 @@ export const api = {
   seenSuggestion: (tmdbId: number) => request<Acted>("POST", `/api/discovery/${tmdbId}/seen`),
   dismissedSuggestions: () =>
     request<{ films: DismissedFilm[] }>("GET", "/api/discovery/dismissals"),
-  liftDismissal: (tmdbId: number) =>
-    request<void>("DELETE", `/api/discovery/${tmdbId}/dismissal`),
+  liftDismissal: (tmdbId: number) => request<void>("DELETE", `/api/discovery/${tmdbId}/dismissal`),
 
   importState: () => request<ImportState>("GET", "/api/import"),
   importWarning: () => request<ImportWarning>("GET", "/api/import/warning"),

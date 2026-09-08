@@ -95,12 +95,18 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
   // The stars are the band the owner picked, which is what a rating is.
   await expect(page.getByRole("heading", { name: /5\.0/ })).toBeVisible();
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Watchlist" })
+    .click();
   await expect(page.getByRole("link", { name: "Parasite" })).toBeVisible();
 
   // Dismissed is put away, not destroyed: Profile is where it stays reachable, along
   // with the import the fork offered on the other branch.
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await expect(page.getByRole("link", { name: "Pick up the warmup" })).toBeVisible();
   // Exact: this is the area's own heading, and the sync list inside it has one of its
   // own that says "Letterboxd" too - a warmed-up account has ratings Letterboxd never saw.
@@ -121,7 +127,10 @@ test("an owner who imported looks over the wall and moves a few films", async ({
 }) => {
   await signUpOwner(page, request, "warmup-import");
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
     name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
     mimeType: "application/zip",
@@ -166,7 +175,10 @@ test("an owner who imported looks over the wall and moves a few films", async ({
   await step(page, "Heat", 3.5);
 
   // Back on the warmup, the moves are the step's progress and it has stopped asking.
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await page.getByRole("link", { name: "Pick up the warmup" }).click();
   await expect(page.getByText("3 of about 3 moved so far.")).toBeVisible();
   await expect(page.getByRole("heading", { name: "2. Look over the wall" })).toContainText("done");

@@ -124,9 +124,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
               <MarkWatched
                 tmdbId={film.tmdb_id}
                 label="I watched this"
-                onLater={() =>
-                  onChange({ ...film, state: "watched_unrated", rate_later: true })
-                }
+                onLater={() => onChange({ ...film, state: "watched_unrated", rate_later: true })}
               />
             )}
             {film.state === "watched_unrated" && (
@@ -203,13 +201,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
  * the same re-placement flow everything else does, seeded from where the film sits now,
  * and the comparisons decide from there.
  */
-function Rewatch({
-  film,
-  onChanged,
-}: {
-  film: FilmDetail;
-  onChanged: (film: FilmDetail) => void;
-}) {
+function Rewatch({ film, onChanged }: { film: FilmDetail; onChanged: (film: FilmDetail) => void }) {
   const navigate = useNavigate();
   const { busy, error, run } = useAsyncAction();
 
@@ -227,7 +219,12 @@ function Rewatch({
     <section className="rewatch-panel" aria-labelledby="rewatch-heading">
       <h3 id="rewatch-heading">Still feel the same?</h3>
       <div className="actions">
-        <button type="button" className="button" disabled={busy} onClick={() => void answer("confirmed")}>
+        <button
+          type="button"
+          className="button"
+          disabled={busy}
+          onClick={() => void answer("confirmed")}
+        >
           Yes, it holds up
         </button>
         <button

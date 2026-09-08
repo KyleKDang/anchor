@@ -1861,7 +1861,6 @@ details.spoiler.section {
   font-size: var(--text-sm);
 }
 
-
 .bars {
   display: flex;
   flex-direction: column;

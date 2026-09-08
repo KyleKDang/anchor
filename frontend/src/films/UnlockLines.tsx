@@ -11,8 +11,8 @@ const UNLOCKED: Record<Unlock, ReactNode> = {
   ),
   watchlist: (
     <>
-      Your <Link to="/watchlist">watchlist</Link> is ranked from here: Anchor puts what you are
-      most likely to love next at the top.
+      Your <Link to="/watchlist">watchlist</Link> is ranked from here: Anchor puts what you are most
+      likely to love next at the top.
     </>
   ),
 };

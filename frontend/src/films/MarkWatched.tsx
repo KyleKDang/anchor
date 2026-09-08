@@ -66,7 +66,12 @@ export function MarkWatched({
       >
         Later
       </button>
-      <button type="button" className="link-button" disabled={busy} onClick={() => setChoosing(false)}>
+      <button
+        type="button"
+        className="link-button"
+        disabled={busy}
+        onClick={() => setChoosing(false)}
+      >
         Cancel
       </button>
       {error && (

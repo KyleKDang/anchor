@@ -105,7 +105,8 @@ function WarmupSection() {
 const UNLOCKS: Record<Readiness, string> = {
   cold: "Anchor is still learning. Discovery and the ranked watchlist stay off until it has enough to go on.",
   forming: "Discovery is on: Anchor can suggest films you have never tracked.",
-  ready: "The ranked watchlist is on: your backlog is ordered by what you are most likely to love next.",
+  ready:
+    "The ranked watchlist is on: your backlog is ordered by what you are most likely to love next.",
 };
 
 const STATE_LABEL: Record<Readiness, string> = {
@@ -365,8 +366,8 @@ function RulesOut({
       <p className="muted">
         Does this rule anything out? Most corrections don&rsquo;t &ndash; leave this alone and
         Anchor simply stops saying it. Naming a genre or a language stops those films being
-        suggested at all. They are two separate rules: name both and Anchor drops a film
-        that matches either one.
+        suggested at all. They are two separate rules: name both and Anchor drops a film that
+        matches either one.
       </p>
       {vocabulary !== null && (
         <div className="rules-out-fields">
@@ -681,11 +682,10 @@ function CriteriaSection({ frequency }: { frequency: CriteriaFrequency | null })
     <section className="section" aria-labelledby="bonus-heading">
       <h2 id="bonus-heading">Bonus questions</h2>
       <p className="muted">
-        After a rating Anchor sometimes asks a few questions about the film you just rated
-        against ones you know well - which had the better screenplay, say. Answering is
-        always optional, and the answers shape what Anchor recommends without ever moving
-        your ordering. This sets how often those follow a rating; a film's own page can
-        always ask more.
+        After a rating Anchor sometimes asks a few questions about the film you just rated against
+        ones you know well - which had the better screenplay, say. Answering is always optional, and
+        the answers shape what Anchor recommends without ever moving your ordering. This sets how
+        often those follow a rating; a film's own page can always ask more.
       </p>
       {error && (
         <p className="error" role="alert">
@@ -759,8 +759,6 @@ function Bar({ threshold }: { threshold: Threshold }) {
     </li>
   );
 }
-
-
 
 function AccountSection() {
   const { account, logOut, accountDeleted } = useAuth();

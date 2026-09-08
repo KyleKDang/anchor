@@ -53,8 +53,8 @@ export function SeedBacklog({
   return (
     <>
       <p className="muted">
-        Add a few films you have been meaning to watch. This is your backlog, and it works
-        from the moment it has something in it.
+        Add a few films you have been meaning to watch. This is your backlog, and it works from the
+        moment it has something in it.
       </p>
       {phase.films > 0 && (
         <p className="prompt-step muted">

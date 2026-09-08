@@ -181,9 +181,9 @@ export function Rated() {
 function WallHint() {
   return (
     <p className="nudge">
-      This is your wall: every film you imported, in the band you rated it. Drag a poster to
-      move it inside its row or into another band, and the new rating saves as it lands. Tap
-      Anchor under a poster to mark a film you are certain of.
+      This is your wall: every film you imported, in the band you rated it. Drag a poster to move it
+      inside its row or into another band, and the new rating saves as it lands. Tap Anchor under a
+      poster to mark a film you are certain of.
     </p>
   );
 }
@@ -232,11 +232,10 @@ function Controls({
           </button>
           {editing && (
             <p className="muted edit-hint">
-              Drag a poster to move it, within its band or into another. Every move saves at
-              once.{" "}
+              Drag a poster to move it, within its band or into another. Every move saves at once.{" "}
               <span className="edit-hint-keys">
-                With a poster selected, ← and → move it one rank, Shift for the ends, ↑ and ↓
-                across bands; Esc drops a drag where it started.
+                With a poster selected, ← and → move it one rank, Shift for the ends, ↑ and ↓ across
+                bands; Esc drops a drag where it started.
               </span>
             </p>
           )}
@@ -363,7 +362,11 @@ function bandId(band: number): string {
  */
 function BandSection({ row, highlighted }: { row: BandRow; highlighted: number | null }) {
   return (
-    <section className="band-group" id={bandId(row.band)} aria-label={`${row.band.toFixed(1)} stars`}>
+    <section
+      className="band-group"
+      id={bandId(row.band)}
+      aria-label={`${row.band.toFixed(1)} stars`}
+    >
       <header className="band-header">
         <h3>
           <Band band={row.band} />

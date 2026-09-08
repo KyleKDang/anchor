@@ -27,7 +27,10 @@ test("a visitor signs up, verifies through the emailed link, logs out, logs in, 
   await page.getByRole("button", { name: "Start fresh" }).click();
   await expect(page).toHaveURL(/\/warmup$/);
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Log in");
   await page.getByLabel("Email").fill(email);
@@ -36,7 +39,10 @@ test("a visitor signs up, verifies through the emailed link, logs out, logs in, 
   await expect(page).toHaveURL(/\/watchlist$/);
 
   for (const destination of destinations) {
-    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: destination }).click();
+    await page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: destination })
+      .click();
     await expect(page.getByRole("heading", { level: 1 })).toHaveText(destination);
   }
 

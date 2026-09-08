@@ -149,7 +149,10 @@ export function EditableWall({
         // Added to rather than replacing what is showing: one drop can cross one bar and
         // the next drop the other, and the first line has not been read yet.
         if (moved.unlocked.length > 0) {
-          setUnlocked((current) => [...current, ...moved.unlocked.filter((one) => !current.includes(one))]);
+          setUnlocked((current) => [
+            ...current,
+            ...moved.unlocked.filter((one) => !current.includes(one)),
+          ]);
         }
       });
     },
@@ -245,14 +248,13 @@ export function EditableWall({
     const activeIndex = ids.indexOf(film.tmdb_id);
     const overIndex = ids.indexOf(Number(over.id));
     const ordered =
-      activeIndex >= 0 && overIndex >= 0 ? arrayMove(target.films, activeIndex, overIndex) : target.films;
+      activeIndex >= 0 && overIndex >= 0
+        ? arrayMove(target.films, activeIndex, overIndex)
+        : target.films;
     const landed = ordered.findIndex((one) => one.tmdb_id === film.tmdb_id);
     const unchanged =
       to === film.band &&
-      sameOrder(
-        ordered,
-        before.find((row) => row.band === film.band)?.films ?? [],
-      );
+      sameOrder(ordered, before.find((row) => row.band === film.band)?.films ?? []);
     // The drop is applied to the wall as it was before the drag, not to the wall as the
     // drag left it: the poster already sits in the target row there, and moving it in
     // again would draw it twice.
@@ -329,7 +331,11 @@ function EditableBand({
   const ids = row.films.map((film) => film.tmdb_id);
 
   return (
-    <section className="band-group" id={bandDomId(row.band)} aria-label={`${row.band.toFixed(1)} stars`}>
+    <section
+      className="band-group"
+      id={bandDomId(row.band)}
+      aria-label={`${row.band.toFixed(1)} stars`}
+    >
       <header className="band-header">
         <h3>
           <Band band={row.band} />
@@ -444,7 +450,9 @@ function EditableCell({
             type="button"
             className="anchor-badge"
             aria-pressed={film.anchor}
-            aria-label={film.anchor ? `Retire ${film.title} as an anchor` : `Mark ${film.title} as an anchor`}
+            aria-label={
+              film.anchor ? `Retire ${film.title} as an anchor` : `Mark ${film.title} as an anchor`
+            }
             title={
               film.anchor
                 ? `One of your definitive ${band.toFixed(1)} films`

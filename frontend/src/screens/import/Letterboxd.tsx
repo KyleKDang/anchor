@@ -69,8 +69,8 @@ export function Letterboxd() {
     <section className="section" aria-labelledby="letterboxd-heading">
       <h2 id="letterboxd-heading">Letterboxd</h2>
       <p className="muted">
-        Anchor never writes to Letterboxd. A one-time import of your account export is the only
-        data that crosses over.
+        Anchor never writes to Letterboxd. A one-time import of your account export is the only data
+        that crosses over.
       </p>
       {error && (
         <p className="error" role="alert">
@@ -448,7 +448,8 @@ function destroyed(warning: ImportWarning): string {
 
 /** What a row was, in the owner's words rather than the pipeline's. */
 function describe(row: ImportUnmatchedRow): string {
-  if (row.kind === "rating") return row.rating === null ? "A rating" : `You rated it ${row.rating.toFixed(1)}`;
+  if (row.kind === "rating")
+    return row.rating === null ? "A rating" : `You rated it ${row.rating.toFixed(1)}`;
   if (row.kind === "watchlist") return "On your watchlist";
   if (row.kind === "watched") return "You marked it watched";
   if (row.kind === "diary") return "A diary entry";

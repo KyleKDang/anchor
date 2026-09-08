@@ -115,7 +115,10 @@ test("an owner unsure between two bands narrows the range and lands at the seam"
       .click();
     await page.getByRole("button", { name: "Mark as an anchor" }).click();
     await expect(page.getByRole("button", { name: "Retire this anchor" })).toBeVisible();
-    await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
+    await page
+      .getByRole("navigation", { name: "Main" })
+      .getByRole("link", { name: "Rated" })
+      .click();
   }
 
   await markWatched(page, "Heat", "Rate now");
@@ -164,7 +167,10 @@ async function pick(page: Page, band: number): Promise<void> {
 
 /** Search for a film and log the watch, taking the rate-now-or-later offer. */
 async function markWatched(page: Page, title: string, choice: "Rate now" | "Later"): Promise<void> {
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Search" })
+    .click();
   await page.getByLabel("Find a film").fill(title);
   await page.getByRole("button", { name: "Search" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });

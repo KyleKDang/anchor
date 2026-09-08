@@ -271,7 +271,12 @@ export function Narrowing({
             </button>
           </div>
           <p className="muted place-leave">
-            <button type="button" className="link-button" disabled={busy} onClick={() => say("skip")}>
+            <button
+              type="button"
+              className="link-button"
+              disabled={busy}
+              onClick={() => say("skip")}
+            >
               Skip this one
             </button>{" "}
             - you will be asked about another film.

@@ -48,7 +48,9 @@ test("an owner drags a film across bands and finds it there after a reload", asy
   // The drop saved at once: a fresh load reads the move back, and the badge went with it.
   await page.reload();
   await expect(page.getByRole("region", { name: "2.5 stars" })).toContainText("Arrival");
-  await expect(page.getByRole("region", { name: "4.0 stars" }).getByRole("listitem")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "4.0 stars" }).getByRole("listitem")).toHaveCount(
+    0,
+  );
   await expect(page.getByRole("button", { name: "Mark Arrival as an anchor" })).toHaveAttribute(
     "aria-pressed",
     "false",
@@ -59,7 +61,9 @@ test("an owner drags a film across bands and finds it there after a reload", asy
   await expect(page).toHaveURL(/\/rated$/);
   const landed = page.getByRole("region", { name: "2.5 stars" }).getByRole("listitem");
   await expect(landed).toHaveCount(2);
-  await expect(landed.filter({ hasText: "Arrival" }).getByText("Anchor", { exact: true })).toHaveCount(0);
+  await expect(
+    landed.filter({ hasText: "Arrival" }).getByText("Anchor", { exact: true }),
+  ).toHaveCount(0);
 });
 
 /** A real pointer drag: a few pixels to start it, then a glide onto the target's cell. */
@@ -80,7 +84,10 @@ async function drag(page: Page, from: Locator, to: Locator): Promise<void> {
 
 /** Search for a film, log the watch, and tap a band on the picker. */
 async function rate(page: Page, title: string, band: number): Promise<void> {
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Search" })
+    .click();
   await page.getByLabel("Find a film").fill(title);
   await page.getByRole("button", { name: "Search" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });

@@ -17,7 +17,10 @@ test("an owner imports a Letterboxd export and finds their ratings and watchlist
 }) => {
   await signUpOwner(page, request, "import");
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
     name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
     mimeType: "application/zip",
@@ -46,7 +49,10 @@ test("an owner imports a Letterboxd export and finds their ratings and watchlist
   await expect(page.getByText("settling")).toHaveCount(0);
 
   // The watchlist row seeded the backlog; the films rated in the same import did not.
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Watchlist" })
+    .click();
   await expect(page.getByRole("listitem").filter({ hasText: "Parasite" })).toBeVisible();
   await expect(page.getByRole("listitem").filter({ hasText: "Fight Club" })).toHaveCount(0);
 });
@@ -67,7 +73,10 @@ test("an owner who already started the account is told what importing will erase
   // Added by hand, with no export anywhere in sight: the account is not empty.
   expect((await page.request.post("/api/films/244786/backlog")).ok()).toBeTruthy();
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await expect(
     page.getByRole("heading", { name: "You have already started this account" }),
   ).toBeVisible();
@@ -82,7 +91,10 @@ test("an owner who already started the account is told what importing will erase
   await expect(page.getByText("Every row found its film.")).toBeVisible({ timeout: 60_000 });
 
   // Whiplash was hand-added and the new export never named it, so the reset took it.
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Watchlist" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Watchlist" })
+    .click();
   await expect(page.getByRole("listitem").filter({ hasText: "Whiplash" })).toHaveCount(0);
 });
 
@@ -115,7 +127,10 @@ test("the replace-everything control is held back until matching is done", async
     });
   });
 
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Profile" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Profile" })
+    .click();
   await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
     name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
     mimeType: "application/zip",
