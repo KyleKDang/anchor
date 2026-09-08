@@ -44,7 +44,6 @@ import math
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -162,8 +161,9 @@ async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> bo
     gets none ever, so ignoring discovery costs exactly nothing (discovery.md).
 
     The visit gate is invisible on the arrival path, because arriving is a visit and the
-    boundary stamps it before this is asked. Where it bites is the other trigger - the
-    profile-version bump - which fires from a retrain the owner never went near.
+    boundary stamps it before this is asked. Where it bites is the other caller - the
+    profile-version bump - which fires from a retrain the owner never went near, and which
+    is asked this question exactly as the arrival is rather than being exempt from it.
 
     A run the provider cut short never stamped itself, so it stays due and the next visit
     picks up where it stopped, judging only what is still unjudged. That is what keeps the
@@ -847,7 +847,13 @@ async def _materialise(
 async def _stamp(db: AsyncSession, account_id: uuid.UUID, version: int) -> None:
     state = await _feed_state(db, account_id)
     state.restocked_profile_version = version
-    state.restocked_at = datetime.now(UTC)
+    # Read from the database for the same reason ``visited_at`` is, and it is the same
+    # comparison: the spend gate asks whether the visit came after the restock, and two
+    # clocks either side of a "<=" is #67 again. This half is stamped by the worker, whose
+    # process clock is a different machine's from Postgres's - and a worker that leads
+    # stamps the future, so every arrival until the database catches up declines to
+    # restock. A silent freeze rather than an overspend, which is the worse kind.
+    state.restocked_at = await db.scalar(select(func.now()))
     # Counted here rather than at the start, so the counter means completed restocks: it
     # is the denominator the accept and dismissal rates are read against (evaluation.md),
     # and a run the provider cut short bought the owner no cards to answer.

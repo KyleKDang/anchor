@@ -164,12 +164,18 @@ async def schedule_prose_check(
 async def schedule_restock(
     session: AsyncSession, jobs: procrastinate.App, account_id: uuid.UUID
 ) -> None:
-    """Queue the discovery restock, from either of the two triggers it has.
+    """Queue the discovery restock, from either of the two places that ask for one.
 
-    Both are engagement-gated, which is the whole of the feed's economy (discovery.md):
-    the owner arriving at the feed, and a prose-profile bump - which is itself only ever
-    reached by an account doing enough to earn a regeneration. An owner who ignores
-    discovery causes neither, and costs nothing.
+    Only one of them can buy anything. Discovery has a single spend trigger, the owner
+    arriving at the feed, and :func:`anchor.feed.due` asks that of every caller - which is
+    what makes "an owner who ignores discovery costs nothing" an absolute rather than a
+    tendency (discovery.md).
+
+    The prose-profile bump is the other caller, and its job is resumption rather than
+    spend. A run either outside service cut short stamped nothing, so it stays due and the
+    bump finishes it without waiting for the owner to come back; so does the first restock
+    for an account that has visited but never completed one. On a healthy account the bump
+    finds a restock already done at a version nobody has been back since, and declines.
 
     The job re-asks :func:`anchor.feed.due` itself, so queueing one that has nothing to do
     costs a queue row and a query rather than a restock. The account lock keeps two of
@@ -257,8 +263,10 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
                 account_id=account_id,
             )
         # The bump is the discovery cache's invalidation: every verdict was keyed to the
-        # version that just stopped being live, so the batch rerank is scheduled here, at
-        # the one place a version is ever created (taste-profile.md).
+        # version that just stopped being live, so the restock is scheduled here, at the
+        # one place a version is ever created (taste-profile.md). Scheduled, not bought -
+        # the visit gate still decides, and on a healthy account it says no until the
+        # owner comes back.
         await schedule_restock(session, context.app, account)
         await session.commit()
 
