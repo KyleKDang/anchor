@@ -136,6 +136,9 @@ async def test_a_database_failure_skips_the_worker_check(client, app, monkeypatc
     assert body["status"] == "degraded"
     assert body["checks"] == {"web": "ok", "database": "error", "worker": "skipped"}
     assert "backlog" not in body
+    # The credential is a settings read, so it survives what the backlog does not: a box
+    # degraded for two reasons should say both.
+    assert body["llm_credential"] == "missing"
 
 
 async def test_a_health_check_enqueues_nothing_and_writes_no_probe(client, db, jobs_app):
@@ -167,15 +170,15 @@ async def test_a_box_with_no_llm_credential_says_so_without_failing_the_check(jo
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "ok"
-    assert "llm" not in body["checks"]
-    assert body["llm"] == {"provider": "anthropic", "credential": "missing"}
+    assert "llm_credential" not in body["checks"]
+    assert body["llm_credential"] == "missing"
 
 
 @pytest.mark.settings(anthropic_api_key="sk-ant-not-a-real-key")
-async def test_a_configured_box_reports_its_provider_and_never_the_key(jobs_app, client):
+async def test_a_configured_box_says_so_and_never_says_the_key(jobs_app, client):
     await _register_worker(jobs_app)
 
     response = await client.get("/api/health")
 
-    assert response.json()["llm"] == {"provider": "anthropic", "credential": "configured"}
+    assert response.json()["llm_credential"] == "configured"
     assert "sk-ant-not-a-real-key" not in response.text

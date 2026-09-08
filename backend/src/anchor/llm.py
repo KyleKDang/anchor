@@ -829,13 +829,11 @@ class UnconfiguredAdapter:
     What it degrades to depends entirely on what the box cached before the key went away,
     and a box that never had one cached nothing (#109). Losing a key leaves a prose
     profile that no longer refreshes and a shelf the classical scorer keeps re-ordering
-    until its verdicts run out. Never having one leaves no ``Verdict`` row ever written,
-    so ``feed.shelf``'s inner join returns nothing and the shelf is empty rather than
-    short - permanently, and wearing the same "nothing to suggest just now" the honest
-    empty state wears. No ``ProseProfileVersion`` is appended either, so the Profile
-    screen's prose section renders nothing at all, and quality tags never compute, so
-    criteria questions stay on rotation. ``/api/health`` reports the credential beside
-    ``backlog`` precisely because none of that is visible from the outside.
+    until its verdicts run out. Never having one writes no ``Verdict`` at all, so the
+    shelf is empty rather than short - permanently, and wearing the same words the honest
+    empty state wears. No ``ProseProfileVersion`` is appended either, and no quality tag
+    computed. ``/api/health`` reports the credential beside ``backlog`` precisely because
+    none of that is visible from the outside.
 
     It still declares the configured provider, so a box misconfigured to a provider that
     is not allowlisted is refused at boot rather than the first time it has a key.
