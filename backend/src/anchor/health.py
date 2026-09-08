@@ -23,7 +23,6 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import llm
 from anchor.db import Database
 from anchor.ratelimit import limited
 from anchor.settings import Settings
@@ -112,8 +111,12 @@ async def debug_error() -> None:
 
 
 def _llm_credential(settings: Settings) -> LlmCredential:
-    """The provider question, asked where the answer is kept rather than restated here."""
-    return "configured" if llm.credential_configured(settings) else "missing"
+    """The provider question, asked where the answer is kept rather than restated here.
+
+    Settings holds it rather than :mod:`anchor.llm`, whose branch reads the same property:
+    the web process must never import that module, and this check runs in the web process.
+    """
+    return "configured" if settings.llm_credential_configured else "missing"
 
 
 async def _worker_beating(session: AsyncSession, stale_after: float) -> bool:

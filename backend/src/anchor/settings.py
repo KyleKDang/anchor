@@ -363,6 +363,21 @@ class Settings(BaseSettings):
     def batched_operations(self) -> frozenset[str]:
         return _names(self.llm_batched_operations)
 
+    @property
+    def llm_credential_configured(self) -> bool:
+        """Would these settings build a real client? What ``/api/health`` reports.
+
+        Here rather than in :mod:`anchor.llm` beside the branch it answers, because the
+        web process must never import that module (architecture.md, and the invariant
+        that holds it) and the health check runs in the web process. Settings is what
+        both processes already read, so the question and the answer stay in one place.
+
+        Blank counts as absent: the deploy renders every ``ANCHOR_*`` line whether or not
+        its secret is set (#109), so an unset one arrives as an empty string, and a blank
+        key would otherwise build a real client whose every call 401s.
+        """
+        return bool((self.anthropic_api_key or "").strip())
+
 
 def _names(setting: str) -> frozenset[str]:
     """A comma-separated setting as a set. Blanks and stray spaces are the operator's."""

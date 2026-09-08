@@ -849,27 +849,13 @@ class UnconfiguredAdapter:
         pass
 
 
-def credential_configured(settings: Settings) -> bool:
-    """Would this box's settings build a real client? What ``/api/health`` reports.
-
-    Here rather than in the health check so the answer cannot drift from the question
-    ``build_adapter`` asks below - a second provider would add a field to one and have to
-    add it to the other. The key itself never leaves this module.
-
-    Blank counts as absent: the deploy renders every ``ANCHOR_*`` line whether or not its
-    secret is set (#109), so an unset one arrives as an empty string, and a blank key
-    would otherwise build a real client whose every call 401s.
-    """
-    return bool((settings.anthropic_api_key or "").strip())
-
-
 def build_adapter(settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> Adapter:
     """The real client when a key is configured or a transport is injected."""
     if settings.llm_provider != "anthropic":
         # Refused here rather than silently unconfigured: a box naming a provider nobody
         # wrote an adapter for is misconfigured, and the allowlist below would pass it.
         raise ProviderRefused(f"no adapter exists for provider {settings.llm_provider!r}")
-    if transport is None and not credential_configured(settings):
+    if transport is None and not settings.llm_credential_configured:
         return UnconfiguredAdapter(settings.llm_provider)
     return AnthropicAdapter(
         api_key=settings.anthropic_api_key or "unset",
