@@ -7,6 +7,7 @@ import globals from "globals";
 import tseslint from "typescript-eslint";
 
 export default tseslint.config(
+  // Kept in step with .prettierignore: a new build output goes in both.
   { ignores: ["dist/", "test-results/", "playwright-report/"] },
   js.configs.recommended,
   ...tseslint.configs.recommended,

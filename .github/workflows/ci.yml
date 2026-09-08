@@ -37,6 +37,7 @@ jobs:
       - run: uv run pytest
 
   frontend:
+    # The name is a required status check on main; it lints and formats too (#106).
     name: Frontend build and typecheck
     runs-on: ubuntu-latest
     defaults:
