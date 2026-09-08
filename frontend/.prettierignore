@@ -1,3 +1,4 @@
+# Kept in step with the ignores block in eslint.config.js: a new build output goes in both.
 dist/
 test-results/
 playwright-report/
