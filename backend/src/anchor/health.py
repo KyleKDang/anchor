@@ -33,6 +33,13 @@ log = logging.getLogger(__name__)
 
 CheckStatus = Literal["ok", "error", "down", "skipped"]
 
+LlmCredential = Literal["configured", "missing"]
+"""Whether this box could reach an LLM provider at all.
+
+Whether, and nothing else: this endpoint is unauthenticated, and the only question an
+owner needs answered from outside is *is anything there*.
+"""
+
 _BEATING_WORKERS = text(
     """
     SELECT count(*)
@@ -59,17 +66,6 @@ class Backlog(TypedDict):
 
     waiting: int
     oldest_wait_seconds: float | None
-
-
-class LlmCredential(TypedDict):
-    """Which provider this box dispatches to, and whether it can reach it.
-
-    The provider name, never the key: this endpoint is unauthenticated, and the question
-    an owner needs answered from outside is only *is anything there*.
-    """
-
-    provider: str
-    credential: Literal["configured", "missing"]
 
 
 @router.get("/api/health")
@@ -100,7 +96,9 @@ async def health(request: Request) -> JSONResponse:
     # can turn the response 503, and neither a backlog nor a missing key must do that.
     if backlog is not None:
         body["backlog"] = backlog
-    body["llm"] = _llm_credential(settings)
+    # Reported even when the database check failed: it is a settings read that cannot fail
+    # with it, and a box degraded for two reasons should say both.
+    body["llm_credential"] = _llm_credential(settings)
     return JSONResponse(body, status_code=200 if healthy else 503)
 
 
@@ -114,15 +112,8 @@ async def debug_error() -> None:
 
 
 def _llm_credential(settings: Settings) -> LlmCredential:
-    """Whether this box could reach its provider at all.
-
-    Reported even when the database check failed, because it is a settings read that
-    cannot fail with it - and a box that is degraded for two reasons should say both.
-    """
-    return LlmCredential(
-        provider=settings.llm_provider,
-        credential="configured" if llm.credential_configured(settings) else "missing",
-    )
+    """The provider question, asked where the answer is kept rather than restated here."""
+    return "configured" if llm.credential_configured(settings) else "missing"
 
 
 async def _worker_beating(session: AsyncSession, stale_after: float) -> bool:

@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     """Tries per TMDB call, counting the first; the retries are the 429 backoff."""
 
     anthropic_api_key: str | None = None
-    """Anthropic API key. Unset (the dev default), every LLM operation is skipped.
+    """Anthropic API key. Unset or blank (the dev default), every LLM operation is skipped.
 
     Skipped rather than failed: the whole LLM layer degrades to cached results by design
     (ADR 0004), so a box without a key runs the app with prose that never refreshes
