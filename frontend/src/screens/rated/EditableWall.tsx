@@ -18,7 +18,14 @@ import {
 } from "@dnd-kit/core";
 import { arrayMove, rectSortingStrategy, SortableContext, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from "react";
 import { Link } from "react-router";
 
 import { api, messageOf, type Rated, type RatedFilm, type Unlock } from "../../api";
@@ -78,8 +85,13 @@ export function EditableWall({
   // Kept until they leave edit mode rather than cleared on the next drop: the line is
   // news, and a burst of keyboard steps would otherwise flash it away unread.
   const [unlocked, setUnlocked] = useState<Unlock[]>([]);
+  // The handlers below read the latest rows without re-binding on every change. Written
+  // in a layout effect rather than during render: a render React throws away must not
+  // leave the ref pointing at rows that never reached the screen.
   const rowsRef = useRef(rows);
-  rowsRef.current = rows;
+  useLayoutEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
   const snapshot = useRef<EditableRow[] | null>(null);
   const pending = useRef(0);
   const chain = useRef<Promise<void>>(Promise.resolve());
