@@ -132,7 +132,7 @@ async def test_an_empty_credential_is_no_credential():
     as nothing at all, and a blank key builds a real client whose every call 401s - which
     is a worse failure than skipping, and one ``/api/health`` would call ``configured``.
     """
-    assert llm.credential_configured(Settings(anthropic_api_key="   ")) is False
+    assert Settings(anthropic_api_key="   ").llm_credential_configured is False
 
     built = llm.build_adapter(Settings(anthropic_api_key=""))
 
