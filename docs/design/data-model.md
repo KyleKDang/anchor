@@ -163,6 +163,8 @@ The ranked tier is persisted visible state hanging off backlog account-films, ne
 - **Pin**: a flag with a pin time; pinned films sit in the up-next zone above the engine's picks, ordered by pin time, capped at the zone size, immune to all automatic maintenance.
 - **Veto**: a flag barring the film from the tier until lifted, kept on a visible vetoed list; the film stays in the backlog and its score is untouched.
 - Cooldown marks (re-entry after rotation or not-now, exit protection after entry) are stored as watch-clock values on the account-film, so they apply whether or not the film currently holds a seat.
+- A count of the seats staleness has taken, with the watch-clock value counting began at, kept per account for the operator's rotation-rate indicator ([evaluation.md](evaluation.md)) and read by nothing else.
+  Counted rather than derived because a rotation leaves no trace that outlives it: the re-entry mark is overwritten by the next one, is written identically by a displacement and a not-now, and is cleared when the film takes a seat again.
 - **No staged next tier exists.**
   A session boundary is a moment, not a record: maintenance runs then, computing fresh scores from the current weight vector and applying hysteresis, the swap budget, and cooldowns against this one persisted state.
   Scores themselves are at most a cache, never authoritative.
@@ -232,6 +234,10 @@ The precomputed judgment backing a suggestion.
 Per-account counters the feed's economy runs on: last-visited-at, last-restock-at, and the refresh counter that denominates suggestion cooldowns.
 
 Restocks happen only if the owner has visited the feed since the last one; an owner who ignores discovery costs nothing.
+
+Three more counters ride on the same row for the operator alone - completed restocks, accepts, and dismissals - and are read only by the evaluation queries ([evaluation.md](evaluation.md)), never by the feed's own rules.
+They start together, so the accept and dismissal rates per restock cover one span on both sides.
+Neither answer is countable from what it wrote: an accept writes an account-film that removing the film from the backlog deletes outright, and the dismissal rows run from the account's first day.
 
 ## Cross-cutting invariants
 

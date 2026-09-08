@@ -408,7 +408,7 @@ class TierState(Base):
     looking at an empty tier that nothing will ever fill.
     """
     staleness_rotations: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
-    """Seats this account's tier has lost to staleness, ever: the rotation-rate numerator.
+    """Seats this account's tier has lost to staleness since counting began.
 
     Counted rather than derived, because a rotation leaves no trace that outlives it. The
     re-entry mark it writes is overwritten by the next one, says nothing about what caused
@@ -417,6 +417,15 @@ class TierState(Base):
 
     Read by the operator's evaluation queries and by nothing else. It is a measurement,
     not an input: nothing in the tier's rules may branch on it (ADR 0012).
+    """
+    rotations_counted_from: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """The watch clock when the counter above started, so the rate has a denominator.
+
+    A counter that starts mid-life divided by every watch there has ever been is not a
+    rate of anything: it would read an account's whole imported back catalogue as watches
+    the tier was passed over during. This is where counting began, and rotation rate is
+    denominated in the watches since it - zero for an account that has never watched
+    anything, which is every account that starts after this column did.
     """
     due: Mapped[bool] = mapped_column(Boolean, server_default="false", nullable=False)
     """The next boundary has work to do that the fingerprint cannot see.
@@ -1244,7 +1253,7 @@ class FeedState(Base):
     """The version the last restock ran for; None until one ever has."""
     restocked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     restock_counter: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
-    """Restocks this account has ever completed: the accept and dismissal denominator.
+    """Restocks this account has completed since counting began: the rates' denominator.
 
     The version stamp beside it answers "should another one run", which is a question
     about the present and keeps no history. Rates per restock need the history, and a
@@ -1253,6 +1262,22 @@ class FeedState(Base):
 
     Advanced only by a run that got all the way through, exactly like the stamp: a
     provider cutting a run short leaves it due rather than counted.
+    """
+    accept_counter: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """Cards accepted since counting began: the accept rate's numerator.
+
+    Counted rather than read off the account-films it created, because that row is
+    deletable - taking an accepted film back out of the backlog leaves no record at all -
+    and an accept the owner later undid is still an accept the feed earned. Counting it
+    here is also what keeps the numerator and the denominator over the same span.
+    """
+    dismissal_counter: Mapped[int] = mapped_column(Integer, server_default="0", nullable=False)
+    """Cards dismissed since counting began: the dismissal rate's numerator.
+
+    The dismissal rows are durable and would have counted, but they run from the account's
+    first day while the restock counter runs from this column's. Counted here so both
+    sides of the rate cover the same span, and so that turning a film down again after
+    lifting it counts as the second answer it was.
     """
     visited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     """When the owner last arrived at the feed. None until they ever have.

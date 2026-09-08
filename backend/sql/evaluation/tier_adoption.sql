@@ -5,24 +5,39 @@
 -- them or it did not.
 --
 -- A pinned film counts as the owner's pick and never the engine's (ADR 0012), so only the
--- up-next and pool standings are tier-sourced. The breakdown rides alongside the share
--- because the denominator is every logged watch there has ever been, imported diary
--- history included: an account that arrived with a thousand-film back catalogue reads low
--- for a long time, and the import column is what says why. Read the share against itself
--- over months, never against a number (evaluation.md: no targets anywhere).
+-- up-next and pool standings are tier-sourced.
+--
+-- Watches that arrived with a seed import are not opportunities and are set aside. They
+-- carry their real diary date, so they sit before the account existed, and the tier could
+-- no more have sourced them than it could have been in the room. They stay visible as
+-- `watches_before_the_account`, because a denominator that quietly drops a thousand rows
+-- is worse than one that shows what it dropped. A diary row that arrived without a date
+-- is stamped on import and so counts here: a small residue, and the only one.
+--
+-- Read the share against itself over months, never against a number.
 
 SELECT
     a.id AS account_id,
-    count(*) AS logged_watches,
-    count(*) FILTER (WHERE w.standing IN ('up_next', 'pool')) AS tier_sourced_watches,
-    count(*) FILTER (WHERE w.standing NOT IN ('up_next', 'pool')) AS other_watches,
-    count(*) FILTER (WHERE w.standing = 'pinned') AS pinned_watches,
-    count(*) FILTER (WHERE w.standing = 'plain_backlog') AS plain_backlog_watches,
-    count(*) FILTER (WHERE w.origin = 'import_seeded') AS import_seeded_watches,
-    count(*) FILTER (WHERE w.standing IN ('up_next', 'pool'))::numeric
-        / nullif(count(*), 0) AS tier_adoption
-FROM watch_events w
-JOIN accounts a ON a.id = w.account_id
+    count(w.id) FILTER (WHERE w.watched_at > a.created_at) AS logged_watches,
+    count(w.id) FILTER (WHERE w.watched_at <= a.created_at) AS watches_before_the_account,
+    count(w.id) FILTER (
+        WHERE w.watched_at > a.created_at AND w.standing IN ('up_next', 'pool')
+    ) AS tier_sourced_watches,
+    count(w.id) FILTER (
+        WHERE w.watched_at > a.created_at AND w.standing NOT IN ('up_next', 'pool')
+    ) AS other_watches,
+    count(w.id) FILTER (
+        WHERE w.watched_at > a.created_at AND w.standing = 'pinned'
+    ) AS pinned_watches,
+    count(w.id) FILTER (
+        WHERE w.watched_at > a.created_at AND w.standing = 'plain_backlog'
+    ) AS plain_backlog_watches,
+    count(w.id) FILTER (
+        WHERE w.watched_at > a.created_at AND w.standing IN ('up_next', 'pool')
+    )::numeric
+        / nullif(count(w.id) FILTER (WHERE w.watched_at > a.created_at), 0) AS tier_adoption
+FROM accounts a
+LEFT JOIN watch_events w ON w.account_id = a.id
 WHERE NOT a.is_demo
 GROUP BY a.id
 ORDER BY a.id;
