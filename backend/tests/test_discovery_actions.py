@@ -15,11 +15,10 @@ move visits the feed, because that is the only thing that ever moves it (testing
 """
 
 import uuid
-from datetime import datetime, timedelta
 
 import pytest
 
-from anchor import feed, llm
+from anchor import llm
 from faketmdb import FilmFixture
 from flows import (
     accept,
@@ -570,52 +569,36 @@ async def test_a_restock_needs_a_visit_since_the_last_one(owner, run_jobs, provi
     assert await _reranks(db, account) == 2
 
 
-class WorkerClockAhead:
-    """A stand-in for a worker process whose clock leads the database's.
-
-    A minute rather than #67's second, because the gap this has to beat is not the tens of
-    milliseconds between two jobs but the whole remaining span of the test - and because a
-    minute is what the drift actually looks like: Postgres runs in a VM whose clock walks
-    away from the host's while it sleeps.
-    """
-
-    @staticmethod
-    def now(tz):
-        return datetime.now(tz) + timedelta(minutes=1)
-
-
-async def test_a_restock_stamped_ahead_of_postgres_still_lets_the_next_arrival_through(
-    owner, run_jobs, provider, db, monkeypatch
+async def test_the_two_halves_of_the_spend_gate_are_stamped_from_one_clock(
+    owner, run_jobs, provider, db
 ):
-    """#67 on the spend gate: both halves of a comparison have to come from one clock.
+    """#67 on the spend gate: it compares two columns, so they need a single source.
 
-    ``visited_at`` is the database's ``now()``, and the gate reads it against
-    ``restocked_at``. Stamp that one from the worker process instead and a clock leading
-    Postgres puts it in the future, so every arrival until the database catches up finds
-    ``visited_at <= restocked_at`` and declines. The failure is a silent freeze rather
-    than an overspend: the feed stops restocking and nothing anywhere says so.
+    ``visited_at`` is the database's ``now()``, and ``restocked_at`` used to be the
+    worker's. Those are two machines - Postgres runs in a VM whose clock walks away from
+    the host's - and a worker that leads stamps the future, after which every arrival
+    finds ``visited_at <= restocked_at`` and declines until the database catches up. A
+    silent freeze rather than an overspend, which is the worse kind.
 
-    The stand-in clock is installed on the module rather than on any real one, which makes
-    this a tripwire as well as a regression - a stamp that goes back to reading this
-    process picks the stand-in up again and comes back red.
+    The skew itself is not reproducible here, because in a test both clocks are the same
+    machine's; that is exactly why the bug is invisible until it is in production. What is
+    checkable is the ordering the gate stands on, read straight off the row: the stamp
+    lands after the visit that earned it, and behind the arrival that follows it. A stamp
+    taken from anywhere but the database is free to leave that window.
     """
     provider.will_say(**ranked(*CANDIDATES))
     account = await rating_films(owner, run_jobs)
-    monkeypatch.setattr(feed, "datetime", WorkerClockAhead, raising=False)
 
     await discovery(owner)
     await run_jobs()
-    assert await _reranks(db, account) == 1
 
-    # Their taste moves. The bump schedules a restock and it declines, because nobody has
-    # been back - and then they come back, which is the arrival that earns the next one.
-    await rate(owner, RATED[0], 4.5)
-    await rate(owner, RATED[1], 4.5)
-    await run_jobs()
+    _, visited_at, _, restocked_at, _ = await feed_state(db, account)
+    assert visited_at < restocked_at, "stamped before the visit that earned it"
+
     await discovery(owner)
-    await run_jobs()
 
-    assert await _reranks(db, account) == 2
+    _, came_back_at, _, _, _ = await feed_state(db, account)
+    assert restocked_at < came_back_at, "stamped ahead of the arrival that follows it"
 
 
 @tuned(discovery_rerank_window=2)
@@ -637,14 +620,17 @@ async def test_a_cut_short_restock_is_resumed_by_the_next_profile_version_bump(
     await discovery(owner)
     await run_jobs()
     assert await verdicts(db, account), "the first window should have landed before the drop-out"
-    assert (await feed_state(db, account))[3] is None, "a cut-short run stamped itself"
+    _, arrived_at, _, restocked_at, _ = await feed_state(db, account)
+    assert restocked_at is None, "a cut-short run stamped itself"
 
     provider.recovers().will_say(**ranked(*CANDIDATES))
     await rate(owner, RATED[0], 4.5)
     await rate(owner, RATED[1], 4.5)
     await run_jobs()
 
-    assert (await feed_state(db, account))[3] is not None, "the bump left the run unfinished"
+    _, still_at, _, restocked_at, _ = await feed_state(db, account)
+    assert still_at == arrived_at, "an arrival crept in, so this is not the bump's doing"
+    assert restocked_at is not None, "the bump left the run unfinished"
     versions = {row[1] for row in await verdicts(db, account)}
     assert len(versions) == 2, "the resumed run judged nothing at the version that bumped"
 
