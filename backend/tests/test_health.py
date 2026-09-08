@@ -150,3 +150,32 @@ async def test_a_health_check_enqueues_nothing_and_writes_no_probe(client, db, j
 
     assert await jobs_app.job_manager.list_jobs_async() == []
     assert await _table_exists(db, "worker_probes") is False
+
+
+async def test_a_box_with_no_llm_credential_says_so_without_failing_the_check(jobs_app, client):
+    """#109: a keyless box and a box with nothing to suggest looked identical from outside.
+
+    Discovery's empty state is honest for a shelf that has run out, and production wore it
+    for a pipeline that had never run - the credential reached the container by no route at
+    all. The signal belongs beside ``backlog`` rather than in ``checks``: dev and CI run
+    keyless on purpose, and ``docker compose up --wait`` reads this endpoint.
+    """
+    await _register_worker(jobs_app)
+
+    response = await client.get("/api/health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert "llm" not in body["checks"]
+    assert body["llm"] == {"provider": "anthropic", "credential": "missing"}
+
+
+@pytest.mark.settings(anthropic_api_key="sk-ant-not-a-real-key")
+async def test_a_configured_box_reports_its_provider_and_never_the_key(jobs_app, client):
+    await _register_worker(jobs_app)
+
+    response = await client.get("/api/health")
+
+    assert response.json()["llm"] == {"provider": "anthropic", "credential": "configured"}
+    assert "sk-ant-not-a-real-key" not in response.text

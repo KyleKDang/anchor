@@ -1,9 +1,11 @@
 """The health check: web, database, and the worker, proven by the worker's own heartbeat.
 
-Two questions live here and only one of them can make the stack unhealthy. *Is the worker
-alive?* is the gate: the container healthcheck and `docker compose up --wait` read it, so
-a false negative fails a deploy. *Is the worker keeping up?* is reported beside it and
-never gates anything, because a queue with work in it is a working queue.
+Three questions live here and only one of them can make the stack unhealthy. *Is the
+worker alive?* is the gate: the container healthcheck and `docker compose up --wait` read
+it, so a false negative fails a deploy. *Is the worker keeping up?* is reported beside it
+and never gates anything, because a queue with work in it is a working queue. *Does this
+box have an LLM credential?* is reported the same way and gates nothing either: dev and CI
+run keyless on purpose, and a keyless box is degraded rather than broken (#109).
 
 Liveness is a read, never a round trip. The check used to enqueue a probe job and wait for
 it to come back, which proved rather more than liveness: the probe joined the same single
@@ -21,8 +23,10 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from anchor import llm
 from anchor.db import Database
 from anchor.ratelimit import limited
+from anchor.settings import Settings
 
 router = APIRouter()
 log = logging.getLogger(__name__)
@@ -57,10 +61,22 @@ class Backlog(TypedDict):
     oldest_wait_seconds: float | None
 
 
+class LlmCredential(TypedDict):
+    """Which provider this box dispatches to, and whether it can reach it.
+
+    The provider name, never the key: this endpoint is unauthenticated, and the question
+    an owner needs answered from outside is only *is anything there*.
+    """
+
+    provider: str
+    credential: Literal["configured", "missing"]
+
+
 @router.get("/api/health")
 async def health(request: Request) -> JSONResponse:
     db: Database = request.app.state.db
-    stale_after: float = request.app.state.settings.stalled_worker_seconds
+    settings: Settings = request.app.state.settings
+    stale_after: float = settings.stalled_worker_seconds
     checks: dict[str, CheckStatus] = {"web": "ok"}
     backlog: Backlog | None = None
 
@@ -80,10 +96,11 @@ async def health(request: Request) -> JSONResponse:
 
     healthy = all(check == "ok" for check in checks.values())
     body: dict[str, object] = {"status": "ok" if healthy else "degraded", "checks": checks}
+    # Siblings of ``checks`` rather than members, deliberately: every member of ``checks``
+    # can turn the response 503, and neither a backlog nor a missing key must do that.
     if backlog is not None:
-        # A sibling of ``checks`` rather than one of them, deliberately: every member of
-        # ``checks`` can turn the response 503, and a backlog must never do that.
         body["backlog"] = backlog
+    body["llm"] = _llm_credential(settings)
     return JSONResponse(body, status_code=200 if healthy else 503)
 
 
@@ -94,6 +111,18 @@ async def health(request: Request) -> JSONResponse:
 async def debug_error() -> None:
     """Fail on purpose: hitting this in production must produce a Sentry event."""
     raise RuntimeError("deliberate backend error to check Sentry")
+
+
+def _llm_credential(settings: Settings) -> LlmCredential:
+    """Whether this box could reach its provider at all.
+
+    Reported even when the database check failed, because it is a settings read that
+    cannot fail with it - and a box that is degraded for two reasons should say both.
+    """
+    return LlmCredential(
+        provider=settings.llm_provider,
+        credential="configured" if llm.credential_configured(settings) else "missing",
+    )
 
 
 async def _worker_beating(session: AsyncSession, stale_after: float) -> bool:

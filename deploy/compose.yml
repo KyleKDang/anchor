@@ -9,6 +9,9 @@ x-app-environment: &app-environment
   ANCHOR_RESEND_API_KEY: ${ANCHOR_RESEND_API_KEY}
   ANCHOR_TMDB_ACCESS_TOKEN: ${ANCHOR_TMDB_ACCESS_TOKEN}
   ANCHOR_SENTRY_DSN: ${ANCHOR_SENTRY_DSN}
+  # The worker needs this to write a single verdict; without it discovery, the prose
+  # profile and quality tags are all silently inert (#109). ``/api/health`` says which.
+  ANCHOR_ANTHROPIC_API_KEY: ${ANCHOR_ANTHROPIC_API_KEY}
 
 services:
   postgres:
