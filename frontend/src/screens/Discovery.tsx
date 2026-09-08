@@ -124,9 +124,9 @@ function Locked({ feed }: { feed: Feed }) {
     <section className="section" aria-labelledby="shelf-heading">
       <h2 id="shelf-heading">Suggestions</h2>
       <p className="muted">
-        Once Anchor has a feel for your taste, this is where it puts films you have never
-        added - each with the reason it thinks you will want it. It will not guess before
-        then, so there is nothing here yet.
+        Once Anchor has a feel for your taste, this is where it puts films you have never added -
+        each with the reason it thinks you will want it. It will not guess before then, so there is
+        nothing here yet.
       </p>
       <p className="muted">
         {remaining(feed.progress?.thresholds ?? [])} <Link to="/profile">See what is left</Link>.
@@ -156,8 +156,8 @@ function Shelf({ feed, onActed }: { feed: Feed; onActed: Applied }) {
       {feed.films.length === 0 ? (
         <div className="empty">
           <p className="muted">
-            Nothing to suggest just now. Anchor only puts a film here when it can say why, so
-            this fills in as it learns more about what you like.
+            Nothing to suggest just now. Anchor only puts a film here when it can say why, so this
+            fills in as it learns more about what you like.
           </p>
         </div>
       ) : (
@@ -336,8 +336,8 @@ function NotInterested() {
           sentence about films that are not on screen yet. */}
       {films === null ? null : films.length === 0 ? (
         <p className="muted">
-          Nothing here yet. Films you turn down are kept on this list, and you can put any of
-          them back whenever you like.
+          Nothing here yet. Films you turn down are kept on this list, and you can put any of them
+          back whenever you like.
         </p>
       ) : (
         <>

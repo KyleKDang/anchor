@@ -42,8 +42,7 @@ export function Welcome() {
         <h1>Let's find your scale</h1>
         <p className="muted">
           Anchor rates films by comparing them with each other, so it needs a few of yours to
-          measure against. Either way in takes a couple of minutes, and you can stop at any
-          point.
+          measure against. Either way in takes a couple of minutes, and you can stop at any point.
         </p>
       </header>
 
@@ -57,8 +56,8 @@ export function Welcome() {
         <section className="fork-choice card">
           <h2>I have a Letterboxd export</h2>
           <p className="muted">
-            Your ratings, watchlist, and diary come across in one go, and your familiar
-            half-stars show straight away. Anchor never writes anything back.
+            Your ratings, watchlist, and diary come across in one go, and your familiar half-stars
+            show straight away. Anchor never writes anything back.
           </p>
           <button
             type="button"
@@ -73,8 +72,8 @@ export function Welcome() {
         <section className="fork-choice card">
           <h2>Start fresh</h2>
           <p className="muted">
-            Name a few films you know cold, and Anchor builds your scale around them. Nothing
-            is imported and nothing is assumed.
+            Name a few films you know cold, and Anchor builds your scale around them. Nothing is
+            imported and nothing is assumed.
           </p>
           <button
             type="button"

@@ -59,11 +59,7 @@ export function Designate({
       </ol>
 
       {current === null ? (
-        <Finished
-          phase={phase}
-          continuing={continuing}
-          onContinue={() => setContinuing(true)}
-        />
+        <Finished phase={phase} continuing={continuing} onContinue={() => setContinuing(true)} />
       ) : (
         <Prompt
           prompt={current}
@@ -109,17 +105,15 @@ function Finished({
   continuing: boolean;
   onContinue: () => void;
 }) {
-  const anchored = [...phase.prompts, ...phase.continuation].filter(
-    (one) => one.marked.length > 0,
-  );
+  const anchored = [...phase.prompts, ...phase.continuation].filter((one) => one.marked.length > 0);
   const more = phase.continuation.some((one) => one.state === "todo");
 
   return (
     <>
       {anchored.length === 0 ? (
         <p className="muted">
-          No anchors yet. Your ratings work exactly the same without them; anchors are what
-          the band picker shows you when you rate, so you choose against your own references.
+          No anchors yet. Your ratings work exactly the same without them; anchors are what the band
+          picker shows you when you rate, so you choose against your own references.
         </p>
       ) : (
         <ul className="anchor-set">
@@ -216,17 +210,16 @@ function Prompt({
         Which film is a definitive {prompt.band.toFixed(1)}?
       </h3>
       <p className="muted">
-        Pick one you know cold. It is what the band picker shows you when you rate, so a film
-        you are sure about is worth more than a film you love - and you can mark as many as
-        you like.
+        Pick one you know cold. It is what the band picker shows you when you rate, so a film you
+        are sure about is worth more than a film you love - and you can mark as many as you like.
       </p>
 
       {/* What the band already holds, so a second mark is an addition to something the
           owner can see rather than a tap into the dark. */}
       {marked && (
         <p className="muted">
-          Marked: {prompt.marked.map((film) => film.title).join(", ")}. Mark another below, or
-          move on.
+          Marked: {prompt.marked.map((film) => film.title).join(", ")}. Mark another below, or move
+          on.
         </p>
       )}
 

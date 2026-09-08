@@ -117,9 +117,7 @@ export function FilmPicker({
           {error}
         </p>
       )}
-      {results !== null && results.length === 0 && (
-        <p className="muted">No films match that.</p>
-      )}
+      {results !== null && results.length === 0 && <p className="muted">No films match that.</p>}
       {results !== null && results.length > 0 && (
         <ul className="film-list picker-results">
           {results.map((film) => (

@@ -98,11 +98,7 @@ export function stepTarget(
  * closes up and its new band opens a slot, the anchor mark goes, and the header counts
  * follow. Bands are sorted by rank afterwards, which is what seats the mover.
  */
-export function applyMove(
-  rows: EditableRow[],
-  mover: RatedFilm,
-  target: Target,
-): EditableRow[] {
+export function applyMove(rows: EditableRow[], mover: RatedFilm, target: Target): EditableRow[] {
   const moved: RatedFilm = {
     ...mover,
     band: target.band,

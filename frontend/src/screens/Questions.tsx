@@ -31,9 +31,7 @@ export function Questions() {
   // arrival, and React's development double-run of effects would otherwise open two
   // sessions and leave one card orphaned as unanswered. The opening is kept across the
   // re-run and only ever made again for another film.
-  const opening = useRef<{ id: number; dealt: Promise<[FilmDetail, CriteriaDealt]> } | null>(
-    null,
-  );
+  const opening = useRef<{ id: number; dealt: Promise<[FilmDetail, CriteriaDealt]> } | null>(null);
   useEffect(() => {
     if (opening.current?.id !== id) {
       opening.current = { id, dealt: Promise.all([api.film(id), api.openCriteriaSession(id)]) };

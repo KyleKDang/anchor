@@ -55,8 +55,8 @@ export function AnchorNudge({
 }) {
   return (
     <p className="nudge">
-      Marking a film an anchor says you are certain of its rating. Anchors are what the band
-      picker shows you when you rate, so you are choosing against your own references.{" "}
+      Marking a film an anchor says you are certain of its rating. Anchors are what the band picker
+      shows you when you rate, so you are choosing against your own references.{" "}
       {onWall ? (
         "Tap Anchor under any poster here to mark your first."
       ) : film ? (

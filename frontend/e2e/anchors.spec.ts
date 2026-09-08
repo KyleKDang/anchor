@@ -51,7 +51,10 @@ test("an owner marks an anchor and the wall badges it in its band row", async ({
 
 /** Search for a film, log the watch, and tap a band on the picker. */
 async function rate(page: Page, title: string, band: number): Promise<void> {
-  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Search" }).click();
+  await page
+    .getByRole("navigation", { name: "Main" })
+    .getByRole("link", { name: "Search" })
+    .click();
   await page.getByLabel("Find a film").fill(title);
   await page.getByRole("button", { name: "Search" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });

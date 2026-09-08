@@ -4,10 +4,7 @@ import { expect, type APIRequestContext } from "@playwright/test";
 const MAIL_URL = process.env.ANCHOR_MAIL_URL ?? "http://localhost:8025";
 
 /** The path of the latest verification link mailed to an address. */
-export async function verificationPath(
-  request: APIRequestContext,
-  email: string,
-): Promise<string> {
+export async function verificationPath(request: APIRequestContext, email: string): Promise<string> {
   const response = await request.get(`${MAIL_URL}/emails`);
   expect(response.ok()).toBe(true);
   const emails = (await response.json()) as { to: string[]; text: string }[];

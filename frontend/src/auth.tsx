@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 
 import { api, ApiError, messageOf, type Account } from "./api";
@@ -53,7 +61,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     loggedOut("You are logged out.");
   }, [loggedOut]);
 
-  const accountDeleted = useCallback(() => loggedOut("Your account has been deleted."), [loggedOut]);
+  const accountDeleted = useCallback(
+    () => loggedOut("Your account has been deleted."),
+    [loggedOut],
+  );
 
   const value = useMemo(
     () => ({ account, notice, loggedIn, logOut, accountDeleted }),

@@ -18,9 +18,9 @@ export function LookOverTheWall({ phase }: { phase: WallPhase }) {
   return (
     <>
       <p className="muted">
-        Your export landed every film in the band you rated it. Open the wall and move a few
-        - drag a poster inside its row to say which of two you prefer, or into another band
-        to change its rating.
+        Your export landed every film in the band you rated it. Open the wall and move a few - drag
+        a poster inside its row to say which of two you prefer, or into another band to change its
+        rating.
       </p>
       <p className="prompt-step muted">
         {phase.moved === 0
