@@ -87,13 +87,15 @@ def skips_demo(
     """
 
     @functools.wraps(task)
-    async def skipping(context: Any, account_id: str, **kwargs: Any) -> None:
+    async def skipping(context: Any, account_id: str) -> None:
+        # Imported here rather than at the top of the module because jobs.py imports this
+        # one to apply the wrap, and the two would form a cycle at import time.
         from anchor import jobs
 
         async with jobs.database_of(context).sessions() as session:
             if await flagged(session, uuid.UUID(account_id)):
                 return
-        await task(context, account_id, **kwargs)
+        await task(context, account_id)
 
     # Named rather than inferred from ``__wrapped__``, which any decorator would set: the
     # suite asks the queue's own registry whether each account-scoped task carries this

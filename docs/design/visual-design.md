@@ -92,13 +92,15 @@ The contrast floor is arithmetic, not judgment, so it is checked by computing ev
 
 ## Primitives
 
-The shared vocabulary, all defined in the token layer: `button` (primary, `secondary`, `danger`, and `link-button`), `field`, `chip`, `card`, `film-row`, the badges (`anchor-badge`, `state-flag`), `band`, `empty`, `nudge`, `notice`, `dialog`, `spoiler`, `poster`, `neighbours`, and `actions`.
+The shared vocabulary, all defined in the token layer: `button` (primary, `secondary`, `danger`, and `link-button`), `field`, `chip`, `card`, `film-row`, the badges (`anchor-badge`, `state-flag`), `band`, `empty`, `nudge`, `notice`, `scrim` and `dialog`, `spoiler`, `poster`, `neighbours`, and `actions`.
 
 A screen composes these and adds only what is genuinely its own.
 When a screen wants something a primitive nearly does, the primitive grows; a screen that grows its own copy is how 936 lines of ad-hoc CSS happened the first time.
 
-`dialog` is the one primitive defined ahead of its first use: no surface today opens a modal, and inventing one would be the behavior change this foundation is not allowed to make.
-It is here so that the first surface that needs it - a destructive confirmation - inherits the direction instead of improvising.
+`dialog` was defined ahead of its first use, so that whatever needed it first would inherit the direction instead of improvising.
+That first use is the demo account's read-only intercept ([#42](https://github.com/KyleKDang/anchor/issues/42)), which brought `scrim` with it - the cover behind a dialog, and the only thing in Anchor that ever covers the screen.
+It is allowed to interrupt because it is answering a press the visitor just made, which is the one shape of interruption [ADR 0011](../adr/0011-no-nagging-surfacing-policy.md) leaves open.
+The scrim is a literal dark rather than a mix of `--ink`, which inverts between themes: a scrim that went pale in the dark theme would lift the page towards the dialog instead of dropping it away.
 
 ## What is not styled yet
 

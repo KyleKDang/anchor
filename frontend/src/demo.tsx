@@ -35,14 +35,39 @@ export function ReadOnlyPitch() {
     return () => onRefusedWrite(null);
   }, []);
 
-  // Focus follows the interception, so a visitor on the keyboard is standing in the
-  // dialog rather than still on the control that did nothing, and Escape leaves.
+  // Focus follows the interception, so a visitor on the keyboard is standing in the dialog
+  // rather than still on the control that did nothing, and lands back on that control when
+  // they close it. Tab is held inside, because `aria-modal` tells a screen reader the rest
+  // of the page is not there and walking into it anyway is the worst of both.
   useEffect(() => {
     if (!open) return;
+    const returnTo = document.activeElement;
     dialog.current?.focus();
-    const onKey = (event: KeyboardEvent) => event.key === "Escape" && close();
+
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        close();
+        return;
+      }
+      if (event.key !== "Tab" || dialog.current === null) return;
+      const stops = [...dialog.current.querySelectorAll<HTMLElement>("button")];
+      const first = stops[0];
+      const last = stops[stops.length - 1];
+      if (first === undefined || last === undefined) return;
+      // Anywhere but the dialog's own controls counts as leaving, which covers the dialog
+      // box itself: it takes the opening focus and is not a tab stop of its own.
+      const at = stops.indexOf(document.activeElement as HTMLElement);
+      const leaving = at === -1 || (event.shiftKey ? at === 0 : at === stops.length - 1);
+      if (!leaving) return;
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    };
+
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();
+    };
   }, [open, close]);
 
   // Signing up means leaving the demo first: the signup screen is a visitor's screen, and

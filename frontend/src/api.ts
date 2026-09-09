@@ -746,13 +746,31 @@ export class ReadOnlyDemo extends Error {
   }
 }
 
-/** What to show a person for a failed call, whatever was thrown. */
-export function messageOf(error: unknown): string {
-  if (error instanceof ReadOnlyDemo) return "";
+/**
+ * What to show a person for a failed call, whatever was thrown, and `null` for nothing.
+ *
+ * Null rather than an empty string, because a caller is allowed to ask "is there an
+ * error?" with `!== null` and several do: an empty string would leave them painting an
+ * empty alert box for the one throw that has deliberately nothing to say.
+ */
+export function messageOf(error: unknown): string | null {
+  if (error instanceof ReadOnlyDemo) return null;
   return error instanceof ApiError ? error.message : "Something went wrong.";
 }
 
 const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+/**
+ * The paths the client gate lets a demo session write to, mirroring the server's own hole.
+ *
+ * Logout is the whole reason this exists: it is a POST, it is how a visitor puts the demo
+ * down, and the backend deliberately serves it without going through the session door
+ * (``anchor/demo.py``). A gate that refused it would trap a visitor in the demo and, worse,
+ * break the pitch's own "build your own", which signs out before it sends anybody to the
+ * signup screen. Signup, verification and login round out the set for the same reason the
+ * server exempts them: they are how somebody stops being a visitor.
+ */
+const ALWAYS_ALLOWED = "/api/auth/";
 
 let readOnly = false;
 let pitch: (() => void) | null = null;
@@ -782,7 +800,9 @@ function refuseWrite(): ReadOnlyDemo {
 }
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
-  if (readOnly && WRITE_METHODS.has(method)) throw refuseWrite();
+  if (readOnly && WRITE_METHODS.has(method) && !path.startsWith(ALWAYS_ALLOWED)) {
+    throw refuseWrite();
+  }
   const response = await fetch(path, {
     method,
     credentials: "same-origin",

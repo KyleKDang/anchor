@@ -128,8 +128,6 @@ async def flag_as_demo(db, account):
 # --- Every write refuses ---
 
 
-MUTATING = {"POST", "PUT", "PATCH", "DELETE"}
-
 UNGUARDED = {
     ("POST", "/api/auth/signup"),
     ("POST", "/api/auth/verify"),
@@ -157,7 +155,7 @@ def mutating_operations(app):
         (method.upper(), path)
         for path, operations in app.openapi()["paths"].items()
         for method in operations
-        if method.upper() in MUTATING
+        if method.upper() in demo.WRITE_METHODS
     )
 
 
