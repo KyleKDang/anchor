@@ -128,7 +128,9 @@ export function EditableWall({
         .then(() => (mine === burst.current ? work() : undefined))
         .catch((caught: unknown) => {
           burst.current += 1;
-          setFailed({ tmdb_id: film.tmdb_id, message: messageOf(caught) });
+          // Never the demo's own refusal, which has no message and cannot arrive here:
+          // edit mode is absent on a demo session rather than intercepted.
+          setFailed({ tmdb_id: film.tmdb_id, message: messageOf(caught) ?? "" });
         })
         .finally(() => {
           pending.current -= 1;
