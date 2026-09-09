@@ -72,9 +72,15 @@ export function ReadOnlyPitch() {
 
   // Signing up means leaving the demo first: the signup screen is a visitor's screen, and
   // a session still holding the shared account would be redirected straight back off it.
+  // A sign-out that fails leaves the pitch standing rather than sending anybody to a
+  // screen that would bounce them, so the button is simply still there to press again.
   const signUp = useCallback(async () => {
+    try {
+      await logOut();
+    } catch {
+      return;
+    }
     close();
-    await logOut();
     void navigate("/signup");
   }, [close, logOut, navigate]);
 
