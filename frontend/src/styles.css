@@ -820,6 +820,22 @@ details.spoiler.section {
   font-size: var(--text-sm);
 }
 
+/* The one thing in Anchor that covers the screen: the read-only demo's intercept, raised
+   by the visitor's own press. Dark enough to say the page behind it is not accepting the
+   press, light enough that it still reads as the page they were looking at. */
+.scrim {
+  position: fixed;
+  inset: 0;
+  /* Over the nav, which is the highest thing on the page at 20. */
+  z-index: 30;
+  display: grid;
+  place-items: center;
+  padding: var(--s4);
+  /* Literal rather than mixed from --ink, which inverts in dark mode: a scrim that went
+     pale there would lift the page towards the dialog instead of dropping it away. */
+  background: rgb(10 11 13 / 0.55);
+}
+
 .dialog {
   margin: 0;
   padding: var(--s5);

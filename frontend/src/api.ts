@@ -731,12 +731,58 @@ export class ApiError extends Error {
   }
 }
 
+/** The server's one refusal for a write on the demo account, and the only code we key on. */
+export const READ_ONLY_DEMO = "demo_read_only";
+
+/**
+ * Thrown in place of a write the demo account may not perform.
+ *
+ * It is not a failure and carries nothing to show: by the time it is thrown the pitch is
+ * already on screen, so every surface that renders an error renders nothing for this one.
+ */
+export class ReadOnlyDemo extends Error {
+  constructor() {
+    super("read-only demo");
+  }
+}
+
 /** What to show a person for a failed call, whatever was thrown. */
 export function messageOf(error: unknown): string {
+  if (error instanceof ReadOnlyDemo) return "";
   return error instanceof ApiError ? error.message : "Something went wrong.";
 }
 
+const WRITE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+let readOnly = false;
+let pitch: (() => void) | null = null;
+
+/**
+ * Tell the client whether this session is the demo, from wherever the account is known.
+ *
+ * Module state rather than a hook, because this is the one place every write in the app
+ * passes through and the intercept has to sit *in front of* the request rather than
+ * around each control. Every write control stays on screen and stays pressable - the
+ * verbs are part of what the demo is showing - and pressing one lands here
+ * (demo-account.md). The exception is the wall's edit mode, which is absent rather than
+ * intercepted, and reads the same flag off the account it already holds.
+ */
+export function readOnlySession(demo: boolean): void {
+  readOnly = demo;
+}
+
+/** Register what a refused write brings up. The pitch component owns this. */
+export function onRefusedWrite(handler: (() => void) | null): void {
+  pitch = handler;
+}
+
+function refuseWrite(): ReadOnlyDemo {
+  pitch?.();
+  return new ReadOnlyDemo();
+}
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (readOnly && WRITE_METHODS.has(method)) throw refuseWrite();
   const response = await fetch(path, {
     method,
     credentials: "same-origin",
@@ -745,8 +791,21 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (response.status === 204) return undefined as T;
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw toApiError(response.status, payload);
+  if (!response.ok) throw asRefusal(toApiError(response.status, payload));
   return payload as T;
+}
+
+/**
+ * The server's refusal, folded into the same interception the client-side gate performs.
+ *
+ * The backend is the source of truth and this is what says so: a session the client has
+ * not learned is a demo yet - the flag arrives one round trip after the app mounts -
+ * still meets the pitch rather than a raw error.
+ */
+function asRefusal(error: ApiError): Error {
+  if (error.code !== READ_ONLY_DEMO) return error;
+  readOnly = true;
+  return refuseWrite();
 }
 
 function toApiError(status: number, payload: unknown): ApiError {
@@ -902,6 +961,7 @@ export const api = {
  * server read a stream it can cut off the moment the upload goes over its size cap.
  */
 async function uploadExport(file: File, confirm?: string): Promise<ImportState> {
+  if (readOnly) throw refuseWrite();
   const params = new URLSearchParams({ name: file.name });
   if (confirm !== undefined) params.set("confirm", confirm);
   const response = await fetch(`/api/import?${params.toString()}`, {
@@ -911,7 +971,7 @@ async function uploadExport(file: File, confirm?: string): Promise<ImportState> 
     body: file,
   });
   const payload: unknown = await response.json().catch(() => null);
-  if (!response.ok) throw toApiError(response.status, payload);
+  if (!response.ok) throw asRefusal(toApiError(response.status, payload));
   return payload as ImportState;
 }
 

@@ -19,7 +19,7 @@ from procrastinate.retry import RetryStrategy
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import catalog, matching, seeding
+from anchor import catalog, demo, matching, seeding
 from anchor.db import Database
 from anchor.errors import ApiError
 from anchor.models import (
@@ -598,16 +598,27 @@ def _has_attempts_left(app: procrastinate.App, job: Job) -> bool:
 
 
 def _declare_tasks() -> procrastinate.Blueprint:
+    """Register the tasks, wrapping every account-scoped one in the demo skip.
+
+    The wrap goes here rather than on each definition so that this list is the single
+    statement of what runs per account, and so the queue name a task is registered under
+    is the one that skips. A task that takes an ``account_id`` and is registered bare is
+    the hole this shape exists to make visible; the suite asserts there is none.
+    """
     tasks = procrastinate.Blueprint()
-    tasks.task(name=retrain_taste_profile.__name__, pass_context=True)(retrain_taste_profile)
+    tasks.task(name=retrain_taste_profile.__name__, pass_context=True)(
+        demo.skips_demo(retrain_taste_profile)
+    )
     # Retried, because the whole job is one long conversation with a provider and the far
     # end goes down. Re-running is safe: the first thing it does is re-ask whether the
     # regeneration is still due, and a version that landed answers that with no.
-    tasks.task(name=regenerate_prose.__name__, retry=2, pass_context=True)(regenerate_prose)
+    tasks.task(name=regenerate_prose.__name__, retry=2, pass_context=True)(
+        demo.skips_demo(regenerate_prose)
+    )
     # Retried for the same reason and safe for the same one: it re-asks whether the picker
     # is still unanswered before it spends, and a second guess simply replaces the first.
     tasks.task(name=refresh_quality_suggestions.__name__, retry=2, pass_context=True)(
-        refresh_quality_suggestions
+        demo.skips_demo(refresh_quality_suggestions)
     )
     # Retried for the same reason, and safe for the same reason: a re-run re-reads the
     # stamp, and a film that got tagged in between answers with nothing left to do.
@@ -618,7 +629,9 @@ def _declare_tasks() -> procrastinate.Blueprint:
     # Retried, because it is a long conversation with both outside services at once. Safe
     # to repeat: every window's verdicts commit as they land and a re-run skips whatever
     # is already judged, so the second attempt buys only what the first one missed.
-    tasks.task(name=restock_discovery.__name__, retry=2, pass_context=True)(restock_discovery)
+    tasks.task(name=restock_discovery.__name__, retry=2, pass_context=True)(
+        demo.skips_demo(restock_discovery)
+    )
     scheduled_tasks = [
         # Every minute, because the window between a worker dying and the next sweep is
         # time an owner spends looking at an import that says it is still running.

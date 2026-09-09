@@ -9,7 +9,7 @@ import {
 } from "react";
 import { Navigate, Outlet, useLocation } from "react-router";
 
-import { api, ApiError, messageOf, type Account } from "./api";
+import { api, ApiError, messageOf, readOnlySession, type Account } from "./api";
 import { AuthCard } from "./screens/auth/AuthCard";
 
 interface Auth {
@@ -45,6 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       cancelled = true;
     };
   }, []);
+
+  // The client's copy of the demo flag, which is what puts the intercept in front of
+  // every write rather than behind it. The server refuses these anyway and is the source
+  // of truth; this only means a visitor gets the pitch instead of a round trip.
+  useEffect(() => readOnlySession(account?.demo ?? false), [account]);
 
   const loggedIn = useCallback((signedIn: Account) => {
     setAccount(signedIn);

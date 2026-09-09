@@ -45,6 +45,36 @@ async def realm_row_counts(db: Database, account_id: uuid.UUID) -> dict[str, int
         return counts
 
 
+async def realm_snapshot(db: Database, account_id: uuid.UUID) -> dict[str, list[str]]:
+    """Every row of an account's realm, whole, in a form two of them can be compared by.
+
+    Stronger than counting rows, and the difference is the point wherever the question is
+    whether something was left *exactly* as it was: a rotation that unseats one film and
+    seats another, a refresh counter moving, a dot being marked seen - none of them changes
+    a count, and all of them change a row. Rows come back as JSON text and sorted, because
+    the realm has no ordering of its own and the comparison is about content.
+    """
+    async with db.sessions() as session:
+        return {
+            table: sorted(
+                row
+                for row in await session.scalars(
+                    text(f'SELECT to_jsonb(t)::text FROM "{table}" t WHERE account_id = :id'),
+                    {"id": account_id},
+                )
+            )
+            for table in await account_realm_tables(session)
+        }
+
+
+def assert_realm_unchanged(
+    before: dict[str, list[str]], after: dict[str, list[str]], what: str
+) -> None:
+    """Name the table that moved, rather than dumping the whole realm twice."""
+    moved = {table for table in before | after if before.get(table) != after.get(table)}
+    assert not moved, f"{what} changed {sorted(moved)} on an account that may not be written"
+
+
 async def account_exists(db: Database, account_id: uuid.UUID) -> bool:
     async with db.sessions() as session:
         return bool(
