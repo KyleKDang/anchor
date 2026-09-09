@@ -83,7 +83,17 @@ def ordered(unlocks: set[Unlock]) -> list[Unlock]:
 
 
 async def pending(db: AsyncSession, account_id: uuid.UUID) -> set[Unlock]:
-    """The dots the nav should currently be showing."""
+    """The dots the nav should currently be showing, and never any on the demo.
+
+    The read side of the same rule, and it is needed rather than merely tidy. The flag is
+    set after the fixture build has walked the real screens, so the demo can own marks that
+    were never seen - and since clearing one is a write the demo may not perform, a dot lit
+    that way would burn on the nav of every visit anybody ever made. Answering here means
+    no visitor sees a dot, whatever rows the build left behind, and still nothing is
+    written to put it out (demo-account.md).
+    """
+    if await demo.flagged(db, account_id):
+        return set()
     return {mark.unlock for mark in await _marks(db, account_id) if mark.seen_at is None}
 
 
