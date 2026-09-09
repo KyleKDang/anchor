@@ -36,8 +36,8 @@ from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from anchor import demo, trainer, unlocks
 from anchor import readiness as readiness_module
-from anchor import trainer, unlocks
 from anchor.features import FeatureSpace
 from anchor.models import (
     AccountFilm,
@@ -112,6 +112,11 @@ class Candidate:
 
 
 # --- The two entry points ---
+#
+# Both begin by asking whether the account is the demo, because both are reachable from a
+# read and the demo is read constantly: the boundary runs off an arrival at the Watchlist,
+# and reconciliation off actions the request guard has already refused. A flagged account
+# holds the tier it was built with, and every visitor sees the same one (demo-account.md).
 
 
 async def refresh(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
@@ -133,6 +138,8 @@ async def refresh(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -
     be spent per film rated and a shift meant to roll in over days would arrive in one
     evening of rating.
     """
+    if await demo.flagged(db, account_id):
+        return
     state = await _state(db, account_id)
     clock = await watch_clock(db, account_id)
     vector = await _vector(db, account_id)
@@ -168,6 +175,8 @@ async def reconcile(
     does is roll the engine's own second thoughts in early: the swap budget is zero here,
     so the only displacement possible is the one the owner's action asked for.
     """
+    if await demo.flagged(db, account_id):
+        return
     await _maintain(
         db,
         account_id,

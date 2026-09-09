@@ -50,7 +50,7 @@ import numpy as np
 from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import catalog, features, picker, prose, readiness, trainer
+from anchor import catalog, demo, features, picker, prose, readiness, trainer
 from anchor.db import Database
 from anchor.errors import ApiError
 from anchor.features import FeatureSpace
@@ -170,6 +170,13 @@ async def due(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> bo
     capped state temporary: the shelf is short this month and fills itself the next,
     without anybody being told anything went wrong.
     """
+    # The demo is the one account whose visits are somebody else's. Its shelf was built
+    # once and the spend that would refill it is exactly what a visitor must not be able
+    # to trigger, so the gate that answers "was this earned by anybody?" answers no
+    # (demo-account.md). The restock job re-asks this on its own way in, which is what
+    # makes the answer hold for a job queued before the flag was set.
+    if await demo.flagged(db, account_id):
+        return False
     if await readiness.state(db, account_id, settings) is Readiness.cold:
         return False
     live = await prose.latest(db, account_id)
@@ -607,7 +614,14 @@ async def visit(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> 
     account's very first restock, or any visit while the pipeline is empty - is not a
     visit they could have seen a card at, so measuring the next one against it would mark
     a whole first shelf "new since your last visit" and say nothing at all.
+
+    The demo account has no session boundary at all, because its arrivals are not its
+    owner's: rotating a card off because visitors have passed it over would let the crowd
+    edit the shelf the fixture built. Nothing here runs for it, so the counter, the
+    cooldowns and the freshness line all stay where the build left them.
     """
+    if await demo.flagged(db, account_id):
+        return
     state = await _feed_state(db, account_id)
     state.refresh_counter += 1
     had_shelf = await _standing(db, account_id) > 0

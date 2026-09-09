@@ -25,7 +25,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import delete, select
 
-from anchor import qualities
+from anchor import demo, qualities
 from anchor.deps import AppMailer, AppSettings, DbSession
 from anchor.errors import ApiError
 from anchor.mail import verification_message
@@ -97,7 +97,13 @@ class AccountOut(BaseModel):
 
 
 async def current_account(request: Request, db: DbSession) -> Account:
-    """The verified account of the live session named by the cookie, or 401."""
+    """The verified account of the live session named by the cookie, or 401.
+
+    Also where the demo account's read-only rule is enforced: this is the one door every
+    authenticated endpoint hangs off, so a write arriving on a flagged session is refused
+    here rather than in each route that would otherwise have performed it
+    (:mod:`anchor.demo`).
+    """
     token = request.cookies.get(SESSION_COOKIE)
     if token is None:
         raise _unauthenticated()
@@ -112,6 +118,7 @@ async def current_account(request: Request, db: DbSession) -> Account:
     )
     if account is None:
         raise _unauthenticated()
+    demo.guard(request, account)
     return account
 
 

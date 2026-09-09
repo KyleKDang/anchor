@@ -23,6 +23,7 @@ from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from anchor import demo
 from anchor.models import Unlock, UnlockMark
 from anchor.readiness import Readiness
 from anchor.readiness import state as readiness_state
@@ -49,7 +50,14 @@ async def arm(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> se
     calls this - the nav's read on every navigation, the screen itself, a rating, the end
     of an import - so two of them racing on the very first crossing is the ordinary case
     rather than the exotic one, and a plain insert would answer it with a 500.
+
+    The demo account never earns one. A dot says "this is new to *you*", and on an account
+    every visitor shares it would be new to the first arrival and stale for everybody
+    after - and the mark it wrote would be a row the fixture did not build
+    (demo-account.md).
     """
+    if await demo.flagged(db, account_id):
+        return set()
     state = await readiness_state(db, account_id, settings)
     earned = [unlock for unlock in Unlock if LADDER.index(state) >= LADDER.index(EARNED_BY[unlock])]
     if not earned:
@@ -80,7 +88,15 @@ async def pending(db: AsyncSession, account_id: uuid.UUID) -> set[Unlock]:
 
 
 async def clear(db: AsyncSession, account_id: uuid.UUID, unlock: Unlock) -> None:
-    """First visit to the unlocked screen: the dot has done its job and never returns."""
+    """First visit to the unlocked screen: the dot has done its job and never returns.
+
+    Guarded for the demo alongside :func:`arm`, and not only because a flagged account has
+    no marks to clear. The flag is set after the fixture build, which walks the real
+    screens and may leave marks behind it, and one visitor happening to be the first
+    through the door must not be what decides whether the next one sees a dot.
+    """
+    if await demo.flagged(db, account_id):
+        return
     for mark in await _marks(db, account_id):
         if mark.unlock is unlock and mark.seen_at is None:
             mark.seen_at = func.now()
