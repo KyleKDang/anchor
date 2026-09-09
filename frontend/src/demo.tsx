@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { onRefusedWrite } from "./api";
-import { useAuth } from "./auth";
 
 /**
  * The read-only demo's one intercept: what comes up when a visitor presses a write.
@@ -26,8 +25,6 @@ import { useAuth } from "./auth";
 export function ReadOnlyPitch() {
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
-  const { logOut } = useAuth();
-  const navigate = useNavigate();
   const dialog = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -50,7 +47,7 @@ export function ReadOnlyPitch() {
         return;
       }
       if (event.key !== "Tab" || dialog.current === null) return;
-      const stops = [...dialog.current.querySelectorAll<HTMLElement>("button")];
+      const stops = [...dialog.current.querySelectorAll<HTMLElement>("button, a[href]")];
       const first = stops[0];
       const last = stops[stops.length - 1];
       if (first === undefined || last === undefined) return;
@@ -69,20 +66,6 @@ export function ReadOnlyPitch() {
       if (returnTo instanceof HTMLElement && returnTo.isConnected) returnTo.focus();
     };
   }, [open, close]);
-
-  // Signing up means leaving the demo first: the signup screen is a visitor's screen, and
-  // a session still holding the shared account would be redirected straight back off it.
-  // A sign-out that fails leaves the pitch standing rather than sending anybody to a
-  // screen that would bounce them, so the button is simply still there to press again.
-  const signUp = useCallback(async () => {
-    try {
-      await logOut();
-    } catch {
-      return;
-    }
-    close();
-    void navigate("/signup");
-  }, [close, logOut, navigate]);
 
   if (!open) return null;
   return (
@@ -108,9 +91,12 @@ export function ReadOnlyPitch() {
           <button type="button" className="button secondary" onClick={close}>
             Keep looking
           </button>
-          <button type="button" className="button" onClick={() => void signUp()}>
+          {/* A plain link, and deliberately not a sign-out first: a demo session is
+              allowed onto the signup screen, so there is nothing to undo before going
+              there and no redirect to race. Signing up replaces the cookie. */}
+          <Link className="button" to="/signup" onClick={close}>
             Build your own
-          </button>
+          </Link>
         </div>
       </div>
     </div>

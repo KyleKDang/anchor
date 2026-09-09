@@ -233,6 +233,26 @@ async def test_the_demo_can_still_read_every_screen(owner, db, run_jobs, provide
     assert (await owner.get(f"/api/films/{WESTERNS[0].tmdb_id}")).status_code == 200
 
 
+async def test_the_demo_never_shows_an_unlock_dot(owner, db, run_jobs, provider):
+    """A dot says "this is new to *you*", and on a shared account it is nobody's.
+
+    Found by looking rather than by testing. The flag is set after the build has walked the
+    real screens, so the account arrives owning marks nobody has seen - and clearing one is
+    a write the demo may not perform, so the dot would have burned on the nav forever. The
+    read answers for it instead, which puts the dot out without writing anything.
+    """
+    account = await a_lived_in_account(owner, run_jobs, provider)
+    assert await flows.unlocks(owner) != {"discovery": False, "watchlist": False}, (
+        "the account has a dot lit before it is flagged, or this proves nothing"
+    )
+
+    await flag_as_demo(db, account)
+    before = await realm_snapshot(db, account)
+
+    assert await flows.unlocks(owner) == {"discovery": False, "watchlist": False}
+    assert_realm_unchanged(before, await realm_snapshot(db, account), "reading the unlock dots")
+
+
 async def test_logging_out_of_the_demo_still_works(owner, db, run_jobs, provider):
     """The one write a visitor must always be able to perform: putting the demo down."""
     account = await a_lived_in_account(owner, run_jobs, provider)

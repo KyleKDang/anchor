@@ -113,10 +113,19 @@ export function RequireAccount() {
   return <Outlet />;
 }
 
-/** The opposite guard: a logged-in owner has no business on the auth screens. */
+/**
+ * The opposite guard: a logged-in owner has no business on the auth screens.
+ *
+ * A demo session is the exception, and it is the whole point of the demo. Somebody looking
+ * around the shared account is a visitor in every sense that matters here - the session
+ * belongs to nobody - and the pitch's "build your own" leads straight to signup. Bouncing
+ * them off it would leave the demo with no way out except signing out first, which is a
+ * redirect race and an ugly "you are logged out" on the way to a screen they asked for.
+ * Signing up simply replaces the cookie, and the demo is none the wiser.
+ */
 export function RequireVisitor() {
   const { account } = useAuth();
   if (account === undefined) return null;
-  if (account) return <Navigate to="/" replace />;
+  if (account && !account.demo) return <Navigate to="/" replace />;
   return <Outlet />;
 }
