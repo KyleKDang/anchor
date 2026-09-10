@@ -46,6 +46,19 @@ class FakeAnthropic:
     """Requests answered 429 before the fake starts answering properly."""
     down: bool = False
     """When set, every request answers 500."""
+    rejects: int = 0
+    """When set, every request answers this status with an Anthropic-shaped error body.
+
+    A 4xx is the provider explaining that our request is wrong, and the explanation is
+    in the body rather than in the status (#117), so the fake carries one.
+    """
+    rejection: str = "output_config.format.schema: 'maxItems' is not supported"
+    """What the provider says it objected to, as ``error.message`` on the wire."""
+    rejection_request_id: str | None = "req_011CerciLqADx3pZj9MEs8rq"
+    """The id Anthropic support asks for. None for a body that arrives without one."""
+    rejection_body: str | None = None
+    """Raw text answered instead of the documented shape: what a gateway in front of the
+    provider sends when it turns a request away before the provider ever sees it."""
     polls_before_ending: int = 0
     """Batch status checks that report ``in_progress`` before one reports ``ended``."""
     batch_result_type: str = "succeeded"
@@ -84,6 +97,10 @@ class FakeAnthropic:
 
         if self.down:
             return httpx.Response(500, json={"error": {"message": "overloaded"}})
+        if self.rejects:
+            if self.rejection_body is not None:
+                return httpx.Response(self.rejects, text=self.rejection_body)
+            return httpx.Response(self.rejects, json=self._rejection())
         if self.throttled > 0:
             self.throttled -= 1
             return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": {}})
@@ -115,6 +132,16 @@ class FakeAnthropic:
             schema = ((message.get("output_config") or {}).get("format") or {}).get("schema")
             if schema is not None:
                 assert_schema_is_accepted(schema)
+
+    def _rejection(self) -> dict[str, Any]:
+        """One error as Anthropic renders it, request id and all."""
+        body: dict[str, Any] = {
+            "type": "error",
+            "error": {"type": "invalid_request_error", "message": self.rejection},
+        }
+        if self.rejection_request_id is not None:
+            body["request_id"] = self.rejection_request_id
+        return body
 
     def _batch(self, status: str) -> dict[str, Any]:
         return {"id": self._batch_id, "processing_status": status}

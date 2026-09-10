@@ -74,9 +74,14 @@ class Dispatch(enum.StrEnum):
 class Skipped(Exception):
     """The operation did not run, and the caller should serve what it has cached.
 
-    Every subclass is an ordinary condition rather than a bug: the caps are meant to be
-    hit, a box without a credential is meant to keep working, and a provider is
+    Almost every subclass is an ordinary condition rather than a bug: the caps are meant
+    to be hit, a box without a credential is meant to keep working, and a provider is
     sometimes down. Callers catch this class, not its members.
+
+    ``BadRequest`` is the exception to that and belongs here anyway, because what a
+    caller should *do* about it is identical - serve the cached answer, never break the
+    screen. What differs is only how loudly it is logged, and :func:`skip_level` is
+    where that difference lives so no caller has to know about it.
     """
 
 
@@ -96,12 +101,37 @@ class ProviderUnavailable(Skipped):
     """The provider could not answer: down, still throttling, or too slow to wait for."""
 
 
+class BadRequest(Skipped):
+    """The provider would not accept what we asked it: our bug, and retrying cannot fix it.
+
+    The mirror of ``BadAnswer``, one step earlier: there the provider answered something
+    the schema rejects, here it rejected the question before answering at all. Every 4xx
+    but throttling lands here - a malformed body, a key that is not valid, a batch id
+    that is not ours - because all of them are our side being wrong, and the same request
+    sent again is wrong in the same way (#117).
+
+    A ``Skipped`` because the feed must degrade rather than break, but logged at ERROR so
+    it reaches Sentry instead of hiding among the ordinary skips.
+    """
+
+
 class ProviderRefused(Exception):
     """A provider that is not on the no-training allowlist. A bug, and loud (ADR 0003)."""
 
 
 class BadAnswer(Exception):
     """The provider answered something the operation's schema does not accept."""
+
+
+def skip_level(skipped: Skipped) -> int:
+    """How loudly a skip is worth logging: our own bug is ERROR, the weather is INFO.
+
+    Every caller of the seam degrades the same way and so logs the same line; this is the
+    one thing they need to vary, and keeping it here means a new ``Skipped`` sorts itself
+    rather than being sorted again at four call sites. ERROR is what sentry_sdk's logging
+    integration turns into an event, which is the whole point of the distinction (#117).
+    """
+    return logging.ERROR if isinstance(skipped, BadRequest) else logging.INFO
 
 
 @dataclass(frozen=True)
@@ -783,7 +813,7 @@ class AnthropicAdapter:
         """The batch's results, which arrive as JSONL rather than as one document."""
         response = await self._send("GET", f"/v1/messages/batches/{batch_id}/results", None)
         if response.is_error:
-            raise ProviderUnavailable(f"Anthropic answered {response.status_code} for results")
+            raise _refusal(response, "results")
         for line in response.text.splitlines():
             if not line.strip():
                 continue
@@ -800,7 +830,13 @@ class AnthropicAdapter:
             log.warning("could not cancel abandoned batch %s", batch_id)
 
     async def _call(self, method: str, path: str, body: dict[str, Any] | None) -> dict[str, Any]:
-        """One request, retried through throttling the way the TMDB client is."""
+        """One request, retried through throttling the way the TMDB client is.
+
+        Only throttling and the provider's own failures are worth another attempt. Every
+        other 4xx is this application asking wrongly, and the answer to that is to carry
+        the provider's explanation out rather than to send the same wrong request twice
+        more (#117).
+        """
         for attempt in range(1, self._max_attempts + 1):
             response = await self._send(method, path, body)
             retryable = response.status_code == 429 or response.status_code >= 500
@@ -808,7 +844,7 @@ class AnthropicAdapter:
                 await self._sleep(_retry_after(response))
                 continue
             if response.is_error:
-                raise ProviderUnavailable(f"Anthropic answered {response.status_code} for {path}")
+                raise _refusal(response, path)
             return dict(response.json())
         raise ProviderUnavailable(
             f"Anthropic kept refusing {path} after {self._max_attempts} tries"
@@ -914,6 +950,55 @@ def _completion(message: dict[str, Any]) -> Completion:
         input_tokens=int(usage.get("input_tokens") or 0),
         output_tokens=int(usage.get("output_tokens") or 0),
     )
+
+
+COMPLAINT_LIMIT = 300
+"""How much of the provider's explanation is worth a log line. Its errors are small."""
+
+
+def _refusal(response: httpx.Response, what: str) -> Skipped:
+    """The right skip for a response that is not an answer, told apart by its status.
+
+    A 429 that survived the retry loop is a provider still too busy for us; a 5xx is one
+    that broke. Anything else in the 4xx range is our request being wrong, which is a
+    different condition with a different fix, and calling both "unavailable" is what made
+    #116 take a droplet console to diagnose.
+    """
+    said = _complaint(response)
+    if 400 <= response.status_code < 500 and response.status_code != 429:
+        return BadRequest(f"Anthropic rejected {what} with {response.status_code}: {said}")
+    return ProviderUnavailable(f"Anthropic answered {response.status_code} for {what}: {said}")
+
+
+def _complaint(response: httpx.Response) -> str:
+    """What the provider said was wrong, short enough to sit in a log line.
+
+    Only the provider's own words travel. ``error.message`` is the field that names the
+    mistake and ``request_id`` is what Anthropic support asks for; a body that is not
+    that shape - a gateway's HTML, say - is carried as a truncated snippet instead of
+    guessed at. Nothing here can leak the prompt or the key, because a response body
+    contains neither: the request is never read, only what came back about it.
+    """
+    try:
+        body = response.json()
+    except ValueError:
+        body = None
+    if isinstance(body, dict):
+        error = body.get("error")
+        message = error.get("message") if isinstance(error, dict) else None
+        request_id = body.get("request_id")
+        if isinstance(message, str) and message:
+            said = _shortened(message)
+            return f"{said} (request {request_id})" if request_id else said
+    return _shortened(response.text) or "no explanation"
+
+
+def _shortened(text: str) -> str:
+    """One line, capped: a log line is read at a glance or it is not read."""
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= COMPLAINT_LIMIT:
+        return collapsed
+    return collapsed[:COMPLAINT_LIMIT] + "..."
 
 
 def _retry_after(response: httpx.Response) -> float:

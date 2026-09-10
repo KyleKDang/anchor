@@ -8,6 +8,7 @@ most a tiny manual smoke check.
 """
 
 import json
+import logging
 
 import pytest
 
@@ -116,6 +117,110 @@ async def test_a_provider_that_stays_down_is_a_skip_not_a_crash(anthropic):
 
     with pytest.raises(llm.Skipped):
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+
+# --- A request the provider will not accept ---
+
+
+async def test_a_rejected_request_carries_what_the_provider_objected_to(anthropic):
+    """#117: the status code alone cannot tell a bug from bad weather.
+
+    The body the provider sent back is the only thing that names the mistake, and
+    discarding it meant diagnosing #116 through a droplet console instead of a log line.
+    """
+    anthropic.rejects = 400
+
+    with pytest.raises(llm.BadRequest) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    assert "'maxItems' is not supported" in str(raised.value)
+    assert "req_011CerciLqADx3pZj9MEs8rq" in str(raised.value)
+    assert "400" in str(raised.value)
+
+
+async def test_a_rejected_request_still_only_skips(anthropic):
+    """Our own malformed request must not break a feed any more than a busy provider."""
+    anthropic.rejects = 400
+
+    with pytest.raises(llm.Skipped):
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+
+async def test_a_rejected_request_is_not_asked_again(anthropic):
+    """Retrying is the answer to weather, and the wrong answer to a bug: the same
+    malformed request fails identically however many times it is sent."""
+    anthropic.rejects = 400
+
+    with pytest.raises(llm.BadRequest):
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    assert len(anthropic.calls("POST", "/v1/messages")) == 1
+
+
+async def test_a_rejection_says_nothing_about_the_credential_or_the_prompt(anthropic):
+    """The complaint is loud and the evidence behind it is the owner's, so only the
+    provider's own words travel: never the key, and never what was asked."""
+    anthropic.rejects = 401
+    anthropic.rejection = "invalid x-api-key"
+
+    with pytest.raises(llm.BadRequest) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    complaint = str(raised.value)
+    assert "test-key" not in complaint
+    assert PROMPT.user not in complaint
+    assert PROMPT.system not in complaint
+
+
+async def test_a_rejection_without_a_readable_body_still_names_the_status(anthropic):
+    """A gateway in front of the provider answers HTML, not the documented shape."""
+    anthropic.rejects = 403
+    anthropic.rejection_body = "<html><body>Forbidden</body></html>"
+
+    with pytest.raises(llm.BadRequest) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    assert "403" in str(raised.value)
+    assert "Forbidden" in str(raised.value)
+
+
+async def test_a_rejection_is_short_enough_to_read_in_a_log_line(anthropic):
+    """A body of any size lands in a worker log; what makes it useful is the first
+    sentence of it, not all of it."""
+    anthropic.rejects = 400
+    anthropic.rejection = "x" * 4000
+
+    with pytest.raises(llm.BadRequest) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    assert len(str(raised.value)) < 500
+
+
+async def test_throttling_that_never_lets_up_is_weather_not_a_bug(anthropic):
+    """A 429 is the one 4xx that is the provider's condition rather than our mistake."""
+    anthropic.throttled = 99
+
+    with pytest.raises(llm.ProviderUnavailable):
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    assert len(anthropic.calls("POST", "/v1/messages")) == 3
+
+
+async def test_a_provider_outage_says_what_the_provider_said(anthropic):
+    """Weather is logged quietly, but it is still worth knowing what came back."""
+    anthropic.down = True
+
+    with pytest.raises(llm.ProviderUnavailable) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    assert "overloaded" in str(raised.value)
+
+
+async def test_a_bug_is_logged_louder_than_an_outage():
+    """What makes the distinction worth drawing: one of these should reach Sentry."""
+    assert llm.skip_level(llm.BadRequest("malformed")) == logging.ERROR
+    assert llm.skip_level(llm.ProviderUnavailable("down")) == logging.INFO
+    assert llm.skip_level(llm.CapReached("spent")) == logging.INFO
 
 
 async def test_a_box_with_no_credential_skips_rather_than_fails():
