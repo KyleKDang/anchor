@@ -13,7 +13,8 @@ import pytest
 
 from anchor import llm
 from anchor.settings import Settings
-from fakeanthropic import FakeAnthropic, RejectedSchema, assert_schema_is_accepted
+from fakeanthropic import FakeAnthropic
+from schemacontract import RejectedSchema, assert_schema_is_accepted
 
 MODEL = llm.Model(id="claude-haiku-4-5", input_usd_per_mtok=1.0, output_usd_per_mtok=5.0)
 
@@ -256,8 +257,16 @@ async def test_a_batched_call_has_its_schema_checked_too(anthropic):
             {"type": "object", "properties": {}, "additionalProperties": False, "minProperties": 1},
             "minProperties",
         ),
+        ({"type": ["string", "null"]}, "union type"),
     ],
-    ids=["min-items-above-one", "numeric-bound", "regex", "unknown-format", "property-count"],
+    ids=[
+        "min-items-above-one",
+        "numeric-bound",
+        "regex",
+        "unknown-format",
+        "property-count",
+        "union-type",
+    ],
 )
 def test_the_keywords_structured_outputs_rejects_are_refused(schema, rejected):
     with pytest.raises(RejectedSchema, match=rejected):
@@ -279,9 +288,7 @@ def test_the_two_min_items_values_the_provider_does_accept_are_allowed():
             "additionalProperties": False,
         },
         {
-            "$defs": {
-                "leaf": {"type": "object", "properties": {}, "additionalProperties": False}
-            },
+            "$defs": {"leaf": {"type": "object", "properties": {}, "additionalProperties": False}},
             "type": "object",
             "properties": {"leaf": {"$ref": "#/$defs/leaf"}},
             "additionalProperties": False,
