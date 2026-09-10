@@ -50,7 +50,8 @@ from typing import Any, Literal, Self
 import httpx
 import procrastinate
 from pydantic import BaseModel, Field, model_validator
-from sqlalchemy import delete, update
+from sqlalchemy import Select, delete, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from anchor import accounts, qualities, sentry
 from anchor.db import Database
@@ -340,11 +341,15 @@ async def build(
 async def _fresh_account(db: Database, now: datetime) -> tuple[uuid.UUID, str]:
     """The one privileged write: an account with no password, verified, with a session.
 
-    Any half-built account a previous run left behind goes first. Seeding the quality
-    list here is what verification does for a real account (:mod:`anchor.accounts`),
-    since this is the moment the account is allowed its first rows.
+    Any half-built account a previous run left behind goes first - after its spend has
+    been re-scoped to the shared ledger, because the tokens a failed build bought were
+    bought all the same, and deleting the account would cascade the rows that say so.
+    Seeding the quality list here is what verification does for a real account
+    (:mod:`anchor.accounts`), since this is the moment the account is allowed its first rows.
     """
     async with db.sessions() as session:
+        leftover = select(Account.id).where(Account.email == BUILDING_EMAIL)
+        await _share_spend(session, leftover)
         await session.execute(delete(Account).where(Account.email == BUILDING_EMAIL))
         account = Account(email=BUILDING_EMAIL, verified_at=now)
         session.add(account)
@@ -373,7 +378,7 @@ async def _import(
     )
     await drain(account_id)
     by_name = {(film.title, film.year): film.tmdb_id for film in fixture.films}
-    bound = 0
+    bound: set[str] = set()
     while True:
         open_rows = [
             *(await api.get("/api/import/review"))["rows"],
@@ -382,17 +387,19 @@ async def _import(
         if not open_rows:
             break
         row = open_rows[0]
+        if row["id"] in bound:
+            raise BuildFailed(f"binding {row['name']} ({row['year']}) left it open")
         tmdb_id = by_name.get((row["name"], row["year"]))
         if tmdb_id is None:
             raise BuildFailed(
                 f"the export names {row['name']} ({row['year']}), which the fixture does not"
             )
         await api.post(f"/api/import/rows/{row['id']}/film", {"tmdb_id": tmdb_id})
-        bound += 1
+        bound.add(row["id"])
     state = await api.get("/api/import")
     if state["status"] != "complete" or state["pending"]:
         raise BuildFailed(f"the import did not complete: {state}")
-    log.info("demo build: import complete, %s rows bound by hand", bound)
+    log.info("demo build: import complete, %s rows bound by hand", len(bound))
     await drain(account_id)
 
 
@@ -405,15 +412,18 @@ async def _arrange(api: _Api, fixture: Fixture) -> None:
     order's own placements unmoved and the hand-ordered bands legibly hand-ordered.
     """
     moves = 0
+    standing = _standing(await api.get("/api/rated"))
     for band in fixture.wall:
         for rank, film in enumerate(band.films, start=1):
-            standing = _standing(await api.get("/api/rated"))
             if film.tmdb_id not in standing:
                 raise BuildFailed(f"{film.title} was not rated by the import")
             if standing[film.tmdb_id] == (band.band, rank):
                 continue
             await api.post(f"/api/rated/{film.tmdb_id}/move", {"band": band.band, "rank": rank})
             moves += 1
+            # A move renumbers the band it left and the one it landed in, so the wall is
+            # re-read rather than patched: the server's own numbering is the truth here.
+            standing = _standing(await api.get("/api/rated"))
     log.info("demo build: %s moves made", moves)
 
 
@@ -452,17 +462,21 @@ async def _answer_criteria(api: _Api, fixture: Fixture) -> None:
     for answered in range(fixture.criteria_session.answers):
         if card is None:
             raise BuildFailed(f"the criteria session ran out after {answered} answers")
-        a, b = band_of[card["film_a"]["tmdb_id"]], band_of[card["film_b"]["tmdb_id"]]
+        a = band_of.get(card["film_a"]["tmdb_id"])
+        b = band_of.get(card["film_b"]["tmdb_id"])
+        if a is None or b is None:
+            raise BuildFailed(f"a criteria card named a film that is not on the wall: {card}")
         verdict = "a" if a > b else "b" if b > a else "tied"
         card = (await api.post(f"/api/criteria/{card['id']}", {"verdict": verdict}))["card"]
 
 
 async def _turn_down_suggestions(api: _Api, fixture: Fixture) -> None:
     """Dismiss the shelf's weakest suggestions, so the dismissed list has something on it."""
+    count = fixture.dismiss_suggestions
     shelf = (await api.get("/api/discovery", boundary="false"))["films"]
-    for film in (
-        shelf[len(shelf) - fixture.dismiss_suggestions :] if fixture.dismiss_suggestions else []
-    ):
+    if len(shelf) < count:
+        raise BuildFailed(f"the shelf holds {len(shelf)} suggestions; {count} were to be dismissed")
+    for film in shelf[len(shelf) - count :]:
         await api.post(f"/api/discovery/{film['tmdb_id']}/dismissal")
 
 
@@ -494,41 +508,70 @@ async def _swap_in(db: Database, account_id: uuid.UUID) -> None:
     visitor gets a session of their own from the door, and nothing else should hold one.
     """
     async with db.sessions() as session:
-        await session.execute(delete(Account).where(Account.is_demo.is_(True)))
-        await session.execute(
-            update(SpendLedgerEntry)
-            .where(SpendLedgerEntry.account_id == account_id)
-            .values(account_id=None)
-        )
+        retiring = select(Account.id).where(Account.is_demo.is_(True))
+        # The build's own session goes, and the visitors' sessions on the retiring demo
+        # come across instead of going with it: a visitor mid-browse when a deploy lands
+        # sees the new demo on their next click rather than a login form for an account
+        # that has none (demo-account.md: the demo is unreachable through the login form).
         await session.execute(delete(AuthSession).where(AuthSession.account_id == account_id))
+        await session.execute(
+            update(AuthSession)
+            .where(AuthSession.account_id.in_(retiring))
+            .values(account_id=account_id)
+        )
+        await session.execute(delete(Account).where(Account.is_demo.is_(True)))
+        await _share_spend(session, select(Account.id).where(Account.id == account_id))
         await session.execute(
             update(Account).where(Account.id == account_id).values(email=DEMO_EMAIL, is_demo=True)
         )
         await session.commit()
 
 
+async def _share_spend(session: AsyncSession, scoped_to: Select[tuple[uuid.UUID]]) -> None:
+    """Move these accounts' ledger rows to the shared scope, where they outlive the rows."""
+    await session.execute(
+        update(SpendLedgerEntry)
+        .where(SpendLedgerEntry.account_id.in_(scoped_to))
+        .values(account_id=None)
+    )
+
+
 # --- The process ---
 
 
+POLL_SECONDS = 2.0
+"""How often the process asks the queue whether the worker has finished."""
+
+
 async def _wait_for_worker(
-    jobs_app: procrastinate.App, account_id: uuid.UUID, *, timeout: float, poll: float = 2.0
+    jobs_app: procrastinate.App, account_id: uuid.UUID, *, timeout: float
 ) -> None:
-    """Block until the worker has run every job queued under this account's lock."""
+    """Block until the worker has run every job queued under this account's lock.
+
+    A job that failed for good is a refusal, not a wait: the replay it was part of did
+    not happen, and the checks at the end would only catch the failures they look for.
+    """
     deadline = time.monotonic() + timeout
     while True:
-        waiting = [
-            job
-            for status in ("todo", "doing")
-            for job in await jobs_app.job_manager.list_jobs_async(
-                status=status, lock=str(account_id)
+        by_status = {
+            status: list(
+                await jobs_app.job_manager.list_jobs_async(status=status, lock=str(account_id))
             )
-        ]
+            for status in ("todo", "doing", "failed", "aborted")
+        }
+        if by_status["failed"] or by_status["aborted"]:
+            names = ", ".join(
+                f"{job.task_name} ({job.status})"
+                for job in by_status["failed"] + by_status["aborted"]
+            )
+            raise BuildFailed(f"a job the demo's replay depends on failed: {names}")
+        waiting = by_status["todo"] + by_status["doing"]
         if not waiting:
             return
         if time.monotonic() >= deadline:
             names = ", ".join(f"{job.task_name} ({job.status})" for job in waiting)
             raise BuildFailed(f"the worker did not finish the demo's jobs in time: {names}")
-        await asyncio.sleep(poll)
+        await asyncio.sleep(POLL_SECONDS)
 
 
 async def run(settings: Settings) -> None:
