@@ -30,6 +30,7 @@ from flows import (
     scale,
 )
 from invariants import assert_versions_monotonic, prose_versions, spend_ledger
+from schemacontract import assert_schema_is_accepted
 
 # Small bars all round, so a test spends five placements rather than thirty on saying
 # something that is true at any size. The dimensions are spec; the numbers are tuning.
@@ -86,6 +87,26 @@ async def test_reaching_forming_earns_the_first_prose(owner, db, run_jobs, provi
     assert version[0] == 1
     assert version[1] == "You go for films that take their time."
     assert version[2] == "first"
+
+
+@SMALL
+async def test_the_regeneration_asks_in_a_schema_the_provider_would_accept(
+    owner, run_jobs, provider
+):
+    """The wire contract, asserted where the operation lives (#116).
+
+    For a year this operation asked in a schema the API answers 400 for, and the whole
+    suite stayed green because nothing ever compared the schema against the provider's
+    rules. ``assert_schema_is_accepted`` is what compares them; this is the test that
+    says the *prose* operation is one of the things being compared, so the seam that
+    broke has a test of its own rather than only inherited coverage.
+    """
+    await settled(owner, run_jobs)
+
+    dispatched = provider.last_of(llm.PROSE_SYSTEM).prompt.schema
+
+    assert dispatched == llm.PARAGRAPHS_SCHEMA
+    assert_schema_is_accepted(dispatched)
 
 
 @SMALL

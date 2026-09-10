@@ -79,6 +79,14 @@ class Settings(BaseSettings):
     llm_mid_output_usd_per_mtok: float = 10.00
     """The mid tier: prose regeneration, the one job whose output the owner reads."""
 
+    # Both tier models support structured outputs, checked 2026-09-09 against the
+    # supported-models list at
+    # https://platform.claude.com/docs/en/build-with-claude/structured-outputs - the
+    # bare alias and the dated id both qualify, so "claude-haiku-4-5" needs no suffix.
+    # Worth the note because the cheap tier had never made a successful call when #116
+    # was written: prose is mid-tier, so a bad model id there would have looked exactly
+    # like the schema bug and been diagnosed twice.
+
     llm_mid_tier_operations: str = "regenerate_prose_profile"
     """Comma-separated operations that run on the mid tier; the rest run on the cheap one.
 

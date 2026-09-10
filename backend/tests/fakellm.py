@@ -19,7 +19,19 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from anchor import llm
-from fakeanthropic import assert_schema_is_accepted
+from schemacontract import assert_schema_is_accepted
+
+
+def _names(schema: dict[str, Any]) -> str:
+    """A label for the schema being checked, for when the check refuses it.
+
+    By answer shape rather than by system prompt, because the prompts run to several
+    hundred words and a schema failure should read as the schema problem it is. Written
+    to survive a schema with no ``required`` at all: that is itself a malformed schema,
+    and the naming of it must not be what raises.
+    """
+    shapes = schema.get("required") if isinstance(schema, dict) else None
+    return f"the {shapes[0]} schema" if shapes else "the dispatched schema"
 
 
 @dataclass(frozen=True)
@@ -154,9 +166,7 @@ class FakeLlm:
     async def complete(
         self, prompt: llm.Prompt, *, model: llm.Model, dispatch: llm.Dispatch
     ) -> llm.Completion:
-        # Named by answer shape rather than by system prompt: the prompts run to several
-        # hundred words, and a failure should read as the schema problem it is.
-        assert_schema_is_accepted(prompt.schema, where=f"the {prompt.schema['required'][0]} schema")
+        assert_schema_is_accepted(prompt.schema, where=_names(prompt.schema))
         if self.failure is not None and self._failing(prompt):
             raise self.failure
         self.asked.append(Asked(prompt=prompt, model=model, dispatch=dispatch))
