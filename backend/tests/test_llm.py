@@ -170,9 +170,9 @@ async def test_an_answer_with_no_text_still_costs_what_it_cost(owner, db, seam, 
     early, before the seam had written what the call cost.
     """
     account = await formed(owner, db)
-    provider.costs(input_tokens=3000, output_tokens=1200).says_nothing()
+    provider.costs(input_tokens=3000, output_tokens=1200).says_nothing("refusal")
 
-    with pytest.raises(llm.BadAnswer):
+    with pytest.raises(llm.BadAnswer, match="no text"):
         await seam.regenerate_prose_profile(account, evidence())
 
     (row,) = await spend_ledger(db)
@@ -180,14 +180,19 @@ async def test_an_answer_with_no_text_still_costs_what_it_cost(owner, db, seam, 
 
 
 @FORMING
-async def test_an_answer_cut_off_by_its_budget_says_it_was_cut_off(owner, db, seam, provider):
+async def test_an_answer_cut_off_by_its_budget_says_so_and_still_costs(owner, db, seam, provider):
     """The one attempt that got 422 characters in was reported as invalid JSON, which is
-    true and useless: what happened is that the budget ran out, and that is the message."""
+    true and useless: what happened is that the budget ran out, and that is the message.
+    It was paid for like the other five, and unlike them it did leave a row - which the
+    reordering must not lose."""
     account = await formed(owner, db)
-    provider.cut_off()
+    provider.costs(input_tokens=3000, output_tokens=1200).cut_off()
 
     with pytest.raises(llm.BadAnswer, match="max_tokens"):
         await seam.regenerate_prose_profile(account, evidence())
+
+    (row,) = await spend_ledger(db)
+    assert row[3:5] == (3000, 1200)
 
 
 @FORMING

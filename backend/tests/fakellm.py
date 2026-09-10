@@ -75,8 +75,12 @@ class FakeLlm:
     raw: list[tuple[str | None, str]] = field(default_factory=list)
     failure: Exception | None = None
     """Raised instead of answering, for the provider-is-down and no-credential paths."""
-    stop_reason: str | None = None
-    """Why the provider stopped, where a test needs it to be something other than done."""
+    stop_reason: str = "end_turn"
+    """Why the provider stopped, on every completion this fake gives for the whole run.
+
+    Whole-run rather than per-answer because no test yet needs one cut-off dispatch in a
+    flow of good ones; the day one does, this is what becomes a queue.
+    """
     no_text: bool = False
     """Answer with usage but no text block: a refusal, or a budget spent before a word."""
     failing_after: int = 0
@@ -130,13 +134,17 @@ class FakeLlm:
         self.input_tokens, self.output_tokens = input_tokens, output_tokens
         return self
 
-    def cut_off(self, partial: str = '{"paragraphs": ["Your t') -> "FakeLlm":
-        """The answer stops on ``max_tokens`` part-way through, the way #123's last try did."""
-        self.raw.append((None, partial))
+    def cut_off(self) -> "FakeLlm":
+        """The answer stops on ``max_tokens`` part-way through, the way #123's last try did.
+
+        Part-way, with text: the partial JSON is what tells a seam that names the cut-off
+        apart from one that parses first and reports the same message as invalid JSON.
+        """
+        self.raw.append((None, '{"paragraphs": ["Your t'))
         self.stop_reason = "max_tokens"
         return self
 
-    def says_nothing(self, stop_reason: str = "max_tokens") -> "FakeLlm":
+    def says_nothing(self, stop_reason: str) -> "FakeLlm":
         """A message with usage and no text: what a spent budget or a refusal comes back as."""
         self.no_text = True
         self.stop_reason = stop_reason
