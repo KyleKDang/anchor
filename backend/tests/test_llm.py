@@ -162,6 +162,35 @@ async def test_an_unusable_answer_still_costs_what_it_cost(owner, db, seam, prov
 
 
 @FORMING
+async def test_an_answer_with_no_text_still_costs_what_it_cost(owner, db, seam, provider):
+    """#123: six calls bought their whole budget and five of them wrote no row.
+
+    A message with usage and no text block reached the provider and was paid for, and the
+    ledger promises a row for every such call. The refusal was being raised one step too
+    early, before the seam had written what the call cost.
+    """
+    account = await formed(owner, db)
+    provider.costs(input_tokens=3000, output_tokens=1200).says_nothing()
+
+    with pytest.raises(llm.BadAnswer):
+        await seam.regenerate_prose_profile(account, evidence())
+
+    (row,) = await spend_ledger(db)
+    assert row[3:5] == (3000, 1200)
+
+
+@FORMING
+async def test_an_answer_cut_off_by_its_budget_says_it_was_cut_off(owner, db, seam, provider):
+    """The one attempt that got 422 characters in was reported as invalid JSON, which is
+    true and useless: what happened is that the budget ran out, and that is the message."""
+    account = await formed(owner, db)
+    provider.cut_off()
+
+    with pytest.raises(llm.BadAnswer, match="max_tokens"):
+        await seam.regenerate_prose_profile(account, evidence())
+
+
+@FORMING
 async def test_a_call_that_never_reached_a_provider_costs_nothing(owner, db, seam, provider):
     account = await formed(owner, db)
     provider.will_fail(llm.ProviderUnavailable("down"))
