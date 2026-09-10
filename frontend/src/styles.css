@@ -256,23 +256,32 @@ select {
 }
 
 /* The destinations as quiet tabs on a thin rail, and the wordmark carrying the same
-   amber dot that marks a rating everywhere else. */
-.nav {
+   amber dot that marks a rating everywhere else. The landing page wears the same rail
+   with the account verbs in place of the destinations, so the shape is shared here and
+   each says only how it differs. */
+.nav,
+.landing-nav {
   position: sticky;
   top: 0;
   z-index: 20;
   height: var(--nav-h);
   display: flex;
   align-items: center;
-  gap: var(--s1);
-  margin: 0 calc(var(--s5) * -1);
-  padding: 0 var(--s4);
   background: color-mix(in srgb, var(--bg) 86%, transparent);
   backdrop-filter: blur(12px);
   border-bottom: var(--hairline);
 }
 
-.nav a {
+.nav {
+  gap: var(--s1);
+  /* The frame's own side padding, cancelled: the rail spans the window. */
+  margin: 0 calc(var(--s5) * -1);
+  padding: 0 var(--s4);
+}
+
+/* A quiet tab: the destinations wear it, and so does the landing page's "Log in". */
+.nav a,
+.landing-login {
   position: relative;
   padding: 0.35rem 0.6rem;
   border-radius: var(--r-md);
@@ -284,13 +293,16 @@ select {
     color var(--fast) var(--ease);
 }
 
-.nav a:hover {
+.nav a:hover,
+.landing-login:hover {
   text-decoration: none;
   color: var(--text);
   background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
-.nav a.active {
+/* The tab you are standing on, and the one the landing page's framed rails mark. */
+.nav a.active,
+.screen-nav .active {
   color: var(--text);
   background: color-mix(in srgb, var(--ink) 9%, transparent);
 }
@@ -1077,7 +1089,10 @@ details.spoiler.section {
     box-shadow var(--base) var(--ease);
 }
 
-.poster-link:hover .poster {
+/* The lift is the affordance of a poster that leads somewhere, so it is the anchor's
+   and not the class's: the landing page wears the same shape on a picture, and a tile
+   that rises under the pointer and then does nothing is a promise the page cannot keep. */
+a.poster-link:hover .poster {
   transform: translateY(-2px);
   box-shadow: var(--shadow-2);
 }
@@ -2025,21 +2040,13 @@ details.spoiler.section {
   flex: 1;
 }
 
-/* The rail, with the two account verbs where the destinations would be. It stays at the
-   top on a phone rather than becoming a tab bar: a tab bar is for destinations, and a
-   visitor has none yet. */
+/* The rail again (`.nav` above carries its shape), with the two account verbs where the
+   destinations would be: no frame to cancel, so no negative margin, and it stays a rail
+   on a phone rather than becoming a tab bar, which is for destinations a visitor has
+   none of yet. */
 .landing-nav {
-  position: sticky;
-  top: 0;
-  z-index: 20;
-  height: var(--nav-h);
-  display: flex;
-  align-items: center;
   gap: var(--s3);
   padding: 0 var(--s5);
-  background: color-mix(in srgb, var(--bg) 86%, transparent);
-  backdrop-filter: blur(12px);
-  border-bottom: var(--hairline);
 }
 
 .landing-nav .wordmark {
@@ -2050,23 +2057,6 @@ details.spoiler.section {
   display: flex;
   align-items: center;
   gap: var(--s2);
-}
-
-.landing-login {
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--r-md);
-  color: var(--muted);
-  font-size: var(--text-sm);
-  font-weight: 500;
-  transition:
-    background-color var(--fast) var(--ease),
-    color var(--fast) var(--ease);
-}
-
-.landing-login:hover {
-  text-decoration: none;
-  color: var(--text);
-  background: color-mix(in srgb, var(--ink) 6%, transparent);
 }
 
 .landing-nav .button {
@@ -2160,11 +2150,13 @@ details.spoiler.section {
   border-top: var(--hairline);
 }
 
-.tour-step:nth-of-type(odd) {
+/* The middle step turns around, so the three alternate. The step says so itself rather
+   than the rule counting sections, which would count the hero and the closing too. */
+.tour-step.flipped {
   grid-template-columns: minmax(0, 7fr) minmax(0, 4fr);
 }
 
-.tour-step:nth-of-type(odd) .tour-copy {
+.tour-step.flipped .tour-copy {
   order: 2;
 }
 
@@ -2225,18 +2217,19 @@ details.spoiler.section {
   font-weight: 500;
 }
 
-.screen-nav .active {
-  color: var(--text);
-  background: color-mix(in srgb, var(--ink) 9%, transparent);
-}
-
 .screen-body {
   padding: 0 var(--s4) var(--s4);
 }
 
-.screen-body h1 {
-  font-size: var(--text-lg);
+/* The screen's own title, worn by a paragraph rather than a heading: this page has one
+   h1 and it is the statement, and a frame is a picture of a screen rather than a second
+   one. */
+.screen-title {
   margin: var(--s4) 0 var(--s2);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  letter-spacing: -0.015em;
 }
 
 .screen-body h2 {
@@ -2309,8 +2302,16 @@ details.spoiler.section {
   margin-top: var(--s1);
 }
 
+/* The frame's verbs are the app's quiet verb drawn at frame scale, and nothing more: a
+   picture of a control does not grow a pointer or answer a hover. */
 .screen .link-button {
   font-size: var(--text-xs);
+  cursor: default;
+}
+
+.screen .link-button:hover {
+  color: var(--muted);
+  text-decoration-color: transparent;
 }
 
 /* The last word and the two verbs once more, for whoever read the whole tour. */
@@ -3018,13 +3019,13 @@ details.spoiler.section {
   }
 
   .tour-step,
-  .tour-step:nth-of-type(odd) {
+  .tour-step.flipped {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--s5);
     padding: var(--s6) var(--s4);
   }
 
-  .tour-step:nth-of-type(odd) .tour-copy {
+  .tour-step.flipped .tour-copy {
     order: 0;
   }
 

@@ -63,6 +63,7 @@ export function Landing() {
           claim="A watchlist that ranks itself."
           body="Anything you pin stays at the top; the rest is ordered by how much you're likely to love it, once Anchor knows your taste. Mark a film watched and you rate it on the spot."
           active="Watchlist"
+          flipped
         >
           <WatchlistFrame />
         </TourStep>
@@ -108,7 +109,12 @@ function Hero() {
         </p>
       </div>
       <div className="specimen">
-        <BandRow row={specimen} posterSize="w342" />
+        {/* A picture of one band, like the framed screens below it, so the note under it
+            is the description rather than a caption on top of six ranks and titles read
+            out one by one. */}
+        <div aria-hidden="true">
+          <BandRow row={specimen} posterSize="w342" />
+        </div>
         <p className="specimen-note">
           One row of the wall: six films rated five stars, in their owner's order. Three are
           anchors, the films they're certain of, and the ones a new film gets compared with.
@@ -151,6 +157,7 @@ function TourStep({
   claim,
   body,
   active,
+  flipped = false,
   children,
 }: {
   id: string;
@@ -159,11 +166,19 @@ function TourStep({
   body: string;
   /** The tab the frame's miniature rail marks as current. */
   active: string;
+  /**
+   * Frame on the left, copy on the right - the middle step, so the three alternate.
+   *
+   * Declared per step rather than derived from the step's position, because a rule
+   * counting sections would count the hero and the closing too and invert the whole
+   * tour the day a fourth section lands between them.
+   */
+  flipped?: boolean;
   /** The framed screen itself. */
   children: ReactNode;
 }) {
   return (
-    <section className="tour-step" aria-labelledby={id}>
+    <section className={flipped ? "tour-step flipped" : "tour-step"} aria-labelledby={id}>
       <div className="tour-copy">
         <p className="eyebrow">{destination}</p>
         <h2 id={id}>{claim}</h2>
@@ -194,7 +209,7 @@ function ScreenNav({ active }: { active: string }) {
 function WallFrame() {
   return (
     <div className="screen-body">
-      <h1>Rated</h1>
+      <p className="screen-title">Rated</p>
       {wall.map((row) => (
         <BandRow key={row.band} row={row} posterSize="w154" />
       ))}
@@ -243,7 +258,7 @@ function BandRow({ row, posterSize }: { row: LandingBand; posterSize: "w154" | "
 function WatchlistFrame() {
   return (
     <div className="screen-body">
-      <h1>Watchlist</h1>
+      <p className="screen-title">Watchlist</p>
       <section className="section">
         <h2>Up next</h2>
         <p className="muted">In order. Pin anything you want held at the top.</p>
@@ -269,7 +284,7 @@ function WatchlistFrame() {
 function DiscoveryFrame() {
   return (
     <div className="screen-body">
-      <h1>Discovery</h1>
+      <p className="screen-title">Discovery</p>
       <section className="section">
         <h2>Suggestions</h2>
         <ul className="film-list">
@@ -321,10 +336,12 @@ function Footer() {
       <div className="landing-footer-inner">
         <div className="footer-brand">
           <span className="wordmark">Anchor</span>
-          <nav className="footer-links" aria-label="Account">
+          {/* The rail's two verbs again, and not a second "Account" landmark: they lead
+              exactly where the rail's do, so announcing them twice is noise. */}
+          <div className="footer-links">
             <Link to="/signup">Sign up</Link>
             <Link to="/login">Log in</Link>
-          </nav>
+          </div>
         </div>
         <div className="attribution">
           <a href="https://www.themoviedb.org/" target="_blank" rel="noreferrer noopener">

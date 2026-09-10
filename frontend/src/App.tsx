@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from "react-router";
 
 import { api } from "./api";
-import { RequireAccount, RequireVisitor } from "./auth";
+import { RequireAccount, RequireVisitor, useAuth } from "./auth";
 import { ReadOnlyPitch } from "./demo";
 import { destinations } from "./destinations";
 import { Film } from "./screens/Film";
@@ -11,6 +11,7 @@ import { Questions } from "./screens/Questions";
 import { Import } from "./screens/import/Import";
 import { Review } from "./screens/import/Review";
 import { Login } from "./screens/auth/Login";
+import { Landing } from "./screens/landing/Landing";
 import { Signup } from "./screens/auth/Signup";
 import { Verify } from "./screens/auth/Verify";
 import { Warmup } from "./screens/onboarding/Warmup";
@@ -29,6 +30,16 @@ export function App() {
         </Route>
         <Route path="/verify" element={<Verify />} />
         <Route path="/debug/error" element={<DebugError />} />
+        {/* The root is the one route with two faces, so it does its own account read
+            rather than sitting behind a guard that can only answer one of them: signed
+            out it is the front door, signed in it is the redirect it has always been.
+            The frame is still around the signed-in side, because the wordmark leads
+            here and the rail blinking out over a read would be the app flickering. */}
+        <Route path="/" element={<Root />}>
+          <Route element={<Shell />}>
+            <Route index element={<Home />} />
+          </Route>
+        </Route>
         <Route element={<RequireAccount />}>
           {/* Full-screen and outside the frame: on the picker there is nothing to do
             but pick, so the navigation would only be a distraction. The entry fork
@@ -40,7 +51,6 @@ export function App() {
           <Route path="/films/:tmdbId/questions" element={<Questions />} />
           <Route path="/welcome" element={<Welcome />} />
           <Route element={<Shell />}>
-            <Route index element={<Home />} />
             {destinations.map(({ path, screen: Screen }) => (
               <Route key={path} path={path} element={<Screen />} />
             ))}
@@ -61,6 +71,19 @@ export function App() {
       </Routes>
     </>
   );
+}
+
+/**
+ * The root's two faces: the landing page for a visitor, the app for an account.
+ *
+ * A read rather than a guard, because the two answers are screens rather than an
+ * allow and a redirect - `RequireAccount` can only send a visitor somewhere else, and
+ * where a visitor belongs at the root is here.
+ */
+function Root() {
+  const { account } = useAuth();
+  if (account === undefined) return null;
+  return account === null ? <Landing /> : <Outlet />;
 }
 
 /**

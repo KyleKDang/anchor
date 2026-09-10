@@ -50,9 +50,10 @@ test("a signed-out visitor lands on the front door and can reach both auth scree
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Log in");
 
-  // The rail carries the same two verbs.
+  // The rail carries the same two verbs, and is the page's one Account landmark.
   await page.goto("/");
-  await page.getByRole("navigation", { name: "Account" }).first().getByText("Log in").click();
+  await expect(page.getByRole("navigation", { name: "Account" })).toHaveCount(1);
+  await page.getByRole("navigation", { name: "Account" }).getByText("Log in").click();
   await expect(page).toHaveURL(/\/login$/);
 
   // Signed in, the root is a redirect into the app exactly as it was before the landing
