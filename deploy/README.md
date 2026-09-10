@@ -8,6 +8,13 @@ Merging to `main` runs the test jobs in `.github/workflows/ci.yml`; if they pass
 The job then smokes the live site with the skeleton journey.
 A red deploy job is read by its failed step: anything before "Ship to the box" means nothing changed on the server; "Ship" means the new stack did not come up healthy; "Smoke" means it is up but the journey failed.
 
+## The demo account
+
+The `demo` service rebuilds the demo account from `backend/src/anchor/demofixture.json` on every deploy: it replays the fixture through the web app and waits on the worker for the retrains, the prose and the discovery restock, so it runs on for some minutes after the deploy job has gone green.
+The previous demo keeps serving until the new one has passed its own checks, and a build that fails leaves it standing, exits non-zero, and reports to Sentry.
+Read its log with `docker compose logs demo` on the box; rerun it by hand with `docker compose up demo`.
+The account carries no password and is entered only through the landing page's button.
+
 ## Rolling back
 
 Re-run the `deploy` job of the last good commit from the Actions tab.

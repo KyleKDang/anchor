@@ -359,6 +359,16 @@ class Settings(BaseSettings):
     debug_error_rate_limit: int = 3
     """Caps the Sentry check endpoint so nobody can loop it to burn the error quota."""
 
+    demo_rate_limit: int = 30
+    """Entries into the demo per IP per window. Each is a session row and nothing else, so
+    the limit is against filling the table rather than against anything a visitor could
+    reach (demo-account.md: concurrent visitors are unlimited because nothing writes)."""
+
+    demo_build_timeout_seconds: float = 4 * 60 * 60
+    """How long ``python -m anchor.demobuild`` waits on the worker for one stage of the
+    replay. Generous because the shelf is bought through Message Batches, and a batch can
+    take the better part of an hour; the build blocks nothing but itself."""
+
     @property
     def sqlalchemy_url(self) -> str:
         return self.database_url.replace("postgresql://", "postgresql+psycopg://", 1)

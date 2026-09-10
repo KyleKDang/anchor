@@ -5,8 +5,11 @@ working search with no credential and the browser smoke suite is deterministic.
 It answers the endpoints Anchor uses - ``GET /3/search/movie``, the two browse grids,
 the bundled ``GET /3/movie/{id}?append_to_response=credits,keywords``, and discovery's
 ``/3/discover/movie``, ``/3/movie/{id}/similar``, ``/3/movie/{id}/recommendations`` and
-``/3/genre/movie/list`` - over a fixed handful of films. Standard library only. Poster
-paths are deliberately absent: nothing here should hotlink real TMDB images.
+``/3/genre/movie/list`` - over a fixed handful of films, plus every film the demo
+fixture names when one is mounted at ``DEMO_FIXTURE`` (the compose file mounts the
+checked-in one), so the demo build replays against this fake exactly as it does against
+TMDB. Standard library only. Poster paths are deliberately absent: nothing here should
+hotlink real TMDB images.
 """
 
 import json
@@ -17,19 +20,26 @@ from urllib.parse import parse_qs, urlparse
 
 GENRE_IDS = {
     "Action": 28,
+    "Adventure": 12,
+    "Animation": 16,
     "Comedy": 35,
     "Crime": 80,
+    "Documentary": 99,
     "Drama": 18,
+    "Family": 10751,
+    "Fantasy": 14,
+    "History": 36,
     "Horror": 27,
     "Music": 10402,
     "Mystery": 9648,
     "Romance": 10749,
     "Science Fiction": 878,
+    "TV Movie": 10770,
     "Thriller": 53,
     "War": 10752,
     "Western": 37,
 }
-"""TMDB's own ids for the genres this catalog uses.
+"""TMDB's own genre vocabulary and its real ids.
 
 Real ids rather than invented ones, because discovery turns a genre *name* from the
 weight vector into an id for a discover slice and back again: a fake with a private
@@ -173,6 +183,40 @@ CATALOG = {
         620,
     ),
 }
+
+def demo_films(path: str) -> dict[int, dict[str, Any]]:
+    """The demo fixture's films, in this catalog's shape, or nothing where none is mounted.
+
+    Only what the fixture states - id, title, year, genres, director, language - is real;
+    the vote figures are spread deterministically off the id so the import's default
+    order is not one flat tie, and the poster is absent like every other film's here.
+    """
+    if not os.path.exists(path):
+        return {}
+    with open(path, encoding="utf-8") as handle:
+        fixture = json.load(handle)
+    named = [
+        *(entry for band in fixture.get("wall", []) for entry in band.get("films", [])),
+        *fixture.get("backlog", []),
+        *fixture.get("rate_later", []),
+    ]
+    return {
+        entry["tmdb_id"]: film(
+            entry["tmdb_id"],
+            entry["title"],
+            f"{entry['year']}-06-01",
+            [genre for genre in entry.get("genres", []) if genre in GENRE_IDS],
+            entry.get("director", "Unknown"),
+            popularity=5.0 + entry["tmdb_id"] % 50,
+            vote_average=5.0 + (entry["tmdb_id"] % 40) / 10,
+            vote_count=1000 + entry["tmdb_id"] % 5000,
+            original_language=entry.get("language", "en"),
+        )
+        for entry in named
+    }
+
+
+CATALOG.update(demo_films(os.environ.get("DEMO_FIXTURE", "/demofixture.json")))
 
 LIST_FIELDS = (
     "id",

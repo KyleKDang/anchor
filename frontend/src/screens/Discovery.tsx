@@ -72,13 +72,14 @@ export function Discovery() {
     const arriving = openedFor !== id;
     if (arriving) openedFor = id;
     void load(arriving);
-    if (arriving) {
+    if (arriving && !account?.demo) {
       // The same arrival clears the one-time dot this destination was carrying. A dot is
       // the quietest thing on the screen, so failing to clear one is not worth a banner;
-      // the next visit asks again.
+      // the next visit asks again. Not on the demo, which never carries a dot: the clear
+      // is a write, and the pitch it would raise is for something the visitor pressed.
       void api.seenDiscovery().catch(() => undefined);
     }
-  }, [load, account?.id]);
+  }, [load, account?.id, account?.demo]);
 
   /**
    * Take the shelf an action handed back, rather than reloading the screen for it.

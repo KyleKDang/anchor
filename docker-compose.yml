@@ -7,6 +7,10 @@ x-app-environment: &app-environment
   # Likewise TMDB: the dev stack talks to the fake below, so it needs no credential.
   ANCHOR_TMDB_BASE_URL: http://tmdb:8030/3
   ANCHOR_TMDB_ACCESS_TOKEN: dev
+  # And Anthropic: the fake below answers every operation, so the dev stack has a prose
+  # profile and a stocked shelf, and the demo build can pass its own checks.
+  ANCHOR_ANTHROPIC_BASE_URL: http://anthropic:8040
+  ANCHOR_ANTHROPIC_API_KEY: dev
   # The per-IP auth limits are a production defence, and in-process, so re-running the
   # smoke suite inside one window exhausts them: every journey signs up and verifies,
   # and the window outlives the run. Dev and CI raise them rather than trip them.
@@ -70,6 +74,21 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
+      anthropic:
+        condition: service_started
+
+  demo:
+    # The demo account, rebuilt from the checked-in fixture on every `up`: the replay goes
+    # through the web app in-process and waits on the worker for the jobs, so it starts
+    # once the stack answers and finishes on its own time. `docker compose wait demo`
+    # blocks until it has, and relays its exit code (the smoke suite does exactly that).
+    image: anchor-app
+    command: ["python", "-m", "anchor.demobuild"]
+    environment: *app-environment
+    restart: "no"
+    depends_on:
+      web:
+        condition: service_healthy
 
   mail:
     # Resend's HTTP API, faked: dev and test never send real mail. Read what was sent
@@ -88,6 +107,16 @@ services:
     command: ["python", "/fake_tmdb.py"]
     volumes:
       - ./backend/tools/fake_tmdb.py:/fake_tmdb.py:ro
+      # The demo fixture's films, so the demo build's import matches every one of them.
+      - ./backend/src/anchor/demofixture.json:/demofixture.json:ro
+
+  anthropic:
+    # Anthropic's Messages API, faked: canned prose, a ranking that keeps the list it was
+    # given, and a stable few tags per film. No credential, no spend, deterministic.
+    image: python:3.13-alpine
+    command: ["python", "/fake_anthropic.py"]
+    volumes:
+      - ./backend/tools/fake_anthropic.py:/fake_anthropic.py:ro
 
   caddy:
     build:

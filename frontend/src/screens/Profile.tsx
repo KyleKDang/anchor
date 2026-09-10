@@ -760,11 +760,39 @@ function Bar({ threshold }: { threshold: Threshold }) {
   );
 }
 
+/**
+ * The account area, which on the demo is the one place the demo says what it is.
+ *
+ * Neutral by design (demo-account.md): a lived-in account, nobody's in particular, with
+ * a way out and a way to build one of your own. No address, because the demo's is not
+ * one anybody could log in with, and no delete form, because there is no password to
+ * confirm it with and a control that can only refuse is worse than none.
+ */
 function AccountSection() {
   const { account, logOut, accountDeleted } = useAuth();
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+
+  if (account?.demo) {
+    return (
+      <section className="section" aria-labelledby="account-heading">
+        <h2 id="account-heading">Account</h2>
+        <p>
+          <strong>Demo account</strong> - a lived-in account you can explore. Nothing you press here
+          changes it.
+        </p>
+        <div className="actions">
+          <Link className="button" to="/signup">
+            Build your own
+          </Link>
+          <button type="button" className="button secondary" onClick={() => void logOut()}>
+            Leave the demo
+          </button>
+        </div>
+      </section>
+    );
+  }
 
   async function handleDelete(event: FormEvent) {
     event.preventDefault();
