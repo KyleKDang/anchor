@@ -184,6 +184,7 @@ CATALOG = {
     ),
 }
 
+
 def demo_films(path: str) -> dict[int, dict[str, Any]]:
     """The demo fixture's films, in this catalog's shape, or nothing where none is mounted.
 

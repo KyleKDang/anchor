@@ -33,9 +33,7 @@ def answer(body: dict[str, Any]) -> str:
     """The JSON text for one request, by the answer shape its schema requires."""
     schema = body.get("output_config", {}).get("format", {}).get("schema", {})
     (shape,) = schema.get("required") or ["paragraphs"]
-    user = "".join(
-        str(message.get("content", "")) for message in body.get("messages", [])
-    )
+    user = "".join(str(message.get("content", "")) for message in body.get("messages", []))
     if shape == "ranked":
         return json.dumps({"ranked": _ranking(user)})
     if shape == "qualities":
@@ -119,8 +117,12 @@ class Handler(BaseHTTPRequestHandler):
             }
             return self._json(200, {"id": batch_id, "processing_status": "in_progress"})
         if self.path.startswith("/v1/messages/batches/") and self.path.endswith("/cancel"):
-            return self._json(200, {"id": self.path.split("/")[-2], "processing_status": "canceling"})
-        self._json(404, {"type": "error", "error": {"type": "not_found_error", "message": self.path}})
+            return self._json(
+                200, {"id": self.path.split("/")[-2], "processing_status": "canceling"}
+            )
+        self._json(
+            404, {"type": "error", "error": {"type": "not_found_error", "message": self.path}}
+        )
 
     def do_GET(self) -> None:
         parts = self.path.strip("/").split("/")
@@ -128,17 +130,25 @@ class Handler(BaseHTTPRequestHandler):
             batch = BATCHES.get(parts[3])
             if batch is None:
                 return self._json(
-                    404, {"type": "error", "error": {"type": "not_found_error", "message": parts[3]}}
+                    404,
+                    {"type": "error", "error": {"type": "not_found_error", "message": parts[3]}},
                 )
             if len(parts) == 4:
                 return self._json(200, {"id": parts[3], "processing_status": "ended"})
             if parts[4] == "results":
                 lines = [
-                    json.dumps({"custom_id": custom_id, "result": {"type": "succeeded", "message": message}})
+                    json.dumps(
+                        {
+                            "custom_id": custom_id,
+                            "result": {"type": "succeeded", "message": message},
+                        }
+                    )
                     for custom_id, message in batch.items()
                 ]
                 return self._text(200, "\n".join(lines) + "\n")
-        self._json(404, {"type": "error", "error": {"type": "not_found_error", "message": self.path}})
+        self._json(
+            404, {"type": "error", "error": {"type": "not_found_error", "message": self.path}}
+        )
 
     def _body(self) -> dict[str, Any]:
         length = int(self.headers.get("Content-Length") or 0)
