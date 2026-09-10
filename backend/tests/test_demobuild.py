@@ -22,7 +22,7 @@ from sqlalchemy import select
 
 import flows
 from anchor import demobuild, llm
-from anchor.models import BANDS, Account, SpendLedgerEntry
+from anchor.models import BANDS, Account, LlmOperation, SpendLedgerEntry
 from faketmdb import FilmFixture
 from invariants import assert_ordering_well_formed, placement_clocks, prose_versions
 
@@ -286,6 +286,58 @@ async def test_a_rebuild_replaces_the_previous_demo_rather_than_joining_it(
 
     visitor = await _visitor(client_from)
     assert (await visitor.get("/api/auth/me")).json()["id"] == str(second)
+
+
+async def test_a_rebuild_carries_the_visitors_already_inside_across(
+    client, client_from, db, run_jobs
+):
+    """A deploy landing mid-browse must not put a visitor in front of a login form.
+
+    The demo has no password, so a session that died with the old account could only be
+    replaced by leaving and coming back in; the swap moves the sessions instead.
+    """
+    await a_built_demo(client, db, run_jobs)
+    visitor = await _visitor(client_from)
+    second = await a_built_demo(client_from("10.0.0.8"), db, run_jobs)
+    me = await visitor.get("/api/auth/me")
+    assert me.status_code == 200, me.text
+    assert me.json() == {
+        "id": str(second),
+        "email": demobuild.DEMO_EMAIL,
+        "verified": True,
+        "demo": True,
+    }
+
+
+async def test_a_build_that_died_still_has_its_spend_on_the_ledger(
+    client, client_from, db, run_jobs
+):
+    """The tokens a failed build bought were bought; the next build must not erase the row."""
+    async with db.sessions() as session:
+        died = Account(email=demobuild.BUILDING_EMAIL, verified_at=datetime.now(UTC))
+        session.add(died)
+        await session.flush()
+        session.add(
+            SpendLedgerEntry(
+                account_id=died.id,
+                operation=LlmOperation.regenerate_prose_profile,
+                model="claude-sonnet-5",
+                input_tokens=1000,
+                output_tokens=200,
+                cost_micros=4000,
+            )
+        )
+        await session.commit()
+        earlier = died.id
+
+    await a_built_demo(client, db, run_jobs)
+
+    async with db.sessions() as session:
+        assert await session.get(Account, earlier) is None, "the half-built account is gone"
+        kept = await session.scalar(
+            select(SpendLedgerEntry).where(SpendLedgerEntry.cost_micros == 4000)
+        )
+        assert kept is not None and kept.account_id is None, "its spend is shared, not lost"
 
 
 # --- The door ---

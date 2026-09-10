@@ -17,14 +17,19 @@ interface Auth {
   account: Account | null | undefined;
   /** A line for the login screen after a deliberate sign-out ("You are logged out."). */
   notice: string | null;
-  /** The session ended on purpose rather than expiring under the visitor. */
-  left: boolean;
+  /**
+   * How the session ended, when it ended on purpose: an owner signing out, or a visitor
+   * putting the demo down. Null while a session is live or was lost rather than left.
+   */
+  exit: Exit;
   /** The API just logged this account in (login or verification). */
   loggedIn: (account: Account) => void;
   logOut: () => Promise<void>;
   /** The account was just deleted; the guards send the visitor to login. */
   accountDeleted: () => void;
 }
+
+type Exit = "signed-out" | "left-demo" | null;
 
 const AuthContext = createContext<Auth | null>(null);
 
@@ -53,28 +58,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // of truth; this only means a visitor gets the pitch instead of a round trip.
   useEffect(() => readOnlySession(account?.demo ?? false), [account]);
 
-  // Whether the session ended on purpose. A lost session comes back to where it was; a
-  // deliberate exit does not, and where it goes instead depends on what was signed out.
-  const [left, setLeft] = useState(false);
+  // A lost session comes back to where it was; a deliberate exit does not, and where it
+  // goes instead depends on who left.
+  const [exit, setExit] = useState<Exit>(null);
 
   const loggedIn = useCallback((signedIn: Account) => {
     setAccount(signedIn);
     setNotice(null);
-    setLeft(false);
+    setExit(null);
   }, []);
 
-  const loggedOut = useCallback((reason: string | null) => {
+  const loggedOut = useCallback((reason: string) => {
     setAccount(null);
     setNotice(reason);
-    setLeft(true);
+    setExit("signed-out");
   }, []);
 
   const logOut = useCallback(async () => {
     const wasDemo = account?.demo ?? false;
     await api.logOut();
+    if (!wasDemo) {
+      loggedOut("You are logged out.");
+      return;
+    }
     // A visitor leaving the demo was never logged in as anybody, so there is nothing to
     // say and nowhere to say it: they go back to the front door they came in by.
-    loggedOut(wasDemo ? null : "You are logged out.");
+    setAccount(null);
+    setNotice(null);
+    setExit("left-demo");
   }, [account, loggedOut]);
 
   const accountDeleted = useCallback(
@@ -83,8 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ account, notice, left, loggedIn, logOut, accountDeleted }),
-    [account, notice, left, loggedIn, logOut, accountDeleted],
+    () => ({ account, notice, exit, loggedIn, logOut, accountDeleted }),
+    [account, notice, exit, loggedIn, logOut, accountDeleted],
   );
 
   if (bootError) return <Unavailable message={bootError} />;
@@ -113,13 +124,13 @@ export function useAuth(): Auth {
 
 /** Renders its children only for a logged-in account; sends visitors to the login screen. */
 export function RequireAccount() {
-  const { account, notice, left } = useAuth();
+  const { account, notice, exit } = useAuth();
   const location = useLocation();
   if (account === undefined) return null;
   if (account === null) {
     // A visitor who put the demo down goes back to the front door; an owner who signed
     // out gets the login screen and its line; a lost session comes back to where it was.
-    if (left && notice === null) return <Navigate to="/" replace />;
+    if (exit === "left-demo") return <Navigate to="/" replace />;
     const state = notice ? undefined : { from: location.pathname };
     return <Navigate to="/login" replace state={state} />;
   }

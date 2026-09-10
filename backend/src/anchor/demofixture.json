@@ -7,8 +7,8 @@
     "Pulp Fiction and Goodfellas are three-star films: wall-to-wall talk and narration.",
     "The Shawshank Redemption, Inception and Interstellar are the 2.5 band's anchors.",
     "Dunkirk is a 4.0 while Inception is a 2.5: the same director, judged by how much he explains.",
-    "Forrest Gump anchors 2.0; Dead Poets Society and Life Is Beautiful sit lower still.",
-    "Love Actually is a half-star film."
+    "Forrest Gump anchors 2.0; Dead Poets Society, Life Is Beautiful and Good Will Hunting sit lower still.",
+    "Love Actually and The Notebook are half-star films."
   ],
   "wall": [
     {
@@ -118,7 +118,7 @@
         {"tmdb_id": 490132, "title": "Green Book", "year": 2018, "genres": ["Drama", "Comedy", "History"], "director": "Peter Farrelly", "anchor": true, "watched_days_ago": 265},
         {"tmdb_id": 637, "title": "Life Is Beautiful", "year": 1997, "genres": ["Comedy", "Drama"], "director": "Roberto Benigni", "language": "it", "anchor": true, "watched_days_ago": 552},
         {"tmdb_id": 1640, "title": "Crash", "year": 2004, "genres": ["Drama"], "director": "Paul Haggis", "anchor": false, "watched_days_ago": 437},
-        {"tmdb_id": 10312, "title": "Patch Adams", "year": 1998, "genres": ["Comedy", "Drama"], "director": "Tom Shadyac", "anchor": false, "watched_days_ago": 590},
+        {"tmdb_id": 489, "title": "Good Will Hunting", "year": 1997, "genres": ["Drama"], "director": "Gus Van Sant", "anchor": false, "watched_days_ago": 590},
         {"tmdb_id": 50014, "title": "The Help", "year": 2011, "genres": ["Drama"], "director": "Tate Taylor", "anchor": false, "watched_days_ago": 372}
       ]
     },
@@ -128,7 +128,7 @@
         {"tmdb_id": 508, "title": "Love Actually", "year": 2003, "genres": ["Comedy", "Romance", "Drama"], "director": "Richard Curtis", "anchor": true, "watched_days_ago": 296},
         {"tmdb_id": 345920, "title": "Collateral Beauty", "year": 2016, "genres": ["Drama", "Romance"], "director": "David Frankel", "anchor": true, "watched_days_ago": 418},
         {"tmdb_id": 11321, "title": "Seven Pounds", "year": 2008, "genres": ["Drama", "Romance"], "director": "Gabriele Muccino", "anchor": false, "watched_days_ago": 533},
-        {"tmdb_id": 10647, "title": "Pay It Forward", "year": 2000, "genres": ["Drama"], "director": "Mimi Leder", "anchor": false, "watched_days_ago": 462}
+        {"tmdb_id": 11036, "title": "The Notebook", "year": 2004, "genres": ["Romance", "Drama"], "director": "Nick Cassavetes", "anchor": false, "watched_days_ago": 462}
       ]
     }
   ],
