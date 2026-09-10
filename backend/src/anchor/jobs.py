@@ -223,10 +223,14 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
     the deployment rather than a promise about the code.
 
     Everything the provider might refuse - a spent cap, no credential, a provider that is
-    down - arrives as ``Skipped``, and the answer to all of it is to leave the live
-    version alone. That is the whole degradation story: the owner sees the prose they
-    already had, with the last-updated line it already carried, and nothing tells them
-    anything went wrong, because from their side nothing did.
+    down, a request it would not accept - arrives as ``Skipped``, and the answer to all of
+    it is to leave the live version alone. That is the whole degradation story: the owner
+    sees the prose they already had, with the last-updated line it already carried, and
+    nothing tells them anything went wrong, because from their side nothing did.
+
+    What differs between those is only how loudly the skip is logged, and ``skip_level``
+    decides that: an outage passes and a malformed request does not, so the second one is
+    logged at the level that reaches Sentry (#117).
     """
     from anchor import llm as llm_module
     from anchor import prose, qualities
@@ -245,7 +249,12 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
     try:
         text = await seam.regenerate_prose_profile(account, evidence)
     except llm_module.Skipped as skipped:
-        log.info("prose profile for %s not regenerated: %s", account_id, skipped)
+        log.log(
+            llm_module.skip_level(skipped),
+            "prose profile for %s not regenerated: %s",
+            account_id,
+            skipped,
+        )
         return
 
     async with db.sessions() as session:
@@ -301,7 +310,12 @@ async def refresh_quality_suggestions(context: JobContext, account_id: str) -> N
     try:
         suggested = await seam.suggest_qualities(account, evidence, listed)
     except llm_module.Skipped as skipped:
-        log.info("quality suggestions for %s not refreshed: %s", account_id, skipped)
+        log.log(
+            llm_module.skip_level(skipped),
+            "quality suggestions for %s not refreshed: %s",
+            account_id,
+            skipped,
+        )
         return
 
     async with db.sessions() as session:
@@ -327,6 +341,8 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     the answer to all of them is to leave the film untagged and try again another day:
     none of them cost anything, and nothing degrades visibly, because criteria selection
     falls back to the quality rotation - which is what it did before any film had tags.
+    A request the provider would not accept degrades the same way and is logged louder,
+    per ``skip_level``.
 
     An answer that does not parse is the opposite case and is treated as the opposite
     way round. The ledger row for it is already written, so leaving the film untagged
@@ -348,7 +364,7 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     try:
         named = await seam.tag_film_qualities(film, BUILT_IN_QUALITIES)
     except llm_module.Skipped as skipped:
-        log.info("film %s not tagged: %s", tmdb_id, skipped)
+        log.log(llm_module.skip_level(skipped), "film %s not tagged: %s", tmdb_id, skipped)
         return
     except llm_module.BadAnswer:
         log.exception("the tagging prompt got an answer it cannot read; film %s", tmdb_id)

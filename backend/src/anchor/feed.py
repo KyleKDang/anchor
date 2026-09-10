@@ -543,7 +543,12 @@ async def _rerank(
         try:
             ranked = await seam.rerank_candidates(account_id, profile, _candidates(window))
         except llm_module.Skipped as skipped:
-            log.info("discovery rerank for %s stopped: %s", account_id, skipped)
+            log.log(
+                llm_module.skip_level(skipped),
+                "discovery rerank for %s stopped: %s",
+                account_id,
+                skipped,
+            )
             return False
         async with db.sessions() as session:
             for rank, answer in enumerate(ranked, start=start):

@@ -12,6 +12,7 @@ never past a cap - and a test suite that only checked the happy path would pass 
 well against an engine that regenerated on every answer.
 """
 
+import logging
 import uuid
 
 import pytest
@@ -284,6 +285,44 @@ async def test_a_provider_that_is_down_leaves_the_prose_alone(owner, db, run_job
     await run_jobs()
 
     assert len(await prose_versions(db, account)) == 1
+
+
+@SMALL
+async def test_a_request_the_provider_would_not_accept_is_reported_rather_than_hidden(
+    owner, db, run_jobs, provider, caplog
+):
+    """#117: a malformed request degrades exactly like an outage and must not read like one.
+
+    The owner sees the prose they already had either way - that part is the design - but
+    an outage passes and a bug does not, so the bug is logged at the level sentry_sdk
+    turns into an event, with the provider's own words in it.
+    """
+    account = await settled(owner, run_jobs)
+    provider.will_fail(llm.BadRequest("Anthropic rejected /v1/messages with 400: no maxItems"))
+
+    await build_ordering(owner, LIBRARY[5:7])
+    with caplog.at_level(logging.INFO, logger="anchor.jobs"):
+        await run_jobs()
+
+    assert len(await prose_versions(db, account)) == 1
+    reported = [record for record in caplog.records if record.name == "anchor.jobs"]
+    assert reported, "the skip left no trace at all"
+    assert all(record.levelno == logging.ERROR for record in reported)
+    assert all("no maxItems" in record.getMessage() for record in reported)
+
+
+@SMALL
+async def test_a_provider_that_is_down_is_not_reported_as_a_bug(owner, run_jobs, provider, caplog):
+    """The counterweight: weather is why the skip path exists, and it stays quiet."""
+    await settled(owner, run_jobs)
+    provider.will_fail(llm.ProviderUnavailable("down"))
+
+    await build_ordering(owner, LIBRARY[5:7])
+    with caplog.at_level(logging.INFO, logger="anchor.jobs"):
+        await run_jobs()
+
+    reported = [record for record in caplog.records if record.name == "anchor.jobs"]
+    assert reported and all(record.levelno == logging.INFO for record in reported)
 
 
 @SMALL
