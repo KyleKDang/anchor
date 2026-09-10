@@ -11,6 +11,7 @@ import { Navigate, Outlet, useLocation } from "react-router";
 
 import { api, ApiError, messageOf, readOnlySession, type Account } from "./api";
 import { AuthCard } from "./screens/auth/AuthCard";
+import { Landing } from "./screens/landing/Landing";
 
 interface Auth {
   /** `undefined` while the session is still being looked up, `null` when logged out. */
@@ -106,6 +107,11 @@ export function RequireAccount() {
   const location = useLocation();
   if (account === undefined) return null;
   if (account === null) {
+    // The root is the one route with a signed-out face of its own: the landing page,
+    // rather than a bounce to the login card (#113). The decision lives here because
+    // "/" has to stay a single route - signed in it is still the redirect into the app,
+    // and two routes claiming the same path could only ever render one of them.
+    if (location.pathname === "/") return <Landing />;
     // A deliberate sign-out starts over at the front door; a lost session comes back here.
     const state = notice ? undefined : { from: location.pathname };
     return <Navigate to="/login" replace state={state} />;

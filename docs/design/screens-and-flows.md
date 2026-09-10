@@ -4,6 +4,25 @@ Consolidates wayfinder ticket [Core flows in prose (#11)](https://github.com/Kyl
 This doc fixes behavior and content, not visual design; the look is fixed in [visual-design.md](visual-design.md).
 Surfacing and nudge moments are governed by [surfacing.md](surfacing.md); auth and account screens by [architecture.md](architecture.md).
 
+## Landing page
+
+The front door, and the only screen outside the frame that is not an auth card.
+Signed out, `/` renders it; signed in, `/` is still the redirect into the app.
+Its visual direction was chosen by prototype on [#113](https://github.com/KyleKDang/anchor/issues/113): a statement beside one real band of the wall, then one step per destination with that screen shown in a frame.
+
+- The rail keeps the app's shape with the account verbs where the destinations would be: wordmark left, **Log in** as a quiet nav link, **Sign up** as the primary.
+  It stays a rail on a phone rather than becoming a tab bar, which is for destinations a visitor does not have yet.
+- The hero: the headline *Rank every film you've ever seen.*, one line under it naming the three surfaces, **Sign up** primary beside a hairline secondary, and one line for the visitor who already rates elsewhere, framed as the Letterboxd import ([onboarding-and-import.md](onboarding-and-import.md)) rather than as a comparison.
+  Beside it, one band of the wall as a specimen, with the anchors badged and a caption explaining them in plain words.
+- Three steps, in destination order, each with the destination's own name as its eyebrow, a claim, one paragraph, and the screen in a frame: **Rated** (everything watched, ranked by hand), **Watchlist** (a watchlist that ranks itself), **Discovery** (recommendations that know your taste).
+- The framed screens are pictures: their verbs are inert text, because a control that does nothing is worst on the one page whose visitor has never seen a live one.
+- The closing repeats the two verbs under *Start with the films you're sure of.*
+- The footer carries the wordmark, the two verbs again, and the mandatory TMDB attribution ([ADR 0003](../adr/0003-tmdb-licensing-posture.md)).
+- **Vocabulary**: *tier list* is the visitor's word and appears only here; inside the app the words stay bands and the wall ([CONTEXT.md](../../CONTEXT.md)).
+  Nothing on the page names a score ([ADR 0005](../adr/0005-no-rating-shaped-predictions.md)).
+- The films are a checked-in list rather than an account's: the page paints with no session, and it must not depend on the demo account.
+- The demo's one-click entry takes the hero's and the closing's secondary slot when [#108](https://github.com/KyleKDang/anchor/issues/108) lands, moving **Log in** to the rail and the footer alone.
+
 ## Top-level structure
 
 Five top-level destinations: **Watchlist**, **Discovery**, **Rated**, **Search**, and **Profile**.
