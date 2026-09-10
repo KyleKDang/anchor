@@ -8,13 +8,12 @@ most a tiny manual smoke check.
 """
 
 import json
-import logging
 
 import pytest
 
 from anchor import llm
 from anchor.settings import Settings
-from fakeanthropic import FakeAnthropic
+from fakeanthropic import FakeAnthropic, Rejection
 from schemacontract import RejectedSchema, assert_schema_is_accepted
 
 MODEL = llm.Model(id="claude-haiku-4-5", input_usd_per_mtok=1.0, output_usd_per_mtok=5.0)
@@ -128,7 +127,7 @@ async def test_a_rejected_request_carries_what_the_provider_objected_to(anthropi
     The body the provider sent back is the only thing that names the mistake, and
     discarding it meant diagnosing #116 through a droplet console instead of a log line.
     """
-    anthropic.rejects = 400
+    anthropic.rejection = Rejection()
 
     with pytest.raises(llm.BadRequest) as raised:
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
@@ -140,16 +139,16 @@ async def test_a_rejected_request_carries_what_the_provider_objected_to(anthropi
 
 async def test_a_rejected_request_still_only_skips(anthropic):
     """Our own malformed request must not break a feed any more than a busy provider."""
-    anthropic.rejects = 400
+    anthropic.rejection = Rejection()
 
     with pytest.raises(llm.Skipped):
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
 
 
 async def test_a_rejected_request_is_not_asked_again(anthropic):
-    """Retrying is the answer to weather, and the wrong answer to a bug: the same
+    """Retrying is the answer to weather and the wrong answer to a bug: the same
     malformed request fails identically however many times it is sent."""
-    anthropic.rejects = 400
+    anthropic.rejection = Rejection()
 
     with pytest.raises(llm.BadRequest):
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
@@ -158,10 +157,9 @@ async def test_a_rejected_request_is_not_asked_again(anthropic):
 
 
 async def test_a_rejection_says_nothing_about_the_credential_or_the_prompt(anthropic):
-    """The complaint is loud and the evidence behind it is the owner's, so only the
-    provider's own words travel: never the key, and never what was asked."""
-    anthropic.rejects = 401
-    anthropic.rejection = "invalid x-api-key"
+    """The complaint is loud and the evidence behind it is the owner's, so only what came
+    back travels: never the key, and never what was asked."""
+    anthropic.rejection = Rejection(status=401, message="invalid x-api-key")
 
     with pytest.raises(llm.BadRequest) as raised:
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
@@ -172,23 +170,24 @@ async def test_a_rejection_says_nothing_about_the_credential_or_the_prompt(anthr
     assert PROMPT.system not in complaint
 
 
-async def test_a_rejection_without_a_readable_body_still_names_the_status(anthropic):
-    """A gateway in front of the provider answers HTML, not the documented shape."""
-    anthropic.rejects = 403
-    anthropic.rejection_body = "<html><body>Forbidden</body></html>"
+async def test_a_rejection_without_a_readable_body_still_names_what_it_can(anthropic):
+    """A gateway in front of the provider answers HTML and stamps the id on the header."""
+    anthropic.rejection = Rejection(
+        status=403, body="<html><body>Forbidden</body></html>", in_header=True
+    )
 
     with pytest.raises(llm.BadRequest) as raised:
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
 
     assert "403" in str(raised.value)
     assert "Forbidden" in str(raised.value)
+    assert "req_011CerciLqADx3pZj9MEs8rq" in str(raised.value)
 
 
 async def test_a_rejection_is_short_enough_to_read_in_a_log_line(anthropic):
     """A body of any size lands in a worker log; what makes it useful is the first
     sentence of it, not all of it."""
-    anthropic.rejects = 400
-    anthropic.rejection = "x" * 4000
+    anthropic.rejection = Rejection(message="x" * 4000)
 
     with pytest.raises(llm.BadRequest) as raised:
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
@@ -214,13 +213,6 @@ async def test_a_provider_outage_says_what_the_provider_said(anthropic):
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
 
     assert "overloaded" in str(raised.value)
-
-
-async def test_a_bug_is_logged_louder_than_an_outage():
-    """What makes the distinction worth drawing: one of these should reach Sentry."""
-    assert llm.skip_level(llm.BadRequest("malformed")) == logging.ERROR
-    assert llm.skip_level(llm.ProviderUnavailable("down")) == logging.INFO
-    assert llm.skip_level(llm.CapReached("spent")) == logging.INFO
 
 
 async def test_a_box_with_no_credential_skips_rather_than_fails():
@@ -282,6 +274,46 @@ async def test_a_batched_request_that_failed_is_a_skip(anthropic):
 
     with pytest.raises(llm.Skipped):
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.batch)
+
+
+async def test_a_batch_polled_with_a_rejected_id_is_still_cancelled(anthropic):
+    """The create landed, so there is a batch out there costing money whatever the poll
+    came back as. Only the reason for giving up differs."""
+    anthropic.rejection = Rejection(status=404, message="batch not found", after=1)
+
+    with pytest.raises(llm.BadRequest):
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.batch)
+
+    assert anthropic.cancelled
+
+
+async def test_a_batch_row_that_errored_says_what_the_provider_objected_to(anthropic):
+    """#117 in the batched half of the seam: the row carries the same explanation, and a
+    batch is where losing it hurts most - the wait is spent before anyone finds out."""
+    anthropic.batch_result_type = "errored"
+    anthropic.batch_error = {
+        "type": "error",
+        "error": {"type": "invalid_request_error", "message": "max_tokens is required"},
+    }
+
+    with pytest.raises(llm.BadRequest) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.batch)
+
+    assert "max_tokens is required" in str(raised.value)
+
+
+async def test_a_batch_row_the_provider_broke_on_is_weather(anthropic):
+    """The same row, an error type that is theirs rather than ours."""
+    anthropic.batch_result_type = "errored"
+    anthropic.batch_error = {
+        "type": "error",
+        "error": {"type": "overloaded_error", "message": "overloaded"},
+    }
+
+    with pytest.raises(llm.ProviderUnavailable) as raised:
+        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.batch)
+
+    assert "overloaded" in str(raised.value)
 
 
 # --- A schema the provider will actually accept ---

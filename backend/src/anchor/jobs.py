@@ -228,7 +228,7 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
     sees the prose they already had, with the last-updated line it already carried, and
     nothing tells them anything went wrong, because from their side nothing did.
 
-    What differs between those is only how loudly the skip is logged, and ``skip_level``
+    What differs between those is only how loudly the skip is logged, and ``log_skip``
     decides that: an outage passes and a malformed request does not, so the second one is
     logged at the level that reaches Sentry (#117).
     """
@@ -249,12 +249,7 @@ async def regenerate_prose(context: JobContext, account_id: str) -> None:
     try:
         text = await seam.regenerate_prose_profile(account, evidence)
     except llm_module.Skipped as skipped:
-        log.log(
-            llm_module.skip_level(skipped),
-            "prose profile for %s not regenerated: %s",
-            account_id,
-            skipped,
-        )
+        llm_module.log_skip(log, skipped, "prose profile for %s not regenerated", account_id)
         return
 
     async with db.sessions() as session:
@@ -310,12 +305,7 @@ async def refresh_quality_suggestions(context: JobContext, account_id: str) -> N
     try:
         suggested = await seam.suggest_qualities(account, evidence, listed)
     except llm_module.Skipped as skipped:
-        log.log(
-            llm_module.skip_level(skipped),
-            "quality suggestions for %s not refreshed: %s",
-            account_id,
-            skipped,
-        )
+        llm_module.log_skip(log, skipped, "quality suggestions for %s not refreshed", account_id)
         return
 
     async with db.sessions() as session:
@@ -342,7 +332,7 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     none of them cost anything, and nothing degrades visibly, because criteria selection
     falls back to the quality rotation - which is what it did before any film had tags.
     A request the provider would not accept degrades the same way and is logged louder,
-    per ``skip_level``.
+    per ``log_skip``.
 
     An answer that does not parse is the opposite case and is treated as the opposite
     way round. The ledger row for it is already written, so leaving the film untagged
@@ -364,7 +354,7 @@ async def tag_film(context: JobContext, tmdb_id: int) -> None:
     try:
         named = await seam.tag_film_qualities(film, BUILT_IN_QUALITIES)
     except llm_module.Skipped as skipped:
-        log.log(llm_module.skip_level(skipped), "film %s not tagged: %s", tmdb_id, skipped)
+        llm_module.log_skip(log, skipped, "film %s not tagged", tmdb_id)
         return
     except llm_module.BadAnswer:
         log.exception("the tagging prompt got an answer it cannot read; film %s", tmdb_id)

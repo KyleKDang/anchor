@@ -123,15 +123,17 @@ class BadAnswer(Exception):
     """The provider answered something the operation's schema does not accept."""
 
 
-def skip_level(skipped: Skipped) -> int:
-    """How loudly a skip is worth logging: our own bug is ERROR, the weather is INFO.
+def log_skip(logger: logging.Logger, skipped: Skipped, message: str, *args: Any) -> None:
+    """Report one skip at the level it deserves, with what the provider said appended.
 
-    Every caller of the seam degrades the same way and so logs the same line; this is the
-    one thing they need to vary, and keeping it here means a new ``Skipped`` sorts itself
-    rather than being sorted again at four call sites. ERROR is what sentry_sdk's logging
-    integration turns into an event, which is the whole point of the distinction (#117).
+    Every caller of the seam degrades the same way and so writes the same line; how
+    loudly is the one thing they need to vary, and deciding it here means a new
+    ``Skipped`` sorts itself rather than being sorted again at four call sites. ERROR is
+    what sentry_sdk's logging integration turns into an event, which is the whole point
+    of telling our own bug apart from the weather (#117).
     """
-    return logging.ERROR if isinstance(skipped, BadRequest) else logging.INFO
+    level = logging.ERROR if isinstance(skipped, BadRequest) else logging.INFO
+    logger.log(level, message + ": %s", *args, skipped)
 
 
 @dataclass(frozen=True)
@@ -794,7 +796,10 @@ class AnthropicAdapter:
         batch_id = str(created["id"])
         try:
             await self._wait_for(batch_id)
-        except ProviderUnavailable:
+        except Skipped:
+            # Every skip, not just an outage: a batch nobody will read costs the same
+            # whether we stopped waiting because the provider is busy or because the id
+            # we are polling is not one it recognises.
             await self._cancel(batch_id)
             raise
         return _completion(_batch_message(await self._results(batch_id)))
@@ -924,12 +929,49 @@ def _request_body(prompt: Prompt, model: Model) -> dict[str, Any]:
     }
 
 
+PROVIDER_SIDE_BATCH_ERRORS = frozenset({"api_error", "overloaded_error", "timeout_error"})
+"""The batch error types that are the provider's own condition rather than our request."""
+
+
 def _batch_message(row: dict[str, Any]) -> dict[str, Any]:
-    """One batch result row, unwrapped. Anything but a success is the provider failing."""
+    """One batch result row, unwrapped. Anything but a success is a skip.
+
+    A row that errored carries the same explanation a rejected immediate call does, and
+    discarding it here would leave the batched half of the seam exactly as undiagnosable
+    as the immediate half was (#117). Which skip it is turns on the error's own type,
+    because a batch is where the distinction bites hardest: a malformed request costs a
+    whole batch's wait before anyone finds out it was never going to work.
+    """
     result = row.get("result") or {}
-    if result.get("type") != "succeeded":
-        raise ProviderUnavailable(f"the batched request came back {result.get('type')!r}")
-    return dict(result.get("message") or {})
+    outcome = result.get("type")
+    if outcome == "succeeded":
+        return dict(result.get("message") or {})
+    kind, said = _batch_error(result)
+    told = f"the batched request came back {outcome!r}"
+    if said:
+        told = f"{told}: {said}"
+    if outcome == "errored" and kind not in PROVIDER_SIDE_BATCH_ERRORS:
+        raise BadRequest(told)
+    raise ProviderUnavailable(told)
+
+
+def _batch_error(result: dict[str, Any]) -> tuple[str | None, str]:
+    """A failed row's error type and its message, from either shape the API sends.
+
+    The row nests its error one deeper than a plain response does - ``result.error`` is
+    itself an error envelope - so both levels are tried rather than assumed.
+    """
+    error = result.get("error")
+    if not isinstance(error, dict):
+        return None, ""
+    inner = error.get("error")
+    detail = inner if isinstance(inner, dict) else error
+    kind = detail.get("type")
+    message = detail.get("message")
+    return (
+        kind if isinstance(kind, str) else None,
+        _shortened(message) if isinstance(message, str) else "",
+    )
 
 
 def _completion(message: dict[str, Any]) -> Completion:
@@ -973,24 +1015,32 @@ def _refusal(response: httpx.Response, what: str) -> Skipped:
 def _complaint(response: httpx.Response) -> str:
     """What the provider said was wrong, short enough to sit in a log line.
 
-    Only the provider's own words travel. ``error.message`` is the field that names the
-    mistake and ``request_id`` is what Anthropic support asks for; a body that is not
-    that shape - a gateway's HTML, say - is carried as a truncated snippet instead of
-    guessed at. Nothing here can leak the prompt or the key, because a response body
-    contains neither: the request is never read, only what came back about it.
+    ``error.message`` is the field that names the mistake and ``request_id`` is what
+    Anthropic support asks for - from the body where the documented shape arrives, and
+    from the header otherwise, since a gateway that answers HTML still stamps one.
+
+    Only the response travels, never the request, so the key and the prompt cannot reach
+    a log through here. That is a posture rather than a proof: a provider explaining a
+    malformed field may quote the field back, which is why what it says is collapsed to
+    one line and capped rather than passed through whole.
     """
     try:
         body = response.json()
     except ValueError:
         body = None
+    request_id = response.headers.get("request-id")
     if isinstance(body, dict):
         error = body.get("error")
         message = error.get("message") if isinstance(error, dict) else None
-        request_id = body.get("request_id")
+        request_id = body.get("request_id") or request_id
         if isinstance(message, str) and message:
-            said = _shortened(message)
-            return f"{said} (request {request_id})" if request_id else said
-    return _shortened(response.text) or "no explanation"
+            return _attributed(_shortened(message), request_id)
+    return _attributed(_shortened(response.text) or "no explanation", request_id)
+
+
+def _attributed(said: str, request_id: str | None) -> str:
+    """The complaint with the id support will ask for, where the response carried one."""
+    return f"{said} (request {request_id})" if request_id else said
 
 
 def _shortened(text: str) -> str:

@@ -23,6 +23,26 @@ from schemacontract import assert_schema_is_accepted
 BASE_URL = "https://api.anthropic.com"
 
 
+@dataclass
+class Rejection:
+    """One 4xx as Anthropic renders it: a status, what it objected to, and its id.
+
+    A 4xx is the provider explaining that our request is wrong, and the explanation is in
+    the body rather than in the status (#117), so the fake carries one.
+    """
+
+    status: int = 400
+    message: str = "output_config.format.schema: 'maxItems' is not supported"
+    request_id: str | None = "req_011CerciLqADx3pZj9MEs8rq"
+    in_header: bool = False
+    """Where the id rides. Anthropic stamps the header on every response, body or not."""
+    body: str | None = None
+    """Raw text answered instead of the documented shape: what a gateway in front of the
+    provider sends when it turns a request away before the provider ever sees it."""
+    after: int = 0
+    """Requests answered normally before the rejection starts."""
+
+
 @dataclass(frozen=True)
 class Request:
     """One request, as the fake received it."""
@@ -46,19 +66,10 @@ class FakeAnthropic:
     """Requests answered 429 before the fake starts answering properly."""
     down: bool = False
     """When set, every request answers 500."""
-    rejects: int = 0
-    """When set, every request answers this status with an Anthropic-shaped error body.
-
-    A 4xx is the provider explaining that our request is wrong, and the explanation is
-    in the body rather than in the status (#117), so the fake carries one.
-    """
-    rejection: str = "output_config.format.schema: 'maxItems' is not supported"
-    """What the provider says it objected to, as ``error.message`` on the wire."""
-    rejection_request_id: str | None = "req_011CerciLqADx3pZj9MEs8rq"
-    """The id Anthropic support asks for. None for a body that arrives without one."""
-    rejection_body: str | None = None
-    """Raw text answered instead of the documented shape: what a gateway in front of the
-    provider sends when it turns a request away before the provider ever sees it."""
+    rejection: Rejection | None = None
+    """When set, requests past its ``after`` are turned away rather than answered."""
+    batch_error: dict[str, Any] | None = None
+    """The ``error`` an ``errored`` batch result row carries, when it carries one."""
     polls_before_ending: int = 0
     """Batch status checks that report ``in_progress`` before one reports ``ended``."""
     batch_result_type: str = "succeeded"
@@ -97,10 +108,11 @@ class FakeAnthropic:
 
         if self.down:
             return httpx.Response(500, json={"error": {"message": "overloaded"}})
-        if self.rejects:
-            if self.rejection_body is not None:
-                return httpx.Response(self.rejects, text=self.rejection_body)
-            return httpx.Response(self.rejects, json=self._rejection())
+        if self.rejection is not None:
+            if self.rejection.after > 0:
+                self.rejection.after -= 1
+            else:
+                return self._rejected(self.rejection)
         if self.throttled > 0:
             self.throttled -= 1
             return httpx.Response(429, headers={"Retry-After": "0"}, json={"error": {}})
@@ -133,15 +145,20 @@ class FakeAnthropic:
             if schema is not None:
                 assert_schema_is_accepted(schema)
 
-    def _rejection(self) -> dict[str, Any]:
-        """One error as Anthropic renders it, request id and all."""
+    def _rejected(self, rejection: Rejection) -> httpx.Response:
+        """One turned-away request, as Anthropic or a gateway in front of it answers."""
+        headers = {}
+        if rejection.request_id is not None and rejection.in_header:
+            headers["request-id"] = rejection.request_id
+        if rejection.body is not None:
+            return httpx.Response(rejection.status, text=rejection.body, headers=headers)
         body: dict[str, Any] = {
             "type": "error",
-            "error": {"type": "invalid_request_error", "message": self.rejection},
+            "error": {"type": "invalid_request_error", "message": rejection.message},
         }
-        if self.rejection_request_id is not None:
-            body["request_id"] = self.rejection_request_id
-        return body
+        if rejection.request_id is not None and not rejection.in_header:
+            body["request_id"] = rejection.request_id
+        return httpx.Response(rejection.status, json=body, headers=headers)
 
     def _batch(self, status: str) -> dict[str, Any]:
         return {"id": self._batch_id, "processing_status": status}
@@ -156,6 +173,8 @@ class FakeAnthropic:
         result: dict[str, Any] = {"type": self.batch_result_type}
         if self.batch_result_type == "succeeded":
             result["message"] = self._message()
+        elif self.batch_error is not None:
+            result["error"] = self.batch_error
         return json.dumps({"custom_id": "anchor", "result": result})
 
     def _message(self) -> dict[str, Any]:
