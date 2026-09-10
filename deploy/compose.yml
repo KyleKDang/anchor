@@ -67,6 +67,21 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  demo:
+    # The demo account, rebuilt from the checked-in fixture on every deploy. It replays
+    # the fixture through the web app in-process and waits on the worker for the jobs,
+    # including the LLM calls that write the prose and stock the shelf, so it runs for
+    # minutes after `up --wait` has returned and blocks nothing. The previous demo keeps
+    # serving until the new one has passed its own checks; a build that fails leaves it
+    # standing, exits non-zero, and reports through Sentry like any worker error.
+    image: ghcr.io/kylekdang/anchor-app:${ANCHOR_IMAGE_TAG}
+    command: ["python", "-m", "anchor.demobuild"]
+    environment: *app-environment
+    restart: "no"
+    depends_on:
+      web:
+        condition: service_healthy
+
   caddy:
     image: ghcr.io/kylekdang/anchor-caddy:${ANCHOR_IMAGE_TAG}
     restart: unless-stopped

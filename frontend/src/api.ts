@@ -846,6 +846,8 @@ export const api = {
     request<Account>("POST", "/api/auth/verify", { token, password }),
   logIn: (credentials: Credentials) => request<Account>("POST", "/api/auth/login", credentials),
   logOut: () => request<void>("POST", "/api/auth/logout"),
+  /** One click into the shared read-only demo: a session with no credentials behind it. */
+  enterDemo: () => request<Account>("POST", "/api/auth/demo"),
   deleteAccount: (password: string) => request<void>("DELETE", "/api/account", { password }),
 
   searchFilms: (query: string) =>

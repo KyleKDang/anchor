@@ -22,7 +22,9 @@ import {
  * screen itself in a frame, then the last word and the verbs once more.
  *
  * Sign up is the page's one loud action, in the rail, the hero, and the footer. The
- * hairline secondary beside it holds Log in until #108 puts the demo there.
+ * hairline secondary beside it is the demo: one click, no credentials, and the visitor is
+ * looking at a lived-in account (demo-account.md). Log in keeps its place in the rail
+ * and the footer, where a returning owner looks for it.
  *
  * The three framed screens are `aria-hidden` pictures of the app: their verbs are inert
  * text, because a control that does nothing is worse on the one page whose visitor has
@@ -127,8 +129,9 @@ function Hero() {
 /**
  * The page's action row, in the hero and again in the closing.
  *
- * Sign up is the primary everywhere it appears; the secondary beside it is Log in until
- * #108, which takes this slot for the demo and touches nothing else on the page.
+ * Sign up is the primary everywhere it appears; the secondary beside it is the demo. A
+ * link rather than a button, because `/demo` is an address a visitor can be sent to,
+ * and the door does its one round trip on arrival.
  */
 function Verbs() {
   return (
@@ -136,8 +139,8 @@ function Verbs() {
       <Link className="button" to="/signup">
         Sign up
       </Link>
-      <Link className="button secondary" to="/login">
-        Log in
+      <Link className="button secondary" to="/demo">
+        Explore the demo
       </Link>
     </div>
   );

@@ -10,6 +10,7 @@ import { Place } from "./screens/Place";
 import { Questions } from "./screens/Questions";
 import { Import } from "./screens/import/Import";
 import { Review } from "./screens/import/Review";
+import { Demo } from "./screens/Demo";
 import { Login } from "./screens/auth/Login";
 import { Landing } from "./screens/landing/Landing";
 import { Signup } from "./screens/auth/Signup";
@@ -27,6 +28,9 @@ export function App() {
         <Route element={<RequireVisitor />}>
           <Route path="/signup" element={<Signup />} />
           <Route path="/login" element={<Login />} />
+          {/* The demo's door sits with the auth screens: it is how a visitor gets a
+              session, and a logged-in owner has no more business here than on login. */}
+          <Route path="/demo" element={<Demo />} />
         </Route>
         <Route path="/verify" element={<Verify />} />
         <Route path="/debug/error" element={<DebugError />} />

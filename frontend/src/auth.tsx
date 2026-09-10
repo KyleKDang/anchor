@@ -17,6 +17,8 @@ interface Auth {
   account: Account | null | undefined;
   /** A line for the login screen after a deliberate sign-out ("You are logged out."). */
   notice: string | null;
+  /** The session ended on purpose rather than expiring under the visitor. */
+  left: boolean;
   /** The API just logged this account in (login or verification). */
   loggedIn: (account: Account) => void;
   logOut: () => Promise<void>;
@@ -51,20 +53,29 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // of truth; this only means a visitor gets the pitch instead of a round trip.
   useEffect(() => readOnlySession(account?.demo ?? false), [account]);
 
+  // Whether the session ended on purpose. A lost session comes back to where it was; a
+  // deliberate exit does not, and where it goes instead depends on what was signed out.
+  const [left, setLeft] = useState(false);
+
   const loggedIn = useCallback((signedIn: Account) => {
     setAccount(signedIn);
     setNotice(null);
+    setLeft(false);
   }, []);
 
-  const loggedOut = useCallback((reason: string) => {
+  const loggedOut = useCallback((reason: string | null) => {
     setAccount(null);
     setNotice(reason);
+    setLeft(true);
   }, []);
 
   const logOut = useCallback(async () => {
+    const wasDemo = account?.demo ?? false;
     await api.logOut();
-    loggedOut("You are logged out.");
-  }, [loggedOut]);
+    // A visitor leaving the demo was never logged in as anybody, so there is nothing to
+    // say and nowhere to say it: they go back to the front door they came in by.
+    loggedOut(wasDemo ? null : "You are logged out.");
+  }, [account, loggedOut]);
 
   const accountDeleted = useCallback(
     () => loggedOut("Your account has been deleted."),
@@ -72,8 +83,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const value = useMemo(
-    () => ({ account, notice, loggedIn, logOut, accountDeleted }),
-    [account, notice, loggedIn, logOut, accountDeleted],
+    () => ({ account, notice, left, loggedIn, logOut, accountDeleted }),
+    [account, notice, left, loggedIn, logOut, accountDeleted],
   );
 
   if (bootError) return <Unavailable message={bootError} />;
@@ -102,11 +113,13 @@ export function useAuth(): Auth {
 
 /** Renders its children only for a logged-in account; sends visitors to the login screen. */
 export function RequireAccount() {
-  const { account, notice } = useAuth();
+  const { account, notice, left } = useAuth();
   const location = useLocation();
   if (account === undefined) return null;
   if (account === null) {
-    // A deliberate sign-out starts over at the front door; a lost session comes back here.
+    // A visitor who put the demo down goes back to the front door; an owner who signed
+    // out gets the login screen and its line; a lost session comes back to where it was.
+    if (left && notice === null) return <Navigate to="/" replace />;
     const state = notice ? undefined : { from: location.pathname };
     return <Navigate to="/login" replace state={state} />;
   }

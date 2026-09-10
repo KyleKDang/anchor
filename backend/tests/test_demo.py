@@ -133,13 +133,15 @@ UNGUARDED = {
     ("POST", "/api/auth/verify"),
     ("POST", "/api/auth/login"),
     ("POST", "/api/auth/logout"),
+    ("POST", "/api/auth/demo"),
 }
-"""The four that do not hang off the session door, and must not.
+"""The five that do not hang off the session door, and must not.
 
 Signup, verification and login are how an account that is not logged in becomes one, so
 they cannot depend on being logged in; each already refuses the demo by its own means, and
 ``test_auth.py`` is where that is asserted. Logout reads the cookie directly and always
-succeeds, which is what lets a visitor put the demo down.
+succeeds, which is what lets a visitor put the demo down. Entering the demo is the door
+onto it, and writes nothing but the visitor's own session (``test_demobuild.py``).
 """
 
 

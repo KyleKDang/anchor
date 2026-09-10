@@ -37,20 +37,24 @@ test("a signed-out visitor lands on the front door and can reach both auth scree
     page.getByText("not endorsed, certified, or otherwise approved by TMDB", { exact: false }),
   ).toBeVisible();
 
-  // The demo lands with #108; until then nothing on the page offers one.
-  await expect(page.getByRole("link", { name: /demo/i })).toHaveCount(0);
+  // The demo is the secondary verb beside Sign up, in the hero and again in the closing;
+  // walking through it is demo.spec.ts's journey.
+  await expect(page.getByRole("main").getByRole("link", { name: "Explore the demo" })).toHaveCount(
+    2,
+  );
 
   // Sign up is the primary call to action, and it is the first thing in the hero's row.
   await page.getByRole("main").getByRole("link", { name: "Sign up" }).first().click();
   await expect(page).toHaveURL(/\/signup$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Create your account");
 
+  // Log in lives in the footer for the returning owner who read to the end.
   await page.goto("/");
-  await page.getByRole("main").getByRole("link", { name: "Log in" }).first().click();
+  await page.getByRole("contentinfo").getByRole("link", { name: "Log in" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Log in");
 
-  // The rail carries the same two verbs, and is the page's one Account landmark.
+  // The rail carries Log in and Sign up, and is the page's one Account landmark.
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "Account" })).toHaveCount(1);
   await page.getByRole("navigation", { name: "Account" }).getByText("Log in").click();

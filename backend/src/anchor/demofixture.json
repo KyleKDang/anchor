@@ -1,0 +1,174 @@
+{
+  "sensibility": "Trusts a film that trusts the audience: long takes, little talk and an ending left open, so a genre picture that moves without explaining itself beats a prestige drama that spells out what to feel.",
+  "edges": [
+    "Mad Max: Fury Road sits above 2001: A Space Odyssey at the very top of the wall.",
+    "John Wick opens the 4.0 band, one rank above The Godfather.",
+    "Citizen Kane, The Dark Knight and Predator share a band, and Predator is an anchor there.",
+    "Pulp Fiction and Goodfellas are three-star films: wall-to-wall talk and narration.",
+    "The Shawshank Redemption, Inception and Interstellar are the 2.5 band's anchors.",
+    "Dunkirk is a 4.0 while Inception is a 2.5: the same director, judged by how much he explains.",
+    "Forrest Gump anchors 2.0; Dead Poets Society and Life Is Beautiful sit lower still.",
+    "Love Actually is a half-star film."
+  ],
+  "wall": [
+    {
+      "band": 5.0,
+      "films": [
+        {"tmdb_id": 76341, "title": "Mad Max: Fury Road", "year": 2015, "genres": ["Action", "Adventure", "Science Fiction"], "director": "George Miller", "anchor": true, "watched_days_ago": 96},
+        {"tmdb_id": 62, "title": "2001: A Space Odyssey", "year": 1968, "genres": ["Science Fiction", "Mystery", "Adventure"], "director": "Stanley Kubrick", "anchor": true, "watched_days_ago": 610},
+        {"tmdb_id": 6977, "title": "No Country for Old Men", "year": 2007, "genres": ["Crime", "Drama", "Thriller"], "director": "Joel Coen", "anchor": true, "watched_days_ago": 340},
+        {"tmdb_id": 655, "title": "Paris, Texas", "year": 1984, "genres": ["Drama"], "director": "Wim Wenders", "anchor": false, "watched_days_ago": 154},
+        {"tmdb_id": 1398, "title": "Stalker", "year": 1979, "genres": ["Science Fiction", "Drama"], "director": "Andrei Tarkovsky", "anchor": false, "watched_days_ago": 471},
+        {"tmdb_id": 949, "title": "Heat", "year": 1995, "genres": ["Action", "Crime", "Drama"], "director": "Michael Mann", "anchor": false, "watched_days_ago": 402},
+        {"tmdb_id": 8741, "title": "The Thin Red Line", "year": 1998, "genres": ["Drama", "History", "War"], "director": "Terrence Malick", "anchor": false, "watched_days_ago": 233}
+      ]
+    },
+    {
+      "band": 4.5,
+      "films": [
+        {"tmdb_id": 335984, "title": "Blade Runner 2049", "year": 2017, "genres": ["Science Fiction", "Drama"], "director": "Denis Villeneuve", "anchor": true, "watched_days_ago": 512},
+        {"tmdb_id": 218, "title": "The Terminator", "year": 1984, "genres": ["Action", "Thriller", "Science Fiction"], "director": "James Cameron", "anchor": true, "watched_days_ago": 188},
+        {"tmdb_id": 64690, "title": "Drive", "year": 2011, "genres": ["Crime", "Drama", "Thriller"], "director": "Nicolas Winding Refn", "anchor": true, "watched_days_ago": 289},
+        {"tmdb_id": 97370, "title": "Under the Skin", "year": 2013, "genres": ["Science Fiction", "Drama", "Thriller"], "director": "Jonathan Glazer", "anchor": false, "watched_days_ago": 77},
+        {"tmdb_id": 1949, "title": "Zodiac", "year": 2007, "genres": ["Crime", "Drama", "Mystery"], "director": "David Fincher", "anchor": false, "watched_days_ago": 365},
+        {"tmdb_id": 335, "title": "Once Upon a Time in the West", "year": 1968, "genres": ["Western"], "director": "Sergio Leone", "anchor": false, "watched_days_ago": 540},
+        {"tmdb_id": 273481, "title": "Sicario", "year": 2015, "genres": ["Action", "Crime", "Thriller"], "director": "Denis Villeneuve", "anchor": false, "watched_days_ago": 121},
+        {"tmdb_id": 348, "title": "Alien", "year": 1979, "genres": ["Horror", "Science Fiction"], "director": "Ridley Scott", "anchor": false, "watched_days_ago": 447}
+      ]
+    },
+    {
+      "band": 4.0,
+      "films": [
+        {"tmdb_id": 245891, "title": "John Wick", "year": 2014, "genres": ["Action", "Thriller"], "director": "Chad Stahelski", "anchor": true, "watched_days_ago": 61},
+        {"tmdb_id": 238, "title": "The Godfather", "year": 1972, "genres": ["Drama", "Crime"], "director": "Francis Ford Coppola", "anchor": true, "watched_days_ago": 590},
+        {"tmdb_id": 329865, "title": "Arrival", "year": 2016, "genres": ["Drama", "Science Fiction", "Mystery"], "director": "Denis Villeneuve", "anchor": true, "watched_days_ago": 320},
+        {"tmdb_id": 78, "title": "Blade Runner", "year": 1982, "genres": ["Science Fiction", "Drama", "Thriller"], "director": "Ridley Scott", "anchor": false, "watched_days_ago": 530},
+        {"tmdb_id": 8810, "title": "Mad Max 2", "year": 1981, "genres": ["Adventure", "Action", "Thriller", "Science Fiction"], "director": "George Miller", "anchor": false, "watched_days_ago": 90},
+        {"tmdb_id": 374720, "title": "Dunkirk", "year": 2017, "genres": ["War", "Action", "Drama"], "director": "Christopher Nolan", "anchor": false, "watched_days_ago": 250, "imported_as": 3.5},
+        {"tmdb_id": 5511, "title": "Le Samouraï", "year": 1967, "genres": ["Crime", "Drama", "Thriller"], "director": "Jean-Pierre Melville", "language": "fr", "anchor": false, "watched_days_ago": 143},
+        {"tmdb_id": 1538, "title": "Collateral", "year": 2004, "genres": ["Crime", "Drama", "Thriller"], "director": "Michael Mann", "anchor": false, "watched_days_ago": 410},
+        {"tmdb_id": 458737, "title": "First Reformed", "year": 2017, "genres": ["Drama", "Thriller"], "director": "Paul Schrader", "anchor": false, "watched_days_ago": 47},
+        {"tmdb_id": 453278, "title": "The Rider", "year": 2017, "genres": ["Drama", "Western"], "director": "Chloé Zhao", "anchor": false, "watched_days_ago": 205},
+        {"tmdb_id": 414453, "title": "Columbus", "year": 2017, "genres": ["Drama"], "director": "Kogonada", "anchor": false, "watched_days_ago": 33}
+      ]
+    },
+    {
+      "band": 3.5,
+      "films": [
+        {"tmdb_id": 15, "title": "Citizen Kane", "year": 1941, "genres": ["Mystery", "Drama"], "director": "Orson Welles", "anchor": true, "watched_days_ago": 620},
+        {"tmdb_id": 155, "title": "The Dark Knight", "year": 2008, "genres": ["Drama", "Action", "Crime", "Thriller"], "director": "Christopher Nolan", "anchor": true, "watched_days_ago": 275},
+        {"tmdb_id": 106, "title": "Predator", "year": 1987, "genres": ["Science Fiction", "Action", "Adventure", "Thriller"], "director": "John McTiernan", "anchor": true, "watched_days_ago": 169},
+        {"tmdb_id": 567, "title": "Rear Window", "year": 1954, "genres": ["Thriller", "Mystery"], "director": "Alfred Hitchcock", "anchor": false, "watched_days_ago": 498},
+        {"tmdb_id": 28, "title": "Apocalypse Now", "year": 1979, "genres": ["Drama", "War"], "director": "Francis Ford Coppola", "anchor": false, "watched_days_ago": 380},
+        {"tmdb_id": 2503, "title": "The Bourne Ultimatum", "year": 2007, "genres": ["Action", "Drama", "Mystery", "Thriller"], "director": "Paul Greengrass", "anchor": false, "watched_days_ago": 112},
+        {"tmdb_id": 37799, "title": "The Social Network", "year": 2010, "genres": ["Drama"], "director": "David Fincher", "anchor": false, "watched_days_ago": 356},
+        {"tmdb_id": 7345, "title": "There Will Be Blood", "year": 2007, "genres": ["Drama"], "director": "Paul Thomas Anderson", "anchor": false, "watched_days_ago": 430},
+        {"tmdb_id": 578, "title": "Jaws", "year": 1975, "genres": ["Horror", "Thriller", "Adventure"], "director": "Steven Spielberg", "anchor": false, "watched_days_ago": 58}
+      ]
+    },
+    {
+      "band": 3.0,
+      "films": [
+        {"tmdb_id": 680, "title": "Pulp Fiction", "year": 1994, "genres": ["Thriller", "Crime"], "director": "Quentin Tarantino", "anchor": true, "watched_days_ago": 560},
+        {"tmdb_id": 857, "title": "Saving Private Ryan", "year": 1998, "genres": ["Drama", "History", "War"], "director": "Steven Spielberg", "anchor": true, "watched_days_ago": 301},
+        {"tmdb_id": 769, "title": "Goodfellas", "year": 1990, "genres": ["Drama", "Crime"], "director": "Martin Scorsese", "anchor": true, "watched_days_ago": 455},
+        {"tmdb_id": 603, "title": "The Matrix", "year": 1999, "genres": ["Action", "Science Fiction"], "director": "Lana Wachowski", "anchor": false, "watched_days_ago": 199},
+        {"tmdb_id": 289, "title": "Casablanca", "year": 1942, "genres": ["Drama", "Romance"], "director": "Michael Curtiz", "anchor": false, "watched_days_ago": 640},
+        {"tmdb_id": 49047, "title": "Gravity", "year": 2013, "genres": ["Science Fiction", "Thriller", "Drama"], "director": "Alfonso Cuarón", "anchor": false, "watched_days_ago": 262},
+        {"tmdb_id": 1422, "title": "The Departed", "year": 2006, "genres": ["Drama", "Thriller", "Crime"], "director": "Martin Scorsese", "anchor": false, "watched_days_ago": 388},
+        {"tmdb_id": 37724, "title": "Skyfall", "year": 2012, "genres": ["Action", "Adventure", "Thriller"], "director": "Sam Mendes", "anchor": false, "watched_days_ago": 84}
+      ]
+    },
+    {
+      "band": 2.5,
+      "films": [
+        {"tmdb_id": 27205, "title": "Inception", "year": 2010, "genres": ["Action", "Science Fiction", "Adventure"], "director": "Christopher Nolan", "anchor": true, "watched_days_ago": 240, "imported_as": 3.0},
+        {"tmdb_id": 278, "title": "The Shawshank Redemption", "year": 1994, "genres": ["Drama", "Crime"], "director": "Frank Darabont", "anchor": true, "watched_days_ago": 505},
+        {"tmdb_id": 157336, "title": "Interstellar", "year": 2014, "genres": ["Adventure", "Drama", "Science Fiction"], "director": "Christopher Nolan", "anchor": true, "watched_days_ago": 330},
+        {"tmdb_id": 120, "title": "The Lord of the Rings: The Fellowship of the Ring", "year": 2001, "genres": ["Adventure", "Fantasy", "Action"], "director": "Peter Jackson", "anchor": false, "watched_days_ago": 470},
+        {"tmdb_id": 597, "title": "Titanic", "year": 1997, "genres": ["Drama", "Romance"], "director": "James Cameron", "anchor": false, "watched_days_ago": 150, "imported_as": 2.0},
+        {"tmdb_id": 98, "title": "Gladiator", "year": 2000, "genres": ["Action", "Drama", "Adventure"], "director": "Ridley Scott", "anchor": false, "watched_days_ago": 415},
+        {"tmdb_id": 24428, "title": "The Avengers", "year": 2012, "genres": ["Science Fiction", "Action", "Adventure"], "director": "Joss Whedon", "anchor": false, "watched_days_ago": 128}
+      ]
+    },
+    {
+      "band": 2.0,
+      "films": [
+        {"tmdb_id": 13, "title": "Forrest Gump", "year": 1994, "genres": ["Comedy", "Drama", "Romance"], "director": "Robert Zemeckis", "anchor": true, "watched_days_ago": 575},
+        {"tmdb_id": 16869, "title": "Inglourious Basterds", "year": 2009, "genres": ["Drama", "Thriller", "War"], "director": "Quentin Tarantino", "anchor": true, "watched_days_ago": 222},
+        {"tmdb_id": 106646, "title": "The Wolf of Wall Street", "year": 2013, "genres": ["Crime", "Drama", "Comedy"], "director": "Martin Scorsese", "anchor": true, "watched_days_ago": 395},
+        {"tmdb_id": 12405, "title": "Slumdog Millionaire", "year": 2008, "genres": ["Drama", "Romance"], "director": "Danny Boyle", "anchor": false, "watched_days_ago": 486},
+        {"tmdb_id": 205596, "title": "The Imitation Game", "year": 2014, "genres": ["History", "Drama", "Thriller", "War"], "director": "Morten Tyldum", "anchor": false, "watched_days_ago": 310},
+        {"tmdb_id": 19995, "title": "Avatar", "year": 2009, "genres": ["Action", "Adventure", "Fantasy", "Science Fiction"], "director": "James Cameron", "anchor": false, "watched_days_ago": 176}
+      ]
+    },
+    {
+      "band": 1.5,
+      "films": [
+        {"tmdb_id": 453, "title": "A Beautiful Mind", "year": 2001, "genres": ["Drama", "Romance"], "director": "Ron Howard", "anchor": true, "watched_days_ago": 520},
+        {"tmdb_id": 22881, "title": "The Blind Side", "year": 2009, "genres": ["Drama"], "director": "John Lee Hancock", "anchor": true, "watched_days_ago": 284},
+        {"tmdb_id": 207, "title": "Dead Poets Society", "year": 1989, "genres": ["Drama"], "director": "Peter Weir", "anchor": false, "watched_days_ago": 601},
+        {"tmdb_id": 316029, "title": "The Greatest Showman", "year": 2017, "genres": ["Drama", "Music"], "director": "Michael Gracey", "anchor": false, "watched_days_ago": 139},
+        {"tmdb_id": 424694, "title": "Bohemian Rhapsody", "year": 2018, "genres": ["Music", "Drama", "History"], "director": "Bryan Singer", "anchor": false, "watched_days_ago": 348}
+      ]
+    },
+    {
+      "band": 1.0,
+      "films": [
+        {"tmdb_id": 490132, "title": "Green Book", "year": 2018, "genres": ["Drama", "Comedy", "History"], "director": "Peter Farrelly", "anchor": true, "watched_days_ago": 265},
+        {"tmdb_id": 637, "title": "Life Is Beautiful", "year": 1997, "genres": ["Comedy", "Drama"], "director": "Roberto Benigni", "language": "it", "anchor": true, "watched_days_ago": 552},
+        {"tmdb_id": 1640, "title": "Crash", "year": 2004, "genres": ["Drama"], "director": "Paul Haggis", "anchor": false, "watched_days_ago": 437},
+        {"tmdb_id": 10312, "title": "Patch Adams", "year": 1998, "genres": ["Comedy", "Drama"], "director": "Tom Shadyac", "anchor": false, "watched_days_ago": 590},
+        {"tmdb_id": 50014, "title": "The Help", "year": 2011, "genres": ["Drama"], "director": "Tate Taylor", "anchor": false, "watched_days_ago": 372}
+      ]
+    },
+    {
+      "band": 0.5,
+      "films": [
+        {"tmdb_id": 508, "title": "Love Actually", "year": 2003, "genres": ["Comedy", "Romance", "Drama"], "director": "Richard Curtis", "anchor": true, "watched_days_ago": 296},
+        {"tmdb_id": 345920, "title": "Collateral Beauty", "year": 2016, "genres": ["Drama", "Romance"], "director": "David Frankel", "anchor": true, "watched_days_ago": 418},
+        {"tmdb_id": 11321, "title": "Seven Pounds", "year": 2008, "genres": ["Drama", "Romance"], "director": "Gabriele Muccino", "anchor": false, "watched_days_ago": 533},
+        {"tmdb_id": 10647, "title": "Pay It Forward", "year": 2000, "genres": ["Drama"], "director": "Mimi Leder", "anchor": false, "watched_days_ago": 462}
+      ]
+    }
+  ],
+  "backlog": [
+    {"tmdb_id": 947, "title": "Lawrence of Arabia", "year": 1962, "genres": ["Adventure", "Drama", "History", "War"], "director": "David Lean", "added_days_ago": 210, "pinned": true},
+    {"tmdb_id": 976893, "title": "Perfect Days", "year": 2023, "genres": ["Drama"], "director": "Wim Wenders", "language": "ja", "added_days_ago": 12, "pinned": true},
+    {"tmdb_id": 361743, "title": "Top Gun: Maverick", "year": 2022, "genres": ["Action", "Drama"], "director": "Joseph Kosinski", "added_days_ago": 160, "vetoed": true},
+    {"tmdb_id": 639933, "title": "The Northman", "year": 2022, "genres": ["Action", "Adventure", "Fantasy"], "director": "Robert Eggers", "added_days_ago": 95},
+    {"tmdb_id": 762504, "title": "Nope", "year": 2022, "genres": ["Horror", "Mystery", "Science Fiction"], "director": "Jordan Peele", "added_days_ago": 140},
+    {"tmdb_id": 146233, "title": "Prisoners", "year": 2013, "genres": ["Drama", "Thriller", "Crime"], "director": "Denis Villeneuve", "added_days_ago": 300},
+    {"tmdb_id": 4512, "title": "The Assassination of Jesse James by the Coward Robert Ford", "year": 2007, "genres": ["Western", "Drama", "Crime"], "director": "Andrew Dominik", "added_days_ago": 255},
+    {"tmdb_id": 800158, "title": "The Killer", "year": 2023, "genres": ["Thriller", "Crime"], "director": "David Fincher", "added_days_ago": 40},
+    {"tmdb_id": 965150, "title": "Aftersun", "year": 2022, "genres": ["Drama"], "director": "Charlotte Wells", "added_days_ago": 70},
+    {"tmdb_id": 666277, "title": "Past Lives", "year": 2023, "genres": ["Drama", "Romance"], "director": "Celine Song", "added_days_ago": 26},
+    {"tmdb_id": 467244, "title": "The Zone of Interest", "year": 2023, "genres": ["History", "Drama", "War"], "director": "Jonathan Glazer", "added_days_ago": 18},
+    {"tmdb_id": 758866, "title": "Drive My Car", "year": 2021, "genres": ["Drama"], "director": "Ryusuke Hamaguchi", "language": "ja", "added_days_ago": 185},
+    {"tmdb_id": 426426, "title": "Roma", "year": 2018, "genres": ["Drama"], "director": "Alfonso Cuarón", "language": "es", "added_days_ago": 330},
+    {"tmdb_id": 491584, "title": "Burning", "year": 2018, "genres": ["Mystery", "Drama", "Thriller"], "director": "Lee Chang-dong", "language": "ko", "added_days_ago": 120},
+    {"tmdb_id": 428449, "title": "A Ghost Story", "year": 2017, "genres": ["Drama", "Fantasy", "Romance"], "director": "David Lowery", "added_days_ago": 230},
+    {"tmdb_id": 181886, "title": "Enemy", "year": 2013, "genres": ["Thriller", "Mystery"], "director": "Denis Villeneuve", "added_days_ago": 275},
+    {"tmdb_id": 210479, "title": "Locke", "year": 2013, "genres": ["Drama"], "director": "Steven Knight", "added_days_ago": 60},
+    {"tmdb_id": 443463, "title": "Leave No Trace", "year": 2018, "genres": ["Drama"], "director": "Debra Granik", "added_days_ago": 105},
+    {"tmdb_id": 414906, "title": "The Batman", "year": 2022, "genres": ["Crime", "Mystery", "Thriller"], "director": "Matt Reeves", "added_days_ago": 88},
+    {"tmdb_id": 395834, "title": "Wind River", "year": 2017, "genres": ["Crime", "Drama", "Mystery"], "director": "Taylor Sheridan", "added_days_ago": 150},
+    {"tmdb_id": 338766, "title": "Hell or High Water", "year": 2016, "genres": ["Crime", "Drama", "Western"], "director": "David Mackenzie", "added_days_ago": 200},
+    {"tmdb_id": 242582, "title": "Nightcrawler", "year": 2014, "genres": ["Crime", "Drama", "Thriller"], "director": "Dan Gilroy", "added_days_ago": 245},
+    {"tmdb_id": 429200, "title": "Good Time", "year": 2017, "genres": ["Crime", "Thriller", "Drama"], "director": "Josh Safdie", "added_days_ago": 50},
+    {"tmdb_id": 11644, "title": "Blow Out", "year": 1981, "genres": ["Thriller", "Mystery", "Crime"], "director": "Brian De Palma", "added_days_ago": 315},
+    {"tmdb_id": 565743, "title": "The Vast of Night", "year": 2019, "genres": ["Science Fiction", "Mystery", "Drama"], "director": "Andrew Patterson", "added_days_ago": 33}
+  ],
+  "rate_later": [
+    {"tmdb_id": 872585, "title": "Oppenheimer", "year": 2023, "genres": ["Drama", "History"], "director": "Christopher Nolan", "watched_days_ago": 9},
+    {"tmdb_id": 693134, "title": "Dune: Part Two", "year": 2024, "genres": ["Science Fiction", "Adventure"], "director": "Denis Villeneuve", "watched_days_ago": 4},
+    {"tmdb_id": 915935, "title": "Anatomy of a Fall", "year": 2023, "genres": ["Drama", "Thriller", "Crime"], "director": "Justine Triet", "language": "fr", "watched_days_ago": 1}
+  ],
+  "rewatches": [
+    {"tmdb_id": 949, "days_ago": 6, "answer": "confirmed"},
+    {"tmdb_id": 335984, "days_ago": 2, "answer": null}
+  ],
+  "criteria_session": {"tmdb_id": 6977, "answers": 8},
+  "qualities": ["Shots", "Ending"],
+  "dismiss_suggestions": 2
+}

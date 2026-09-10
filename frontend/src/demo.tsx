@@ -81,8 +81,8 @@ export function ReadOnlyPitch() {
       >
         <h2 id="read-only-demo">This is a read-only demo</h2>
         <p>
-          Everything on these screens is a real account, built out of one person&rsquo;s judgments -
-          so look anywhere you like, but nothing you press changes it.
+          Everything on these screens is a lived-in account - so look anywhere you like, but nothing
+          you press changes it.
         </p>
         <p className="muted">
           Sign up and the wall, the watchlist and the feed become yours instead.

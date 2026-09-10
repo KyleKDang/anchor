@@ -215,6 +215,25 @@ async def login(
     return AccountOut.of(account)
 
 
+@router.post(
+    "/auth/demo", dependencies=[limited("demo", lambda settings: settings.demo_rate_limit)]
+)
+async def enter_demo(db: DbSession, settings: AppSettings, response: Response) -> AccountOut:
+    """One click from the landing page: a session on the shared demo, no credentials.
+
+    The account has no password, so nothing else opens a session on it - the login form
+    refuses it like any unknown address, and signup refuses its address as taken. Every
+    visitor gets a session of their own, and the flag on the account is what makes each
+    of them read-only (:mod:`anchor.demo`). Rate limited per IP like the other doors,
+    because each click is a session row; nothing here writes anything else.
+    """
+    account = await db.scalar(select(Account).where(Account.is_demo.is_(True)))
+    if account is None:
+        raise ApiError(404, "demo_unavailable", "The demo account has not been built yet.")
+    await _open_session(db, account, settings, response)
+    return AccountOut.of(account)
+
+
 @router.post("/auth/logout", status_code=204)
 async def logout(request: Request, db: DbSession, response: Response) -> None:
     """Revoke the cookie's session, if any, and clear the cookie; always succeeds."""
@@ -249,9 +268,8 @@ async def _open_session(
     db: DbSession, account: Account, settings: Settings, response: Response
 ) -> None:
     """Mint a session for ``account``, commit, and hand the browser its cookie."""
-    token = secrets.token_urlsafe(32)
     ttl = timedelta(hours=settings.session_ttl_hours)
-    db.add(AuthSession(token_hash=_digest(token), account_id=account.id, expires_at=_now() + ttl))
+    token = mint_session(db, account, ttl)
     await db.commit()
     response.set_cookie(
         SESSION_COOKIE,
@@ -262,6 +280,17 @@ async def _open_session(
         secure=settings.cookie_secure,
         path="/",
     )
+
+
+def mint_session(db: DbSession, account: Account, ttl: timedelta) -> str:
+    """Add a session row for ``account`` to the open transaction; the token is the caller's.
+
+    The one other caller is the demo build (:mod:`anchor.demobuild`), which needs a session
+    on an account that has no password and so no other way to get one.
+    """
+    token = secrets.token_urlsafe(32)
+    db.add(AuthSession(token_hash=_digest(token), account_id=account.id, expires_at=_now() + ttl))
+    return token
 
 
 def _now() -> datetime:

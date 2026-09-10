@@ -66,6 +66,9 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: docker compose up --build -d --wait
+      # The demo build runs on after the stack is up; the journeys through the demo need
+      # it finished, and its exit code is the first thing that says the fixture replays.
+      - run: docker compose wait demo
       - run: npm ci
         working-directory: frontend
       - run: npx playwright install --with-deps chromium
