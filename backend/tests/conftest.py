@@ -25,7 +25,7 @@ from asgi_lifespan import LifespanManager
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 from procrastinate.worker import Worker
-from sqlalchemy import update
+from sqlalchemy import text, update
 
 from anchor import jobs, llm
 from anchor.db import Database
@@ -257,6 +257,16 @@ async def client(client_from: Callable[[str], AsyncClient]) -> AsyncIterator[Asy
         yield client
 
 
+_HEARTBEAT = text(
+    """
+    SELECT count(*)
+      FROM procrastinate_workers
+     WHERE last_heartbeat > now() - make_interval(secs => 30)
+    """
+)
+"""Health's own liveness read, at the default ``stalled_worker_seconds``."""
+
+
 @pytest.fixture
 def db(app: FastAPI) -> Database:
     return app.state.db
@@ -274,15 +284,40 @@ def job_context(app: FastAPI, db: Database, seam: llm.Llm) -> dict[str, Any]:
 
 
 @pytest.fixture
-async def worker(jobs_app: procrastinate.App, job_context: dict[str, Any]) -> AsyncIterator[None]:
-    """A real worker on the test's event loop, as the worker process would run."""
+async def worker(
+    jobs_app: procrastinate.App, job_context: dict[str, Any], db: Database
+) -> AsyncIterator[None]:
+    """A real worker on the test's event loop, as the worker process would run.
+
+    Held until the queue can actually see it. ``create_task`` only schedules the run, and
+    registering the worker plus landing its first heartbeat takes several round trips
+    after that - so a test given this fixture used to be racing a worker that had not
+    arrived yet. ``/api/health`` proves liveness by reading exactly that heartbeat (#82),
+    which made it the one test that could lose the race, and on a loaded CI runner it did.
+    """
     worker = Worker(jobs_app, install_signal_handlers=False, additional_context=job_context)
     task = asyncio.create_task(worker.run())
     try:
+        await _beating(db, task)
         yield
     finally:
         worker.stop()
         await task
+
+
+async def _beating(db: Database, task: "asyncio.Task[None]", timeout: float = 10.0) -> None:
+    """Wait for a worker's first heartbeat, by the query the health check itself runs."""
+    deadline = time.monotonic() + timeout
+    while True:
+        async with db.sessions() as session:
+            if await session.scalar(_HEARTBEAT):
+                return
+        if task.done():  # It fell over on the way up; surface that rather than the timeout.
+            await task
+            raise AssertionError("the worker stopped before it registered")
+        if time.monotonic() >= deadline:
+            raise AssertionError(f"no worker heartbeat within {timeout}s")
+        await asyncio.sleep(0.01)
 
 
 @pytest.fixture
