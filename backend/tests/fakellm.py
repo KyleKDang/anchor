@@ -7,6 +7,11 @@ reaches a provider.
 
 The adapter records every call, so a test can assert which model an operation was priced
 against and whether it was batched without asserting anything about a prompt's wording.
+
+Sitting under the seam means it never sees the wire, and that is how #116 stayed hidden:
+every operation test ran against a schema nobody checked was legal. So it holds the
+provider's schema rules too, and every test that dispatches an operation is now also a
+test that the operation's schema is one structured outputs would accept.
 """
 
 import json
@@ -14,6 +19,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from anchor import llm
+from fakeanthropic import assert_schema_is_accepted
 
 
 @dataclass(frozen=True)
@@ -148,6 +154,9 @@ class FakeLlm:
     async def complete(
         self, prompt: llm.Prompt, *, model: llm.Model, dispatch: llm.Dispatch
     ) -> llm.Completion:
+        # Named by answer shape rather than by system prompt: the prompts run to several
+        # hundred words, and a failure should read as the schema problem it is.
+        assert_schema_is_accepted(prompt.schema, where=f"the {prompt.schema['required'][0]} schema")
         if self.failure is not None and self._failing(prompt):
             raise self.failure
         self.asked.append(Asked(prompt=prompt, model=model, dispatch=dispatch))

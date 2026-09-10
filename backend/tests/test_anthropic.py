@@ -13,7 +13,7 @@ import pytest
 
 from anchor import llm
 from anchor.settings import Settings
-from fakeanthropic import FakeAnthropic
+from fakeanthropic import FakeAnthropic, RejectedSchema, assert_schema_is_accepted
 
 MODEL = llm.Model(id="claude-haiku-4-5", input_usd_per_mtok=1.0, output_usd_per_mtok=5.0)
 
@@ -176,3 +176,128 @@ async def test_a_batched_request_that_failed_is_a_skip(anthropic):
 
     with pytest.raises(llm.Skipped):
         await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.batch)
+
+
+# --- A schema the provider will actually accept ---
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [llm.PARAGRAPHS_SCHEMA, llm.RANKING_SCHEMA, llm.QUALITIES_SCHEMA],
+    ids=["paragraphs", "ranking", "qualities"],
+)
+def test_every_operations_schema_is_one_structured_outputs_accepts(schema):
+    """The gap that let #116 ship: the suite asserted a schema was sent, never that it was legal."""
+    assert_schema_is_accepted(schema)
+
+
+async def test_a_schema_the_provider_would_refuse_fails_here_rather_than_in_production(anthropic):
+    """A 400 on the wire is a ``Skipped``, which reads as success - so the fake must shout."""
+    prompt = llm.Prompt(
+        system="be brief",
+        user="describe their taste",
+        schema={
+            "type": "object",
+            "properties": {
+                "paragraphs": {"type": "array", "items": {"type": "string"}, "maxItems": 4}
+            },
+            "required": ["paragraphs"],
+            "additionalProperties": False,
+        },
+        max_tokens=500,
+    )
+
+    with pytest.raises(RejectedSchema, match="maxItems"):
+        await adapter(anthropic).complete(prompt, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+
+async def test_a_batched_call_has_its_schema_checked_too(anthropic):
+    """A batch wraps the same body, so a bad schema must not slip in through the other door."""
+    prompt = llm.Prompt(
+        system="be brief",
+        user="describe their taste",
+        schema={"type": "object", "properties": {}, "additionalProperties": True},
+        max_tokens=500,
+    )
+
+    with pytest.raises(RejectedSchema, match="additionalProperties"):
+        await adapter(anthropic).complete(prompt, model=MODEL, dispatch=llm.Dispatch.batch)
+
+
+@pytest.mark.parametrize(
+    ("schema", "rejected"),
+    [
+        ({"type": "array", "items": {"type": "string"}, "minItems": 4}, "minItems"),
+        (
+            {
+                "type": "object",
+                "properties": {"n": {"type": "integer", "minimum": 0}},
+                "additionalProperties": False,
+            },
+            "minimum",
+        ),
+        (
+            {
+                "type": "object",
+                "properties": {"s": {"type": "string", "pattern": "^a"}},
+                "additionalProperties": False,
+            },
+            "pattern",
+        ),
+        (
+            {
+                "type": "object",
+                "properties": {"s": {"type": "string", "format": "slug"}},
+                "additionalProperties": False,
+            },
+            "format",
+        ),
+        (
+            {"type": "object", "properties": {}, "additionalProperties": False, "minProperties": 1},
+            "minProperties",
+        ),
+    ],
+    ids=["min-items-above-one", "numeric-bound", "regex", "unknown-format", "property-count"],
+)
+def test_the_keywords_structured_outputs_rejects_are_refused(schema, rejected):
+    with pytest.raises(RejectedSchema, match=rejected):
+        assert_schema_is_accepted(schema)
+
+
+def test_the_two_min_items_values_the_provider_does_accept_are_allowed():
+    """0 and 1 are legal, and only the bound above them is not."""
+    for value in (0, 1):
+        assert_schema_is_accepted({"type": "array", "items": {"type": "string"}, "minItems": value})
+
+
+@pytest.mark.parametrize(
+    "schema",
+    [
+        {
+            "type": "object",
+            "properties": {"when": {"type": "string", "format": "date-time"}},
+            "additionalProperties": False,
+        },
+        {
+            "$defs": {
+                "leaf": {"type": "object", "properties": {}, "additionalProperties": False}
+            },
+            "type": "object",
+            "properties": {"leaf": {"$ref": "#/$defs/leaf"}},
+            "additionalProperties": False,
+        },
+        {
+            "type": "object",
+            "properties": {"either": {"anyOf": [{"type": "string"}, {"type": "integer"}]}},
+            "additionalProperties": False,
+        },
+    ],
+    ids=["supported-string-format", "internal-ref", "any-of-branch"],
+)
+def test_what_structured_outputs_does_accept_is_not_refused(schema):
+    """The check has to be exact in both directions - refusing a legal schema is its own bug.
+
+    A ``$ref`` node and an ``anyOf`` branch carry no ``type``, and a supported string
+    ``format`` is legal, so all three are the cases a keyword allowlist gets wrong first.
+    """
+    assert_schema_is_accepted(schema)

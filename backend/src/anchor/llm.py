@@ -187,12 +187,7 @@ class Qualities(BaseModel):
 PARAGRAPHS_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
-        "paragraphs": {
-            "type": "array",
-            "items": {"type": "string"},
-            "minItems": 1,
-            "maxItems": 4,
-        },
+        "paragraphs": {"type": "array", "items": {"type": "string"}},
     },
     "required": ["paragraphs"],
     "additionalProperties": False,
@@ -231,6 +226,13 @@ They are the contract with the provider and the models are the contract with Anc
 the two want different things - the wire schema has to be flat and closed for structured
 output to accept it, while the model carries the length bounds and the derived text. If
 they ever drift, the model is what decides, because it is what runs on the answer.
+
+Length bounds are the case worth naming, because writing them here once cost the prose
+profile its entire existence (#116): ``maxItems`` is rejected outright and ``minItems``
+is accepted only as 0 or 1, so a bound the wire cannot express belongs on the pydantic
+model alone - where ``Paragraphs`` already enforces one through four. The fake refuses
+what the provider refuses (``fakeanthropic.assert_schema_is_accepted``), so the next
+schema to reach for a keyword like these fails in CI rather than in a worker log.
 """
 
 
