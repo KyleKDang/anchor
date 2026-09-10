@@ -23,6 +23,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from anchor import spend
 from anchor.db import Database
 from anchor.ratelimit import limited
 from anchor.settings import Settings
@@ -67,6 +68,31 @@ class Backlog(TypedDict):
     oldest_wait_seconds: float | None
 
 
+class PlatformSpend(TypedDict):
+    month_to_date_usd: float
+    cap_usd: float
+
+
+class AccountsSpend(TypedDict):
+    highest_month_to_date_usd: float
+    cap_usd: float
+    at_cap: int
+
+
+class LlmSpend(TypedDict):
+    """This month's LLM spend against both caps, as the cap gate itself would read it.
+
+    The credential says whether the box *could* buy anything and the backlog whether it
+    is keeping up, and between them they cannot tell a spent cap from a broken request:
+    a cap behaving correctly leaves both looking fine and the prose empty (#123). Dollars
+    rather than micros because a reader is asking how close, and never an account id,
+    because anyone may ask.
+    """
+
+    platform: PlatformSpend
+    accounts: AccountsSpend
+
+
 @router.get("/api/health")
 async def health(request: Request) -> JSONResponse:
     db: Database = request.app.state.db
@@ -74,11 +100,13 @@ async def health(request: Request) -> JSONResponse:
     stale_after: float = settings.stalled_worker_seconds
     checks: dict[str, CheckStatus] = {"web": "ok"}
     backlog: Backlog | None = None
+    llm_spend: LlmSpend | None = None
 
     try:
         async with db.sessions() as session:
             beating = await _worker_beating(session, stale_after)
             backlog = await _backlog(session)
+            llm_spend = await _llm_spend(session, settings)
     except Exception:
         # Both reads are the database check: they are all this endpoint asks of it, and a
         # database it cannot query is one the worker cannot be asked about either.
@@ -95,6 +123,8 @@ async def health(request: Request) -> JSONResponse:
     # can turn the response 503, and neither a backlog nor a missing key must do that.
     if backlog is not None:
         body["backlog"] = backlog
+    if llm_spend is not None:
+        body["llm_spend"] = llm_spend
     # Reported even when the database check failed: it is a settings read that cannot fail
     # with it, and a box degraded for two reasons should say both.
     body["llm_credential"] = _llm_credential(settings)
@@ -127,6 +157,27 @@ async def _worker_beating(session: AsyncSession, stale_after: float) -> bool:
     """
     beating = await session.scalar(_BEATING_WORKERS, {"seconds": stale_after})
     return bool(beating)
+
+
+async def _llm_spend(session: AsyncSession, settings: Settings) -> LlmSpend:
+    """Both caps' months, from the module the cap gate reads rather than from the seam.
+
+    :mod:`anchor.spend` is what makes this possible in the web process: the sums are the
+    seam's own arithmetic, moved to where a process that never loads a provider can ask.
+    """
+    account_cap = settings.llm_account_monthly_cap_usd
+    accounts = await spend.across_accounts(session, cap_micros=spend.micros(account_cap))
+    return LlmSpend(
+        platform=PlatformSpend(
+            month_to_date_usd=spend.usd(await spend.month_to_date(session, account_id=None)),
+            cap_usd=settings.llm_global_monthly_cap_usd,
+        ),
+        accounts=AccountsSpend(
+            highest_month_to_date_usd=spend.usd(accounts.highest),
+            cap_usd=account_cap,
+            at_cap=accounts.at_cap,
+        ),
+    )
 
 
 async def _backlog(session: AsyncSession) -> Backlog:

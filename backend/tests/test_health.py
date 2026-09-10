@@ -14,10 +14,39 @@ from sqlalchemy import text
 import export
 import flows
 from anchor import jobs
+from anchor.prose import Evidence
 from export import Row
 from faketmdb import FilmFixture
+from library import film
 
 IMPORTED = FilmFixture(8200, "The Film Being Imported", release_date="2011-05-01")
+
+FORMING = pytest.mark.settings(readiness_forming_films=3, readiness_forming_bands=1)
+
+EVIDENCE = Evidence(
+    anchors=["4.0 stars: Film 01 (1981)"],
+    loved=["Film 00 (1980)"],
+    disliked=[],
+    criteria=[],
+    constraints=[],
+    dismissed=[],
+    rated_films=5,
+    judgments=4,
+)
+
+
+async def _spend_on(owner, tmdb, seam, provider, *, output_tokens):
+    """One prose regeneration for the signed-in owner, priced at the mid tier's $10/Mtok out.
+
+    Through the seam rather than by inserting a row, so what the check reports is what
+    the cap gate would have summed.
+    """
+    tmdb.with_films(*flows.LIBRARY)
+    await flows.scale(owner, size=5)
+    account = uuid.UUID(await flows.account_id(owner))
+    provider.costs(input_tokens=0, output_tokens=output_tokens)
+    await seam.regenerate_prose_profile(account, EVIDENCE)
+    return account
 
 
 async def _register_worker(jobs_app):
@@ -136,6 +165,7 @@ async def test_a_database_failure_skips_the_worker_check(client, app, monkeypatc
     assert body["status"] == "degraded"
     assert body["checks"] == {"web": "ok", "database": "error", "worker": "skipped"}
     assert "backlog" not in body
+    assert "llm_spend" not in body
     # The credential is a settings read, so it survives what the backlog does not: a box
     # degraded for two reasons should say both.
     assert body["llm_credential"] == "missing"
@@ -182,3 +212,75 @@ async def test_a_configured_box_says_so_and_never_says_the_key(jobs_app, client)
 
     assert response.json()["llm_credential"] == "configured"
     assert "sk-ant-not-a-real-key" not in response.text
+
+
+# --- What the month has cost, against both caps ---
+
+
+async def test_an_unspent_month_reports_zero_against_both_caps(jobs_app, client):
+    await _register_worker(jobs_app)
+
+    body = (await client.get("/api/health")).json()
+
+    assert body["llm_spend"] == {
+        "platform": {"month_to_date_usd": 0.0, "cap_usd": 10.0},
+        "accounts": {"highest_month_to_date_usd": 0.0, "cap_usd": 2.0, "at_cap": 0},
+    }
+
+
+@FORMING
+async def test_health_reports_month_to_date_spend_against_both_caps(
+    owner, tmdb, jobs_app, client, seam, provider
+):
+    """#123: a spent cap silences prose at INFO, and nothing outside the box said so.
+
+    The credential and the backlog were already here, and between them they could not
+    answer "why is prose empty": a cap behaving correctly leaves both looking fine. The
+    numbers are the ones the cap gate reads, so a cap about to be hit is visible from
+    outside before it is.
+    """
+    await _register_worker(jobs_app)
+    # 1200 output tokens at the mid tier's $10 per million: what #123's one row cost.
+    await _spend_on(owner, tmdb, seam, provider, output_tokens=1200)
+
+    body = (await client.get("/api/health")).json()
+
+    assert "llm_spend" not in body["checks"]
+    assert body["llm_spend"] == {
+        "platform": {"month_to_date_usd": 0.012, "cap_usd": 10.0},
+        "accounts": {"highest_month_to_date_usd": 0.012, "cap_usd": 2.0, "at_cap": 0},
+    }
+
+
+@FORMING
+async def test_an_account_at_its_cap_is_counted_without_being_named(
+    owner, tmdb, jobs_app, client, seam, provider
+):
+    """The endpoint is unauthenticated, so it says how many accounts are capped, never which."""
+    await _register_worker(jobs_app)
+    account = await _spend_on(owner, tmdb, seam, provider, output_tokens=200_000)
+
+    response = await client.get("/api/health")
+
+    assert response.json()["llm_spend"]["accounts"] == {
+        "highest_month_to_date_usd": 2.0,
+        "cap_usd": 2.0,
+        "at_cap": 1,
+    }
+    assert response.json()["llm_spend"]["platform"]["month_to_date_usd"] == 2.0
+    assert str(account) not in response.text
+
+
+async def test_shared_spend_counts_for_the_platform_and_no_account(
+    jobs_app, client, seam, provider
+):
+    """A quality tag is nobody's: it moves the platform number and no account's."""
+    await _register_worker(jobs_app)
+    # 2000 output tokens at the cheap tier's $5 per million, batched at half price.
+    provider.costs(input_tokens=0, output_tokens=2000).will_say(qualities=[])
+
+    await seam.tag_film_qualities(film(9001), ("Acting",))
+
+    body = (await client.get("/api/health")).json()
+    assert body["llm_spend"]["platform"]["month_to_date_usd"] == 0.005
+    assert body["llm_spend"]["accounts"]["highest_month_to_date_usd"] == 0.0

@@ -27,6 +27,7 @@ Opens the app at <http://localhost> (set `ANCHOR_HTTP_PORT` to move it) and publ
 The worker is proven by the heartbeat it already beats into the queue, so a worker busy with an import is healthy rather than timed out.
 Queue depth rides alongside the checks as `backlog` and never changes the status: a backed-up queue is visible without being a failure.
 `llm_credential` rides alongside them too, and likewise never changes the status: it says `configured` or `missing`, so a box with no Anthropic key can be told apart from one with nothing to suggest without reading worker logs.
+`llm_spend` is the third rider: this month's LLM spend in dollars against the platform cap, and the busiest account's against the per-account cap with a count of accounts already at it, so a cap that has silenced the prose can be told apart from a broken request the same way.
 
 Mail never leaves the box: the stack sends through a fake Resend whose inbox is <http://localhost:8025/emails> (`ANCHOR_MAIL_PORT`), so a verification link is one request away.
 A backend run outside compose with no `ANCHOR_RESEND_API_KEY` logs each message instead.

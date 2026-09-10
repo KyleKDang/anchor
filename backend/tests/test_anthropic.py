@@ -78,6 +78,20 @@ async def test_a_call_puts_the_operations_schema_on_the_wire(anthropic):
     }
 
 
+async def test_a_call_asks_the_model_not_to_think(anthropic):
+    """#123: every operation wants a short JSON answer and nothing else.
+
+    Sonnet 5 thinks by default when a request says nothing about it, and what it thinks
+    counts against ``max_tokens`` - so a prose regeneration spent its whole budget
+    reasoning about the owner's taste and was cut off before it wrote a word. The
+    request has to say so outright, on every tier, because the tier is configuration.
+    """
+    await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+
+    (request,) = anthropic.calls("POST", "/v1/messages")
+    assert request.body["thinking"] == {"type": "disabled"}
+
+
 async def test_a_call_comes_back_with_its_text_and_its_tokens(anthropic):
     anthropic.answer = '{"paragraphs": ["You like slow films."]}'
     anthropic.input_tokens, anthropic.output_tokens = 900, 40
@@ -90,13 +104,24 @@ async def test_a_call_comes_back_with_its_text_and_its_tokens(anthropic):
     assert (completion.input_tokens, completion.output_tokens) == (900, 40)
 
 
-async def test_a_refusal_is_not_an_answer(anthropic):
-    """A message with no text block has nothing the schema could accept."""
+async def test_a_refusal_comes_back_with_its_cost_and_no_text(anthropic):
+    """A message with no text block is carried out whole rather than refused here.
+
+    The adapter used to raise on it, one step before the seam could write the ledger row
+    (#123). What it hands back now is what the seam needs to decide and to record: the
+    absence of text, the tokens it cost anyway, and the provider's own reason for stopping.
+    """
     anthropic.no_text = True
     anthropic.stop_reason = "refusal"
+    anthropic.output_tokens = 7
 
-    with pytest.raises(llm.BadAnswer):
-        await adapter(anthropic).complete(PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate)
+    completion = await adapter(anthropic).complete(
+        PROMPT, model=MODEL, dispatch=llm.Dispatch.immediate
+    )
+
+    assert completion.text is None
+    assert completion.stop_reason == "refusal"
+    assert completion.output_tokens == 7
 
 
 # --- Throttling and outages ---

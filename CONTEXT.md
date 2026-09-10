@@ -289,4 +289,5 @@ The no-training provider rule is enforced here, in code.
 **Spend ledger**:
 The append-only record of every LLM call: its scope (one account, or shared), operation, model, tokens, and computed cost.
 The seam sums it month-to-date before each dispatch against the per-account and platform-wide caps; hitting either skips the work and serves cached results.
+The same sums are reported on `/api/health` as `llm_spend`, so a spent cap is visible from outside the box.
 Kept through a re-import, unlike the account's film data, so re-importing can never reset a cap.

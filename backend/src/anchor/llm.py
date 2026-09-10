@@ -37,10 +37,9 @@ from typing import Any, Protocol
 
 import httpx
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import prose, readiness
+from anchor import prose, readiness, spend
 from anchor.db import Database
 from anchor.models import Film, FitBucket, LlmOperation, SpendLedgerEntry
 from anchor.settings import Settings
@@ -159,11 +158,19 @@ class Prompt:
 
 @dataclass(frozen=True)
 class Completion:
-    """What came back, and what it cost in tokens."""
+    """What came back, and what it cost in tokens.
 
-    text: str
+    Whatever came back: the text is ``None`` where the message carried no text block at
+    all, and the stop reason is carried rather than judged, because judging happens in
+    the seam after the ledger row is written. An adapter that decided for itself that a
+    message was not an answer was raising before the seam could record what the message
+    cost, and five of #123's six calls bought a full budget and left no row.
+    """
+
+    text: str | None
     input_tokens: int
     output_tokens: int
+    stop_reason: str | None = None
 
 
 class Adapter(Protocol):
@@ -400,7 +407,7 @@ class Llm:
 
         completion = await self._adapter.complete(prompt, model=model, dispatch=dispatch)
         await self._record(operation, account_id, model, dispatch, completion)
-        return _parse(answer, completion.text)
+        return _parse(answer, _answered(completion))
 
     def _model_for(self, operation: LlmOperation) -> Model:
         if operation.value in self._settings.mid_tier_operations:
@@ -442,11 +449,11 @@ class Llm:
         call costs until it returns.
         """
         if account_id is not None:
-            spent = await _month_to_date(session, account_id=account_id)
-            if spent >= _micros(self._settings.llm_account_monthly_cap_usd):
+            spent = await spend.month_to_date(session, account_id=account_id)
+            if spent >= spend.micros(self._settings.llm_account_monthly_cap_usd):
                 raise CapReached(f"account {account_id} has spent its month's budget")
-        spent = await _month_to_date(session, account_id=None)
-        if spent >= _micros(self._settings.llm_global_monthly_cap_usd):
+        spent = await spend.month_to_date(session, account_id=None)
+        if spent >= spend.micros(self._settings.llm_global_monthly_cap_usd):
             raise CapReached("the platform has spent its month's budget")
 
     async def _record(
@@ -500,23 +507,21 @@ def _cost_micros(model: Model, dispatch: Dispatch, completion: Completion) -> in
     return round(priced * discount)
 
 
-def _micros(usd: float) -> int:
-    return round(usd * 1_000_000)
+def _answered(completion: Completion) -> str:
+    """The text worth parsing, or why there is none. Asked only after the row is written.
 
-
-async def _month_to_date(session: AsyncSession, *, account_id: uuid.UUID | None) -> int:
-    """This calendar month's spend in micros: one account's, or the whole platform's.
-
-    ``account_id=None`` is the global sum over every row, shared scope included - not the
-    sum of the shared-scope rows. The two caps ask different questions of the same table,
-    and only the account one narrows.
+    The budget running out is checked first and named as such, whether or not any text
+    arrived: an answer cut off a few hundred characters in fails the schema too, and
+    "not valid JSON" was true of #123's one partial answer and said nothing about why.
     """
-    query = select(func.coalesce(func.sum(SpendLedgerEntry.cost_micros), 0)).where(
-        SpendLedgerEntry.created_at >= func.date_trunc("month", func.now())
-    )
-    if account_id is not None:
-        query = query.where(SpendLedgerEntry.account_id == account_id)
-    return int(await session.scalar(query) or 0)
+    if completion.stop_reason == "max_tokens":
+        raise BadAnswer(
+            "the provider's answer was cut off by max_tokens after "
+            f"{completion.output_tokens} output tokens"
+        )
+    if completion.text is None:
+        raise BadAnswer(f"the provider returned no text ({completion.stop_reason!r})")
+    return completion.text
 
 
 def _parse[Answer: BaseModel](answer: type[Answer], text: str) -> Answer:
@@ -919,10 +924,20 @@ def build_llm(
 
 
 def _request_body(prompt: Prompt, model: Model) -> dict[str, Any]:
-    """One Messages request. Structured output is what makes the schema the wire contract."""
+    """One Messages request. Structured output is what makes the schema the wire contract.
+
+    Thinking is switched off by name rather than left to the model's default, because the
+    default is not the same on every tier and the tier is configuration: Sonnet 5 thinks
+    unless told not to, Haiku 4.5 does not, and what a model thinks counts against
+    ``max_tokens``. Every operation here wants a short JSON answer and nothing else, so
+    a budget sized for the answer was spent on reasoning about the owner's taste and the
+    answer never came (#123). Said on every request, so moving prose between tiers cannot
+    bring the condition back.
+    """
     return {
         "model": model.id,
         "max_tokens": prompt.max_tokens,
+        "thinking": {"type": "disabled"},
         "system": prompt.system,
         "messages": [{"role": "user", "content": prompt.user}],
         "output_config": {"format": {"type": "json_schema", "schema": prompt.schema}},
@@ -975,22 +990,26 @@ def _batch_error(result: dict[str, Any]) -> tuple[str | None, str]:
 
 
 def _completion(message: dict[str, Any]) -> Completion:
-    """The answer's text and what it cost. A message with no text block is a refusal."""
+    """The message's text, if it has any, what it cost, and why it stopped.
+
+    Nothing is judged here. A message with no text block is not an answer, but it was
+    paid for, and whether it is an answer is the seam's question to ask once the ledger
+    has what it needs.
+    """
     usage = message.get("usage") or {}
-    text = next(
-        (
-            str(block.get("text") or "")
-            for block in message.get("content") or []
-            if block.get("type") == "text"
-        ),
-        None,
-    )
-    if text is None:
-        raise BadAnswer(f"the provider returned no text ({message.get('stop_reason')!r})")
+    stop_reason = message.get("stop_reason")
     return Completion(
-        text=text,
+        text=next(
+            (
+                str(block.get("text") or "")
+                for block in message.get("content") or []
+                if block.get("type") == "text"
+            ),
+            None,
+        ),
         input_tokens=int(usage.get("input_tokens") or 0),
         output_tokens=int(usage.get("output_tokens") or 0),
+        stop_reason=str(stop_reason) if stop_reason is not None else None,
     )
 
 
