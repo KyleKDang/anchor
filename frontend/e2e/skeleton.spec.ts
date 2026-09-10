@@ -1,12 +1,16 @@
 import { expect, test } from "@playwright/test";
 
-test("a visitor without a session is sent to the login screen on a stack whose health check crosses web, database, and worker", async ({
+test("a visitor without a session gets the landing page on a stack whose health check crosses web, database, and worker", async ({
   page,
   request,
 }) => {
+  // The root has painted a front door rather than bounced to the login card since #113;
+  // what this line is here for is unchanged - the bundle boots and the session read
+  // came back. Where "/" leads for a visitor and for an owner is landing.spec.ts.
   await page.goto("/");
-  await expect(page).toHaveURL(/\/login$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Log in");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Rank every film you've ever seen.",
+  );
 
   const health = await request.get("/api/health");
   expect(health.status()).toBe(200);
