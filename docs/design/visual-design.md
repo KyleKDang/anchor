@@ -22,6 +22,8 @@ But the poster is never the subject: the band, the rank, and the anchor badge ar
 There is exactly one accent, and it means *a rating*.
 
 Amber is used by the stars, the anchor badge, the wordmark's dot, the nudge's rule, and the focus ring, and by nothing else.
+The one exception is the landing page's eyebrow, the word naming each destination on the tour, decided with the page itself on [#113](https://github.com/KyleKDang/anchor/issues/113): the page has no ratings to spend the accent on outside its specimen, and the eyebrow is its one mark of emphasis.
+It is the only screen a visitor sees before signing in, so the rule holds everywhere the product is actually used.
 Every action on every screen is monochrome: the primary button is inverted ink, the secondary is a hairline outline, the quiet one is an underlined link.
 The consequence is that no button can ever compete with a star for attention, which is the point - the ordering is the product, and the verbs are how you feed it.
 
@@ -48,7 +50,7 @@ A rule under a heading, a rule between rows.
 Cards are for the few things that are genuinely a discrete object: the rating panel on a film page, a readiness stage, the auth card.
 
 **Two elevations and no more.**
-`--shadow-1` lifts a resting surface a hair off the background; `--shadow-2` is for something floating over the page (a dialog, a poster under the pointer).
+`--shadow-1` lifts a resting surface a hair off the background; `--shadow-2` is for something floating over the page (a dialog, a poster under the pointer, and the landing page's screen frames, which are pictures of the app held above it rather than surfaces of it).
 
 **Radii climb with the size of the thing.**
 4px on marks and thumbnails, 6px on controls, 10px on cards and boxes, 14px on the largest panels, full round on pills.
