@@ -43,7 +43,7 @@ test("a signed-out visitor lands on the front door and can reach both auth scree
   // Sign up is the primary call to action, and it is the first thing in the hero's row.
   await page.getByRole("main").getByRole("link", { name: "Sign up" }).first().click();
   await expect(page).toHaveURL(/\/signup$/);
-  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Sign up");
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText("Create your account");
 
   await page.goto("/");
   await page.getByRole("main").getByRole("link", { name: "Log in" }).first().click();
