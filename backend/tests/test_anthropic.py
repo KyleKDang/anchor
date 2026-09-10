@@ -278,6 +278,8 @@ async def test_a_batched_call_is_created_polled_and_fetched(anthropic):
 
     (created,) = anthropic.calls("POST", "/v1/messages/batches")
     assert created.body["requests"][0]["params"]["model"] == "claude-haiku-4-5"
+    # The same body rides inside the batch, so a batched tier cannot start thinking either.
+    assert created.body["requests"][0]["params"]["thinking"] == {"type": "disabled"}
     assert len(anthropic.calls("GET", "/v1/messages/batches/msgbatch_test")) == 3
     assert completion.input_tokens == anthropic.input_tokens
 
