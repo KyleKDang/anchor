@@ -1,17 +1,18 @@
 # The demo account
 
-Consolidates wayfinder ticket [Demo account content design (#20)](https://github.com/KyleKDang/anchor/issues/20), as revised on 2026-09-05 by the direct-ordering redesign ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)).
+Consolidates wayfinder ticket [Demo account content design (#20)](https://github.com/KyleKDang/anchor/issues/20), as revised on 2026-09-05 by the direct-ordering redesign ([ADR 0013](../adr/0013-the-ordering-is-edited-by-hand.md)) and on 2026-09-09 by [ADR 0015](../adr/0015-the-demo-taste-is-authored.md), which makes the taste on display authored for the demo rather than the owner's own.
 The demo account is the shared read-only account the landing page offers, so a visitor (recruiter, friend) can explore a fully lived-in Anchor in under a minute without registering.
 
 ## What it is made of
 
 - **A curated fixture, not a snapshot**: a checked-in dataset a build script replays through the real pipelines (import, moves, marks, retrains, verdict precompute); never a copied database.
-- **The taste is the developer's real judgments, allowlisted.**
-  Default-out: one review pass over the 592-row real export; nothing enters the demo unreviewed.
-  Curation rule: **cut for embarrassment, keep for edge** - obscure or embarrassing films go, surprising judgments on recognizable films stay (they are the demo's best material).
-  The ordering lands wherever the pass lands, expected in the hundreds.
+- **The taste is authored for the demo and belongs to nobody** ([ADR 0015](../adr/0015-the-demo-taste-is-authored.md)).
+  Not the owner's ratings, not a subset of them, and not derived from them: several hundred real judgments are a fairly complete picture of a person, and the demo is the one surface strangers are most likely to read.
+  Sixty to eighty films, which fills the ten bands, seats a tier and feeds the shelf while staying small enough that every film is chosen on purpose.
+  Design rule: **keep for edge** - the sensibility must be nameable in a sentence and must carry judgments on recognizable films that a visitor would argue with, because an ordering nobody would dispute has failed at the only thing that makes the surfaces cohere.
 - **Generic/consensus taste is ruled out**: averaged opinion has no edges, so the prose profile reads like a horoscope and every surface collapses into a popularity list.
   Specificity with visible edges is what makes the surfaces cohere, and coherence between surfaces is the aha.
+  Invented is not the same as generic, which is the whole of ADR 0015: what is ruled out is taste with no point of view, not taste with no owner.
 - **A learn-the-visitor's-taste demo is ruled out**: a 60-second quiz profile sits below the readiness gates' quality floor, and per-visitor profiles mean anonymous-triggered LLM spend plus per-visitor state.
   The "works for you specifically" moment is deliberately placed after signup; the demo's job is to earn it.
 
@@ -23,7 +24,7 @@ The demo account is the shared read-only account the landing page offers, so a v
   If it reads flat, fix the fixture - add moves, criteria answers, constraints - and regenerate.
 - One or two profile constraints (quality-picker selections) are seeded so the constraints feature is visibly in play.
 - The recognizability bias applies where visitors look: ordering extremes, anchors, ranked tier, discovery shelf.
-  The middle of the ordering stays as obscure as the real taste is.
+  With sixty to eighty chosen films there is no accidental middle, so most of the ordering is recognizable, and the few deep cuts that remain are there deliberately for texture.
 
 ## Surfaces
 
@@ -53,6 +54,8 @@ The demo account is the shared read-only account the landing page offers, so a v
   No sandboxed fake writes; the accepted trade-off is that a visitor sees the outcomes of rating (the wall, the judgment history), never the picker itself.
 - **One-click enter** from the landing page: a button starts an ordinary session flagged demo.
   The demo account has no credentials and is unreachable through the login form; concurrent visitors are unlimited because nothing writes.
-- **Presented neutrally, no owner identity in-product**: "Demo account - a real, lived-in account you can explore."
-  No fictional persona, no developer branding; the authorship story lives in the README, portfolio, and interviews.
+- **Presented neutrally, no owner identity in-product**: "Demo account - a lived-in account you can explore."
+  Lived-in is literal and stays: every row is real engine output from a real replay through the real pipelines.
+  What the copy no longer says is *real*, because the judgments are authored rather than anybody's (ADR 0015), and a line that overclaims on the one screen built to establish trust is the wrong place to be loose.
+  No fictional persona and no developer branding either way; the authorship story lives in the README, portfolio, and interviews.
 - The demo account is excluded from every evaluation aggregate ([evaluation.md](evaluation.md)).
