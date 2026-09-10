@@ -287,6 +287,16 @@ async def test_a_provider_that_is_down_leaves_the_prose_alone(owner, db, run_job
     assert len(await prose_versions(db, account)) == 1
 
 
+def _about_the_prose(caplog):
+    """The regeneration job's own log lines. A run buys other things too, and what they
+    logged is not what these tests are about."""
+    return [
+        record
+        for record in caplog.records
+        if record.name == "anchor.jobs" and "prose profile" in record.getMessage()
+    ]
+
+
 @SMALL
 async def test_a_request_the_provider_would_not_accept_is_reported_rather_than_hidden(
     owner, db, run_jobs, provider, caplog
@@ -305,10 +315,9 @@ async def test_a_request_the_provider_would_not_accept_is_reported_rather_than_h
         await run_jobs()
 
     assert len(await prose_versions(db, account)) == 1
-    reported = [record for record in caplog.records if record.name == "anchor.jobs"]
-    assert reported, "the skip left no trace at all"
-    assert all(record.levelno == logging.ERROR for record in reported)
-    assert all("no maxItems" in record.getMessage() for record in reported)
+    (reported,) = _about_the_prose(caplog)
+    assert reported.levelno == logging.ERROR
+    assert "no maxItems" in reported.getMessage()
 
 
 @SMALL
@@ -321,8 +330,8 @@ async def test_a_provider_that_is_down_is_not_reported_as_a_bug(owner, run_jobs,
     with caplog.at_level(logging.INFO, logger="anchor.jobs"):
         await run_jobs()
 
-    reported = [record for record in caplog.records if record.name == "anchor.jobs"]
-    assert reported and all(record.levelno == logging.INFO for record in reported)
+    (reported,) = _about_the_prose(caplog)
+    assert reported.levelno == logging.INFO
 
 
 @SMALL
