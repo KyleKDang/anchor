@@ -77,7 +77,7 @@ Every screenshot follows your GitHub theme: light here for a light theme, dark f
     <td>
       <picture>
         <source media="(prefers-color-scheme: dark)" srcset="docs/images/film-dark.png">
-        <img alt="A rated film's page: its band, its rank, its neighbours, and everything the owner has said about it" src="docs/images/film.png">
+        <img alt="A rated film's page: its band, its rank, its neighbors, and everything the owner has said about it" src="docs/images/film.png">
       </picture>
     </td>
   </tr>
@@ -88,11 +88,11 @@ Every screenshot follows your GitHub theme: light here for a light theme, dark f
 Anchor learns one **taste profile** per account from the ordering alone, made of three artifacts that are regenerated on change and never incrementally patched.
 
 **The weight vector** is the only scorer that runs at request time.
-It is a feature-parameterised Bradley-Terry model: logistic regression over the difference between two films' TMDB feature vectors (genres, director, top cast, idf-weighted keywords, vote and popularity priors), implemented from scratch in numpy.
+It is a feature-parameterized Bradley-Terry model: logistic regression over the difference between two films' TMDB feature vectors (genres, director, top cast, idf-weighted keywords, vote and popularity priors), implemented from scratch in numpy.
 Training pairs are read out of the wall the way the owner means it.
 Across bands, order is a judgment, so those pairs carry full weight and the band gap teaches magnitude.
-Within a band, order is a range, so neighbours train as near-equals and only real separation counts.
-It retrains from scratch on every change to the ordering, in milliseconds, so it can never be subtly out of date with the judgments it summarises.
+Within a band, order is a range, so neighbors train as near-equals and only real separation counts.
+It retrains from scratch on every change to the ordering, in milliseconds, so it can never be subtly out of date with the judgments it summarizes.
 
 **The exemplar set** is the anchors plus the ordering's extremes, and it grounds every explanation the app shows.
 
@@ -131,14 +131,14 @@ The recommendation engine is an imported module called by both, never a separate
 ## Testing
 
 The bar is set in [docs/design/testing.md](docs/design/testing.md).
-Every behaviour test speaks HTTP to the FastAPI app over a throwaway real PostgreSQL: each test gets a database cloned from a migrated template, and background jobs run inline inside the test, so a flow that spans the web and worker processes is still one test.
+Every behavior test speaks HTTP to the FastAPI app over a throwaway real PostgreSQL: each test gets a database cloned from a migrated template, and background jobs run inline inside the test, so a flow that spans the web and worker processes is still one test.
 Nothing inside the engine is mocked.
 
 Three fakes stand at the edges: TMDB and Resend at the HTTP boundary, and the LLM operations seam, scripted per test with canned verdicts, tags, and prose.
 No automated test ever calls a real provider.
 
 The backend suite is 669 tests, written as flows in the domain vocabulary (rate, narrow a range, move, re-rate, mark an anchor) rather than per-endpoint units, with shared invariant helpers run after every mutating flow.
-A Playwright smoke suite of fifteen journeys runs over the full composed stack in CI and covers wiring, not behaviour.
+A Playwright smoke suite of fifteen journeys runs over the full composed stack in CI and covers wiring, not behavior.
 
 ## Repository layout
 
@@ -170,7 +170,7 @@ It then rebuilds the demo account from the checked-in fixture.
 - `GET /api/health` reports web, database, and worker health, and answers 503 when any of the three is down.
 
 To run against real services, set `ANCHOR_TMDB_ACCESS_TOKEN`, `ANCHOR_ANTHROPIC_API_KEY`, `ANCHOR_RESEND_API_KEY`, `ANCHOR_MAIL_FROM` on a domain verified with Resend, and `ANCHOR_PUBLIC_URL` (the base of emailed links).
-The session cookie is `Secure` by default (`ANCHOR_COOKIE_SECURE`), which browsers honour on `http://localhost` but nowhere else without HTTPS.
+The session cookie is `Secure` by default (`ANCHOR_COOKIE_SECURE`), which browsers honor on `http://localhost` but nowhere else without HTTPS.
 
 ## Developing
 
