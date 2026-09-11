@@ -12,6 +12,12 @@ on the facts TMDB's *list* rows already carry rather than bundled film by film, 
 the shortlist is fetched in full. Two hundred candidates the prefilter throws away cost
 nothing at all.
 
+*Every film is one the feed can vouch for.* Fitting the owner's taste is not enough on
+its own: a film reaches the shelf only if enough people have seen it to trust their
+verdict, that verdict is good, it is a feature, and it is out. The rule is one
+definition (:class:`Gate`) asked at every stage a film passes through, the shelf
+included, so no source and no cached verdict is ever the way round it.
+
 *A verdict is a cache, keyed by profile version.* Anything already judged against the
 live version skips the LLM entirely, poor-fits included - they are cached negatives,
 never shown and never re-sent - so the second restock at one version is free and the
@@ -44,13 +50,14 @@ import math
 import uuid
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
+from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
 import numpy as np
 from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from anchor import catalog, demo, features, picker, prose, readiness, trainer
+from anchor import catalog, demo, picker, prose, readiness, trainer
 from anchor.db import Database
 from anchor.errors import ApiError
 from anchor.features import FeatureSpace
@@ -218,13 +225,20 @@ async def restock(
         known = await _known(session, account_id)
         excluded = await picker.exclusions(session, account_id)
 
+    gate = Gate.of(settings)
     genres = await tmdb.genre_ids()
-    sourced = await _source(tmdb, fit, seeds=seeds, people=people, genres=genres, settings=settings)
+    sourced = await _source(
+        tmdb, fit, seeds=seeds, people=people, genres=genres, gate=gate, settings=settings
+    )
     shortlist = _prefilter(
-        sourced, fit, known=known, excluded=excluded, genres=genres, settings=settings
+        sourced, fit, known=known, excluded=excluded, genres=genres, gate=gate, settings=settings
     )
 
-    films, bundled_all = await _bundled(db, tmdb, shortlist, settings)
+    bundled, bundled_all = await _bundled(db, tmdb, shortlist, settings)
+    # The gate again, whole, on the rows the shelf will read. Runtime arrives only with the
+    # bundle, so this is the first point a short can be told apart - and checking the rest
+    # again here means no verdict is ever bought for a film the shelf would then refuse.
+    films = [film for film in bundled if gate.admits(film)]
     async with db.sessions() as session:
         judged = await _judged(session, account_id, version, films)
     judged_all = await _rerank(db, seam, account_id, profile, version, films, judged, settings)
@@ -252,6 +266,7 @@ async def _source(
     seeds: Sequence[int],
     people: Mapping[str, int],
     genres: Mapping[str, int],
+    gate: "Gate",
     settings: Settings,
 ) -> list[SearchHit]:
     """The union: discover slices steered by the fit, plus neighbours of the exemplars.
@@ -261,7 +276,7 @@ async def _source(
     every one of them - so the cap is simply where sourcing stops being worth more calls.
     """
     found: dict[int, SearchHit] = {}
-    for steer in _steers(fit, people=people, genres=genres, settings=settings):
+    for steer in _steers(fit, people=people, genres=genres, gate=gate, settings=settings):
         _collect(found, await tmdb.discover(steer), settings.discovery_pool)
     for film_id in seeds:
         _collect(found, await tmdb.similar(film_id), settings.discovery_pool)
@@ -277,7 +292,12 @@ def _collect(found: dict[int, SearchHit], hits: Iterable[SearchHit], cap: int) -
 
 
 def _steers(
-    fit: "Fit", *, people: Mapping[str, int], genres: Mapping[str, int], settings: Settings
+    fit: "Fit",
+    *,
+    people: Mapping[str, int],
+    genres: Mapping[str, int],
+    gate: "Gate",
+    settings: Settings,
 ) -> list[Steer]:
     """One slice per top-weighted feature the fit names, best first.
 
@@ -290,9 +310,9 @@ def _steers(
     for column in fit.top(STEERABLE):
         kind, _, name = column.partition(":")
         if kind == "genre" and (genre_id := genres.get(name)) is not None:
-            steers.append(Steer(genre_id=genre_id, min_votes=settings.discovery_min_votes))
+            steers.append(gate.steer(genre_id=genre_id))
         elif kind in ("director", "cast") and (person_id := people.get(name)) is not None:
-            steers.append(Steer(person_id=person_id, min_votes=settings.discovery_min_votes))
+            steers.append(gate.steer(person_id=person_id))
         if len(steers) >= settings.discovery_slices:
             break
     return steers
@@ -348,6 +368,84 @@ async def _people(db: AsyncSession, account_id: uuid.UUID) -> dict[str, int]:
     return found
 
 
+# --- The quality gate ---
+
+
+@dataclass(frozen=True)
+class Gate:
+    """The one rule every film on the shelf has passed: credible, good, a feature, released.
+
+    A floor, not a preference. Nobody wants the film nobody has seen or the one everybody
+    hated, so it is the same for every account and never shown on a card (ADR 0005); how
+    mainstream an owner likes things is the fit's to learn, not this rule's to decide.
+
+    Stated once and asked at every point a film moves closer to the shelf, because a rule
+    enforced in one place is how the neighbour calls came to have no floor at all. Each
+    point asks what it can answer with the facts it holds: a discover slice asks TMDB for
+    the whole rule, a list row from any source answers everything but runtime, and the
+    stored film - which is what the shelf reads - answers all of it.
+    """
+
+    min_votes: int
+    min_rating: float
+    min_runtime: int
+    today: date
+
+    @classmethod
+    def of(cls, settings: Settings) -> "Gate":
+        return cls(
+            min_votes=settings.discovery_min_votes,
+            min_rating=settings.discovery_min_rating,
+            min_runtime=settings.discovery_min_runtime,
+            # A day's precision against TMDB's own dates, so which machine's clock this is
+            # cannot matter the way it does against the database's timestamps.
+            today=datetime.now(UTC).date(),
+        )
+
+    def steer(self, *, genre_id: int | None = None, person_id: int | None = None) -> Steer:
+        """A discover slice pointed where the fit says, asking TMDB for the whole rule."""
+        return Steer(
+            genre_id=genre_id,
+            person_id=person_id,
+            min_votes=self.min_votes,
+            min_rating=self.min_rating,
+            min_runtime=self.min_runtime,
+            released_by=self.today,
+        )
+
+    def lists(self, hit: SearchHit) -> bool:
+        """The rule as far as a list row can answer it: everything but runtime.
+
+        The neighbour endpoints take no filters, so this is the only gate their rows ever
+        meet before the prefilter would spend a bundled call on them.
+        """
+        return (
+            self._judged_well(hit.vote_count, hit.vote_average)
+            and hit.release_date is not None
+            and hit.release_date <= self.today
+        )
+
+    def admits(self, film: Film) -> bool:
+        """The whole rule on a stored film, and what the shelf is filtered by.
+
+        Released is read to the year, because that is all the catalog keeps. A film
+        sourced through the gate already had its day checked on the list row, so what the
+        year is left to catch is the film TMDB cannot date at all - and a verdict cached
+        before the gate existed, which it catches as closely as a year can.
+        """
+        return (
+            self._judged_well(film.vote_count, film.vote_average)
+            and film.release_year is not None
+            and film.release_year <= self.today.year
+            and film.runtime is not None
+            and film.runtime >= self.min_runtime
+        )
+
+    def _judged_well(self, votes: int, rating: float) -> bool:
+        """Credible, then good: the average only counts once enough votes stand behind it."""
+        return votes >= self.min_votes and rating >= self.min_rating
+
+
 # --- The prefilter ---
 
 
@@ -373,9 +471,6 @@ class Fit:
     def of_film(self, film: Film) -> float:
         return trainer.score(self.weights, self.space, film)
 
-    def popularity(self, vote_count: int) -> float:
-        return self.space.standardised(features.POPULARITY_PRIOR, math.log1p(vote_count))
-
 
 async def _fit(db: AsyncSession, account_id: uuid.UUID) -> Fit | None:
     vector: WeightVector | None = await db.scalar(
@@ -397,21 +492,23 @@ def _prefilter(
     known: set[int],
     excluded: picker.Exclusions,
     genres: Mapping[str, int],
+    gate: "Gate",
     settings: Settings,
 ) -> list[SearchHit]:
     """The union cut down to the shortlist the LLM will actually be shown.
 
     Two kinds of cut, and they are not the same kind of thing. The exclusions are
     mechanical and absolute - a tracked film, a dismissed one, a genre or language the
-    owner has ruled out - and nothing scores its way past them. The rest is ranking, and
-    the popularity damper is part of it: a candidate is worth its score less a slice of
-    its own standardised popularity, so the deep cut and the blockbuster the fit likes
-    equally do not arrive equally. Soft, with no hard cap, exactly as discovery.md asks.
+    owner has ruled out, a film the quality gate refuses on what its list row says - and
+    nothing scores its way past them. The rest is ranking by the fit alone. How well
+    known a film is reaches that ranking only through the fit's own popularity column,
+    so an owner who loves deep cuts is sent them because they do, not because the
+    pipeline leans that way for everybody.
     """
     named = {genre_id: name for name, genre_id in genres.items()}
     scored = []
     for hit in sourced:
-        if hit.tmdb_id in known:
+        if hit.tmdb_id in known or not gate.lists(hit):
             continue
         listed = [named[genre_id] for genre_id in hit.genre_ids if genre_id in named]
         if excluded.excludes(listed, hit.original_language):
@@ -420,8 +517,7 @@ def _prefilter(
             (f"genre:{name}" for name in listed),
             (hit.vote_average, math.log1p(hit.vote_count)),
         )
-        damped = score - settings.discovery_popularity_damper * fit.popularity(hit.vote_count)
-        scored.append((damped, hit))
+        scored.append((score, hit))
     scored.sort(key=lambda pair: (-pair[0], pair[1].tmdb_id))
     return [hit for _, hit in scored[: settings.discovery_shortlist]]
 
@@ -717,7 +813,7 @@ async def rebuild(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -
     thing to say about a judgment made of an older description of the owner. If that comes
     to nine films, the shelf holds nine.
     """
-    ordered = await _ordered(db, account_id)
+    ordered = await _ordered(db, account_id, settings)
     await _materialise(db, account_id, ordered[: settings.discovery_shelf], repitch=True)
 
 
@@ -744,7 +840,7 @@ async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
             )
         )
     }
-    ordered = await _ordered(db, account_id)
+    ordered = await _ordered(db, account_id, settings)
     held = sorted(
         (one for one in ordered if one.film_id in standing), key=lambda one: standing[one.film_id]
     )
@@ -752,13 +848,19 @@ async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
     await _materialise(db, account_id, (held + joining)[: settings.discovery_shelf], repitch=False)
 
 
-async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Contender]:
+async def _ordered(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> list[_Contender]:
     """Every film this account could be shown right now, in the order the shelf wants them.
 
     The eligibility rules are the shelf's invariant restated as a query: a film the owner
     tracks in any state, one they have dismissed and not lifted, and one still inside its
     re-entry cooldown are all out, whatever the cache thinks of them.
+
+    So is a film that fails the quality gate, read off its stored row. The pipeline never
+    buys a verdict for one, but a verdict already bought is in the cache regardless - from
+    before the gate, or before a threshold moved - and it is filtered here rather than
+    deleted, so the gate holds at the very next arrival and moving it back costs nothing.
     """
+    gate = Gate.of(settings)
     live = await prose.latest(db, account_id)
     version = live.version if live is not None else None
     fit = await _fit(db, account_id)
@@ -793,7 +895,7 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID) -> list[_Contender]:
 
     contenders = []
     for film, verdict in best.values():
-        if verdict.fit is FitBucket.poor_fit:
+        if verdict.fit is FitBucket.poor_fit or not gate.admits(film):
             continue
         score = fit.of_film(film) if fit is not None else 0.0
         # Live verdicts first and in the reranker's own order; stale ones behind them

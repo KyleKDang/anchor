@@ -31,7 +31,6 @@ FIXTURE = demobuild.Fixture.load()
 PIPELINE = {
     "discovery_shortlist": 12,
     "discovery_rerank_window": 12,
-    "discovery_min_votes": 0,
     # The client's self-throttle is for TMDB's benefit, and a hundred films through a fake
     # would otherwise spend a minute per build waiting on it.
     "tmdb_requests_per_second": 10_000,

@@ -16,6 +16,7 @@ import asyncio
 import enum
 from collections.abc import Awaitable, Callable, Iterable
 from dataclasses import dataclass
+from datetime import date
 from time import monotonic
 from typing import Any, Protocol
 
@@ -51,8 +52,8 @@ class SearchHit:
     """One row of any of TMDB's list responses - search, the browse grids, and discovery's
     three candidate endpoints all return the same movie object.
 
-    The last three fields are what the discovery prefilter reads. They are on the list
-    row rather than fetched per film on purpose: a restock unions a few hundred
+    The fields after ``popularity`` are what the discovery prefilter reads. They are on
+    the list row rather than fetched per film on purpose: a restock unions a few hundred
     candidates and keeps sixty, and bundling the two hundred it throws away would be four
     hundred TMDB calls spent on films nobody will ever see.
     """
@@ -69,6 +70,9 @@ class SearchHit:
     original_language: str | None = None
     vote_average: float = 0.0
     vote_count: int = 0
+    release_date: date | None = None
+    """The day itself, where ``year`` keeps only its first four digits: whether a film has
+    come out yet is a question about the day, and the year cannot answer it."""
 
 
 @dataclass(frozen=True)
@@ -114,9 +118,14 @@ class Steer:
     genre_id: int | None = None
     person_id: int | None = None
     min_votes: int = 0
-    """A floor on the vote count, which is TMDB's own sparseness signal. It keeps a slice
-    from filling with rows nobody has seen; the popularity *damper* is a separate thing
-    and lives in the prefilter, where deep cuts are meant to win."""
+    min_rating: float = 0.0
+    min_runtime: int = 0
+    released_by: date | None = None
+    """The discovery quality gate, asked of TMDB rather than applied to what it answers.
+
+    The rule itself lives with the pipeline (``feed.Gate``), which is what fills these in;
+    they are here so a slice never spends its page on rows the prefilter would only throw
+    away. A floor left at zero adds no parameter at all."""
 
 
 class Tmdb(Protocol):
@@ -330,6 +339,12 @@ def _steered(steer: Steer) -> dict[str, str]:
         params["with_people"] = str(steer.person_id)
     if steer.min_votes > 0:
         params["vote_count.gte"] = str(steer.min_votes)
+    if steer.min_rating > 0:
+        params["vote_average.gte"] = str(steer.min_rating)
+    if steer.min_runtime > 0:
+        params["with_runtime.gte"] = str(steer.min_runtime)
+    if steer.released_by is not None:
+        params["primary_release_date.lte"] = steer.released_by.isoformat()
     return params
 
 
@@ -345,6 +360,7 @@ def _hit(result: dict[str, Any]) -> SearchHit:
         original_language=result.get("original_language"),
         vote_average=float(result.get("vote_average") or 0.0),
         vote_count=int(result.get("vote_count") or 0),
+        release_date=_day(result.get("release_date")),
     )
 
 
@@ -382,3 +398,11 @@ def _year(release_date: Any) -> int | None:
     """TMDB dates are ``YYYY-MM-DD``, but an unreleased film carries ``""`` or nothing."""
     text = str(release_date or "")[:4]
     return int(text) if text.isdigit() else None
+
+
+def _day(release_date: Any) -> date | None:
+    """The same field as a whole date, or None where TMDB gave it no day to parse."""
+    try:
+        return date.fromisoformat(str(release_date or ""))
+    except ValueError:
+        return None

@@ -60,7 +60,6 @@ PIPELINE = dict(
     prose_placements_trigger=2,
     discovery_shelf=3,
     discovery_shortlist=8,
-    discovery_min_votes=0,
     discovery_rerank_window=10,
 )
 """Small bars and a small pipeline: five placements and a call or two rather than fifty,

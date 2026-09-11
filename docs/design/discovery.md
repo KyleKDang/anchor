@@ -17,7 +17,10 @@ Each card shows poster, title, year, director, and genres, its precomputed exemp
 Candidate pools (TMDB `/discover` slices steered by top weight-vector features, plus `/similar` and `/recommendations` seeded from the exemplar set) union to a few hundred candidates; the linear scorer prefilters to a shortlist of ~60; the LLM reranks in windows; the top ~20 fill the shelf.
 Anything with a cached verdict at the current profile version skips the LLM.
 
-- **Popularity gets a soft damper in the prefilter**: deep cuts dominate, but no hard mainstream cap; the dismissal flow converges the rest.
+- **A quality gate before any taste**: a film may reach the shelf only if it is credible (~200 TMDB votes), good (a TMDB average of ~6.5, read only once the vote floor holds), a feature (~40 minutes, an unknown runtime failing), and released (dated, and out).
+  It is one rule enforced at every stage, because a filter in one place is a filter some source goes round: `/discover` slices ask TMDB for it directly, the prefilter applies it to every sourced row whatever returned it, runtime is checked on the bundled shortlist before any LLM call, and the shelf filters cached verdicts by it so a film that fails leaves at the next session boundary without being re-judged.
+  It is a floor, not a taste lever, and it is never shown on a card ([ADR 0005](../adr/0005-no-rating-shaped-predictions.md)).
+  How mainstream the owner likes things is left to the linear scorer's popularity prior and the dismissal flow, with no fixed tilt either way, and under the never-pad rule a thin pipeline runs the shelf short rather than relaxing the gate.
 - **No feed-specific filter UI**: profile constraints are the one exclusion lever, and constraints with a structural footprint (genre, language) are enforced mechanically in the prefilter, not just in prose.
 
 ## Verdicts

@@ -273,14 +273,22 @@ class FakeTmdb:
         query = parse_qs(request.url.query.decode())
         genre = query.get("with_genres")
         person = query.get("with_people")
-        floor = int(query.get("vote_count.gte", ["0"])[0])
+        votes = int(query.get("vote_count.gte", ["0"])[0])
+        rating = float(query.get("vote_average.gte", ["0"])[0])
+        runtime = int(query.get("with_runtime.gte", ["0"])[0])
+        released_by = query.get("primary_release_date.lte")
         found = []
         for film in self.catalog.values():
             if genre and int(genre[0]) not in [GENRE_IDS[name] for name in film.genres]:
                 continue
             if person and int(person[0]) not in _people_ids(film):
                 continue
-            if film.vote_count < floor:
+            if film.vote_count < votes or film.vote_average < rating:
+                continue
+            if runtime and (film.runtime or 0) < runtime:
+                continue
+            # ISO dates compare correctly as strings, and an undated film is never released.
+            if released_by and not (film.release_date and film.release_date <= released_by[0]):
                 continue
             found.append(film)
         return sorted(found, key=lambda film: -film.popularity)

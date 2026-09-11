@@ -5,9 +5,11 @@ surface of its own - and time is injected rather than spent, so the assertions a
 on how long the client *would* have waited.
 """
 
+from datetime import date
+
 import pytest
 
-from anchor.tmdb import APPENDED, FilmNotInTmdb, TmdbClient, TmdbUnavailable
+from anchor.tmdb import APPENDED, FilmNotInTmdb, Steer, TmdbClient, TmdbUnavailable
 from faketmdb import ARRIVAL, BASE_URL, FIGHT_CLUB, FakeTmdb
 
 
@@ -100,6 +102,25 @@ async def test_a_film_tmdb_does_not_have_is_not_found():
 
     with pytest.raises(FilmNotInTmdb):
         await build(fake, FakeTime()).film(ARRIVAL.tmdb_id)
+
+
+async def test_a_discover_slice_asks_tmdb_for_the_quality_gate():
+    """The gate is a question discover can answer, so no call is spent on a row the prefilter
+    would only throw away. All four parts go up, runtime included: a list row never carries
+    one, but TMDB can still filter on it before answering."""
+    fake = FakeTmdb().with_films(FIGHT_CLUB)
+    steer = Steer(
+        genre_id=18, min_votes=200, min_rating=6.5, min_runtime=40, released_by=date(2026, 9, 10)
+    )
+
+    await build(fake, FakeTime()).discover(steer)
+
+    [request] = fake.requests
+    assert request.url.params["with_genres"] == "18"
+    assert request.url.params["vote_count.gte"] == "200"
+    assert request.url.params["vote_average.gte"] == "6.5"
+    assert request.url.params["with_runtime.gte"] == "40"
+    assert request.url.params["primary_release_date.lte"] == "2026-09-10"
 
 
 async def test_tmdb_being_down_is_unavailable_not_a_crash():
