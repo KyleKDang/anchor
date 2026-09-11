@@ -387,6 +387,65 @@ async def test_the_matcher_accepts_only_the_rows_nobody_would_argue_about(owner,
     }
 
 
+GLAZER = FilmFixture(7800, "Under the Skin", "2014-04-04", popularity=40.0)
+SHORT = FilmFixture(7801, "Under the Skin", "2013-05-01", popularity=1.0)
+"""The production case: Letterboxd dates Glazer's film 2013, its festival premiere, and TMDB
+dates it 2014, its release - while a 2013 short of the same name sits on the exact year."""
+
+NEAR_TWIN = FilmFixture(7810, "Near Twin", "2010-01-01", popularity=20.0)
+NEAR_TWIN_LATER = FilmFixture(7811, "Near Twin", "2011-01-01", popularity=15.0)
+"""A year apart with comparable standing: the window cannot say which one the row means."""
+
+CLASSIC = FilmFixture(7820, "Famous Title", "1960-01-01", popularity=500.0)
+REMADE = FilmFixture(7821, "Famous Title", "1998-01-01", popularity=30.0)
+REMADE_SHORT = FilmFixture(7822, "Famous Title", "1999-01-01", popularity=1.0)
+"""A remake a row dates exactly, a short a year off it, and a classic that dwarfs them both."""
+
+
+async def test_an_exact_year_namesake_does_not_hide_the_film_a_year_off(owner, tmdb, run_jobs):
+    """The whole plus-or-minus-one window is counted, not the exact year first.
+
+    Two same-titled films sit inside it, so neither is accepted on the year alone, and the
+    one that dominates the other on popularity is the one nobody would argue about.
+    """
+    tmdb.with_films(GLAZER, SHORT)
+    await flows.upload_export(
+        owner, export.export(ratings=(Row("Under the Skin", 2013, rating=4.0),))
+    )
+    await run_jobs()
+
+    assert (await flows.import_state(owner))["review_pending"] == 0
+    assert flows.bands_of(await flows.rated(owner)) == {GLAZER.tmdb_id: 4.0}
+
+
+async def test_two_namesakes_a_year_apart_are_a_question_the_owner_answers(owner, tmdb, run_jobs):
+    tmdb.with_films(NEAR_TWIN, NEAR_TWIN_LATER)
+    await flows.upload_export(owner, export.export(ratings=(Row("Near Twin", 2010, rating=4.0),)))
+    await run_jobs()
+
+    assert (await flows.import_state(owner))["review_pending"] == 1
+    (row,) = (await flows.review_queue(owner))["rows"]
+    assert [candidate["tmdb_id"] for candidate in row["candidates"]] == [
+        NEAR_TWIN.tmdb_id,
+        NEAR_TWIN_LATER.tmdb_id,
+    ]
+    assert flows.ordering_of(await flows.rated(owner)) == {}
+
+
+async def test_a_famous_namesake_outside_the_window_is_not_what_the_row_means(
+    owner, tmdb, run_jobs
+):
+    """Dominance is weighed among the films the year allows, never against one it excludes."""
+    tmdb.with_films(CLASSIC, REMADE, REMADE_SHORT)
+    await flows.upload_export(
+        owner, export.export(ratings=(Row("Famous Title", 1998, rating=3.0),))
+    )
+    await run_jobs()
+
+    assert (await flows.import_state(owner))["review_pending"] == 0
+    assert flows.bands_of(await flows.rated(owner)) == {REMADE.tmdb_id: 3.0}
+
+
 async def test_two_films_of_one_name_are_a_question_the_owner_answers(owner, edges, run_jobs):
     """A duplicate title and year with no landslide between them queues to review.
 
