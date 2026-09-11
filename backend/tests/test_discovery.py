@@ -25,6 +25,7 @@ import pytest
 from anchor import llm
 from faketmdb import FilmFixture
 from flows import (
+    accept,
     account_id,
     build_ordering,
     discovery,
@@ -39,6 +40,7 @@ from invariants import (
     assert_shelf_stands_on_verdicts,
     dismiss,
     prose_versions,
+    restate_film,
     spend_ledger,
     verdicts,
 )
@@ -214,12 +216,15 @@ async def test_the_shelf_fills_from_films_the_owner_has_never_tracked(owner, run
 async def test_sourcing_steers_discover_at_the_fit_and_seeds_from_the_exemplars(
     owner, run_jobs, tmdb
 ):
-    """Slices pointed somewhere, plus TMDB's own neighbours of the owner's best films."""
+    """Slices pointed somewhere and asking for the quality gate, plus TMDB's own neighbours
+    of the owner's best films."""
     await rating_films(owner, run_jobs)
     await visit(owner, run_jobs)
 
     steered = [slice for slice in tmdb.sliced() if "with_genres" in slice or "with_people" in slice]
     assert steered, "no discover slice was steered at anything"
+    gated = {"vote_count.gte", "vote_average.gte", "with_runtime.gte", "primary_release_date.lte"}
+    assert all(gated <= set(slice) for slice in steered), "a slice did not ask for the gate"
     assert "/movie/2000/similar" in tmdb.paths()
     assert "/movie/2000/recommendations" in tmdb.paths()
 
@@ -383,8 +388,6 @@ async def test_a_discover_slice_offers_only_films_enough_people_have_seen(
 
     assert found.tmdb_id in ids(films), "the slice never reached the shelf, so proves nothing"
     assert thin.tmdb_id not in ids(films)
-    gated = {"vote_count.gte", "vote_average.gte", "with_runtime.gte", "primary_release_date.lte"}
-    assert all(gated <= set(slice) for slice in tmdb.sliced()), "a slice did not ask for the gate"
 
 
 async def test_a_film_its_audience_panned_never_reaches_the_shelf(owner, run_jobs, provider, tmdb):
@@ -438,27 +441,41 @@ async def test_a_film_that_is_not_a_feature_never_reaches_the_reranker(
     assert len(tmdb.bundled_calls(short.tmdb_id)) == 1
 
 
+PRE_GATE = {
+    "too-few-votes": {"vote_count": 23},
+    "panned": {"vote_average": 1.8},
+    "short": {"runtime": 12},
+    "runtime-unknown": {"runtime": None},
+    "year-unknown": {"release_year": None},
+}
+"""What a film cached before the gate can look like - the owner's own shelf had all five."""
+
+
+@pytest.mark.parametrize("facts", PRE_GATE.values(), ids=PRE_GATE.keys())
 async def test_a_cached_verdict_that_fails_the_gate_leaves_at_the_next_visit(
-    owner, run_jobs, provider, tmdb, db, settings
+    owner, run_jobs, provider, tmdb, db, facts
 ):
-    """The gate is read at the shelf too, so what is already judged obeys it at once.
+    """The gate is read at the shelf too, so what was judged before it obeys it all the same.
 
-    The bar is raised between two visits, which is the same state as a verdict bought
-    before the gate existed: a film in the cache that would not be let in today. It goes
-    at the next arrival, and nothing is re-sourced or re-bought to make that happen. The
-    verdict itself stays - it is a cache, and a threshold moved back should cost nothing.
+    The film goes at the next arrival, and nothing is re-sourced or re-bought to make that
+    happen; its verdict stays, because the cache is a cache and a gate moved back should
+    cost nothing. Not before the arrival, though: an owner acting on the card beside it
+    mid-session is not a boundary, and the card they did not touch stays where it was.
     """
-    provider.will_say(**ranked(CANDIDATES[0], CANDIDATES[1]))
+    django, silence, anger = CANDIDATES[:3]
+    provider.will_say(**ranked(django, silence, anger))
     account = await rating_films(owner, run_jobs)
-    assert ids(await visit(owner, run_jobs)) == {3000, 3001}
+    assert ids(await visit(owner, run_jobs)) == {3000, 3001, 3002}
     bought, sliced = len(provider.asked_of(llm.RERANK_SYSTEM)), len(tmdb.sliced())
+    await restate_film(db, django.tmdb_id, **facts)
 
-    settings.discovery_min_votes = 1_000  # Django has 900; the rest are far above it
+    await accept(owner, silence)
+    assert ids(await shelf(owner, boundary=False)) == {3000, 3002}, "a card moved mid-session"
 
-    assert ids(await visit(owner, run_jobs)) == {3001}
+    assert ids(await visit(owner, run_jobs)) == {3002}
     assert len(provider.asked_of(llm.RERANK_SYSTEM)) == bought, "a verdict was re-bought"
     assert len(tmdb.sliced()) == sliced, "the visit restocked to drop a card"
-    assert CANDIDATES[0].tmdb_id in {row[0] for row in await verdicts(db, account)}
+    assert django.tmdb_id in {row[0] for row in await verdicts(db, account)}
 
 
 # --- The rerank ---

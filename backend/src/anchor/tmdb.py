@@ -113,6 +113,11 @@ class Steer:
     The discovery pipeline builds one of these per top-weighted feature in the owner's
     fit, so a slice is always a question with a reason behind it - "more films by the
     director they keep rating up" - rather than a browse of the catalog.
+
+    The four fields after the steer are the discovery quality gate, asked of TMDB rather
+    than applied to what it answers. The rule itself lives with the pipeline
+    (``feed.Gate``), which is what fills them in; they are here so a slice never spends
+    its page on rows the union would only turn away. One left unset adds no parameter.
     """
 
     genre_id: int | None = None
@@ -121,11 +126,6 @@ class Steer:
     min_rating: float = 0.0
     min_runtime: int = 0
     released_by: date | None = None
-    """The discovery quality gate, asked of TMDB rather than applied to what it answers.
-
-    The rule itself lives with the pipeline (``feed.Gate``), which is what fills these in;
-    they are here so a slice never spends its page on rows the prefilter would only throw
-    away. A floor left at zero adds no parameter at all."""
 
 
 class Tmdb(Protocol):

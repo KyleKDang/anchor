@@ -231,7 +231,7 @@ async def restock(
         tmdb, fit, seeds=seeds, people=people, genres=genres, gate=gate, settings=settings
     )
     shortlist = _prefilter(
-        sourced, fit, known=known, excluded=excluded, genres=genres, gate=gate, settings=settings
+        sourced, fit, known=known, excluded=excluded, genres=genres, settings=settings
     )
 
     bundled, bundled_all = await _bundled(db, tmdb, shortlist, settings)
@@ -274,21 +274,31 @@ async def _source(
     Deduplicated by film and capped, so a wildly productive slice cannot crowd the others
     out of the pool. The order films arrive in does not matter - the prefilter scores
     every one of them - so the cap is simply where sourcing stops being worth more calls.
+
+    Every row meets the gate on its way in, whichever endpoint answered it: the discover
+    slices already asked TMDB for it, and the neighbour calls could not, so this is the
+    only gate their rows ever meet before a bundled call is spent on them. Checked here
+    rather than after the union is built, so the cap counts films the feed could suggest
+    and a neighbour page full of shorts and unknowns cannot fill the pool on its own.
     """
     found: dict[int, SearchHit] = {}
+    cap = settings.discovery_pool
     for steer in _steers(fit, people=people, genres=genres, gate=gate, settings=settings):
-        _collect(found, await tmdb.discover(steer), settings.discovery_pool)
+        _collect(found, await tmdb.discover(steer), gate, cap)
     for film_id in seeds:
-        _collect(found, await tmdb.similar(film_id), settings.discovery_pool)
-        _collect(found, await tmdb.recommendations(film_id), settings.discovery_pool)
+        _collect(found, await tmdb.similar(film_id), gate, cap)
+        _collect(found, await tmdb.recommendations(film_id), gate, cap)
     return list(found.values())
 
 
-def _collect(found: dict[int, SearchHit], hits: Iterable[SearchHit], cap: int) -> None:
+def _collect(
+    found: dict[int, SearchHit], hits: Iterable[SearchHit], gate: "Gate", cap: int
+) -> None:
     for hit in hits:
         if len(found) >= cap:
             return
-        found.setdefault(hit.tmdb_id, hit)
+        if gate.admits_row(hit):
+            found.setdefault(hit.tmdb_id, hit)
 
 
 def _steers(
@@ -413,12 +423,8 @@ class Gate:
             released_by=self.today,
         )
 
-    def lists(self, hit: SearchHit) -> bool:
-        """The rule as far as a list row can answer it: everything but runtime.
-
-        The neighbour endpoints take no filters, so this is the only gate their rows ever
-        meet before the prefilter would spend a bundled call on them.
-        """
+    def admits_row(self, hit: SearchHit) -> bool:
+        """The rule as far as a list row can answer it: everything but runtime."""
         return (
             self._judged_well(hit.vote_count, hit.vote_average)
             and hit.release_date is not None
@@ -492,23 +498,22 @@ def _prefilter(
     known: set[int],
     excluded: picker.Exclusions,
     genres: Mapping[str, int],
-    gate: "Gate",
     settings: Settings,
 ) -> list[SearchHit]:
     """The union cut down to the shortlist the LLM will actually be shown.
 
     Two kinds of cut, and they are not the same kind of thing. The exclusions are
     mechanical and absolute - a tracked film, a dismissed one, a genre or language the
-    owner has ruled out, a film the quality gate refuses on what its list row says - and
-    nothing scores its way past them. The rest is ranking by the fit alone. How well
-    known a film is reaches that ranking only through the fit's own popularity column,
-    so an owner who loves deep cuts is sent them because they do, not because the
-    pipeline leans that way for everybody.
+    owner has ruled out, and before any of those the quality gate the union was built
+    through - and nothing scores its way past them. The rest is ranking by the fit alone.
+    How well known a film is reaches that ranking only through the fit's own popularity
+    column, so an owner who loves deep cuts is sent them because they do, not because
+    the pipeline leans that way for everybody.
     """
     named = {genre_id: name for name, genre_id in genres.items()}
     scored = []
     for hit in sourced:
-        if hit.tmdb_id in known or not gate.lists(hit):
+        if hit.tmdb_id in known:
             continue
         listed = [named[genre_id] for genre_id in hit.genre_ids if genre_id in named]
         if excluded.excludes(listed, hit.original_language):
@@ -801,19 +806,29 @@ class _Contender:
     film_id: int
     verdict_id: uuid.UUID
     key: tuple[int, int, int, float, int]
+    gated: bool
+    """Whether the quality gate turns the film away today, read off its stored row.
+
+    Carried rather than filtered out, because the two callers owe it different things. An
+    arrival drops a gated film like any other ineligible one; a backfill mid-session must
+    not, since a card vanishing because the engine re-read it is exactly the change that
+    waits for a boundary. So the backfill keeps a gated card that is already standing and
+    only refuses to let one *join*.
+    """
 
 
 async def rebuild(db: AsyncSession, account_id: uuid.UUID, settings: Settings) -> None:
     """Re-derive the whole shelf from the verdict cache, best first.
 
     The never-pad rule is the whole of the ordering logic. A film with no verdict at any
-    version does not appear; a poor fit does not appear; and what is left sorts into two
-    groups - the ones judged against the live profile, ranked as the reranker ranked them,
-    and the stale ones behind them ordered by the linear scorer, which is the only honest
-    thing to say about a judgment made of an older description of the owner. If that comes
-    to nine films, the shelf holds nine.
+    version does not appear; a poor fit does not appear; a film the quality gate turns
+    away does not appear, whatever it was judged; and what is left sorts into two groups -
+    the ones judged against the live profile, ranked as the reranker ranked them, and the
+    stale ones behind them ordered by the linear scorer, which is the only honest thing to
+    say about a judgment made of an older description of the owner. If that comes to nine
+    films, the shelf holds nine.
     """
-    ordered = await _ordered(db, account_id, settings)
+    ordered = [one for one in await _ordered(db, account_id, settings) if not one.gated]
     await _materialise(db, account_id, ordered[: settings.discovery_shelf], repitch=True)
 
 
@@ -831,6 +846,10 @@ async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
     rewrite the pitch under their cursor - an engine-driven change outside a session
     boundary, which is the one thing this whole arrangement exists to make impossible. So
     the re-pitch is withheld: it is the next arrival's to make.
+
+    It includes the quality gate, for the same reason. A standing card the gate would now
+    turn away - its verdict older than the gate, or than a threshold - stays until the next
+    arrival drops it; the gate only decides who may join.
     """
     standing = {
         film_id: position
@@ -844,7 +863,7 @@ async def backfill(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
     held = sorted(
         (one for one in ordered if one.film_id in standing), key=lambda one: standing[one.film_id]
     )
-    joining = [one for one in ordered if one.film_id not in standing]
+    joining = [one for one in ordered if one.film_id not in standing and not one.gated]
     await _materialise(db, account_id, (held + joining)[: settings.discovery_shelf], repitch=False)
 
 
@@ -855,10 +874,11 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
     tracks in any state, one they have dismissed and not lifted, and one still inside its
     re-entry cooldown are all out, whatever the cache thinks of them.
 
-    So is a film that fails the quality gate, read off its stored row. The pipeline never
-    buys a verdict for one, but a verdict already bought is in the cache regardless - from
-    before the gate, or before a threshold moved - and it is filtered here rather than
-    deleted, so the gate holds at the very next arrival and moving it back costs nothing.
+    A film the quality gate turns away is here but marked (:attr:`_Contender.gated`). The
+    pipeline never buys a verdict for one, but a verdict already bought is in the cache
+    regardless - from before the gate, or before a threshold moved - and it is filtered by
+    the callers rather than deleted, so the gate holds at the next arrival and moving it
+    back costs nothing.
     """
     gate = Gate.of(settings)
     live = await prose.latest(db, account_id)
@@ -895,7 +915,7 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
 
     contenders = []
     for film, verdict in best.values():
-        if verdict.fit is FitBucket.poor_fit or not gate.admits(film):
+        if verdict.fit is FitBucket.poor_fit:
             continue
         score = fit.of_film(film) if fit is not None else 0.0
         # Live verdicts first and in the reranker's own order; stale ones behind them
@@ -908,6 +928,7 @@ async def _ordered(db: AsyncSession, account_id: uuid.UUID, settings: Settings) 
                 key=(0, SHELF_ORDER[verdict.fit], verdict.rank, -score, film.tmdb_id)
                 if verdict.profile_version == version
                 else (1, 0, 0, -score, film.tmdb_id),
+                gated=not gate.admits(film),
             )
         )
     contenders.sort(key=lambda one: one.key)
