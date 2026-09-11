@@ -22,7 +22,7 @@ A triaged issue carries exactly one of each.
 
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
-The category role also decides where the issue lives, per "Where an issue goes" in the root `CLAUDE.md`: `bug` is a plain top-level issue, `enhancement` is a sub-issue of the implementation map at #21.
-The feature slices already on the map predate this and carry no category label; leave them as they are rather than backfilling.
+Both categories are standalone top-level issues, per "Where an issue goes" in the root `CLAUDE.md`; neither joins the closed implementation map at #21.
+The feature slices on that map predate the category labels and carry none; leave them as they are rather than backfilling.
 
 Edit the right-hand column to match whatever vocabulary you actually use.

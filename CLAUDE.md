@@ -1,22 +1,17 @@
 # Anchor
 
 A personal movie taste-engine web app: ratings anchored to the films the owner is sure of and ordered by hand on a visible wall, instead of a drifting absolute scale; an automatically managed watchlist; and a recommendation engine that learns each account owner's taste.
-The design spec is complete at `docs/design/`; implementation is tracked by the map at issue #21, one ticket per vertical slice.
+The design spec is complete at `docs/design/`, and its initial implementation is done: the map at issue #21 tracked it one ticket per vertical slice, and closed when the last slice shipped.
 
 ## Where an issue goes
 
-The map at #21 holds feature slices and nothing else, because it answers one question - how much of the design spec exists - and anything else on it blurs that answer and leaves a map that can never close.
+**Every issue is a standalone top-level issue.**
+The map at #21 is closed and takes no new sub-issues; improvements, bug fixes, and features the spec did not anticipate are filed on their own.
+Where one ticket has to land before another, say so with GitHub's blocked-by dependencies rather than a parent.
 
-**A feature is a sub-issue of #21.**
-That covers the spec's own slices and any feature the spec did not anticipate, which joins the map as a new slice sequenced by GitHub's blocked-by dependencies.
-
-**A bug is a plain repo issue, never a sub-issue of #21.**
-A defect in behaviour that already shipped is filed at the top level with the `bug` label, whatever ticket surfaced it and however soon after that ticket merged.
-Its body opens with an `## Origin` section naming the ticket it is a bug against ("Bug against #30 (Seed import).") rather than a `## Parent` section, so provenance survives without a parent link.
-The [`bug` label](https://github.com/KyleKDang/anchor/issues?q=is%3Aissue+label%3Abug) is how bugs are found; there is no second map.
-
-The dividing question is what the issue changes: a slice of the spec that does not exist yet is a feature, and shipped behaviour that does not match its own ticket is a bug.
-Everything reaches `main` the same way regardless, so this is about what the map measures, not about how the work is done.
+**A bug names what it is a bug against.**
+A defect in behaviour that already shipped carries the `bug` label, and its body opens with an `## Origin` section naming the ticket it is a bug against ("Bug against #30 (Seed import).").
+Everything else is an `enhancement`: a change to behaviour that ships as its ticket said, or something that does not exist yet.
 
 **Every issue is filed with both labels, a category and a state.**
 The category is `bug` or `enhancement`; the state is one of the five in `docs/agents/triage-labels.md`.
@@ -45,7 +40,7 @@ CI additionally runs the Playwright smoke suite against `docker compose`, and `.
 **Code review** means `mattpocock-skills:code-review`, named in full.
 The bare `code-review` is Claude Code's built-in, which fans out sub-agents at the session effort level and is not the review this flow asks for.
 
-The next ticket is the frontier: open, unassigned, no open blockers.
+The next ticket is the frontier: open, `ready-for-agent`, unassigned, no open blockers.
 
 ## Agent skills
 
