@@ -340,6 +340,29 @@ async def test_a_build_that_died_still_has_its_spend_on_the_ledger(
         assert kept is not None and kept.account_id is None, "its spend is shared, not lost"
 
 
+async def test_a_film_the_import_bound_in_the_fixtures_place_is_named_in_the_failure(
+    client, db, tmdb, run_jobs
+):
+    """The log line alone says what happened, with no database to query (#127).
+
+    A namesake on the same year that dwarfs the fixture's film is a landslide the matcher
+    accepts unasked, so the wall holds a film the fixture never named.
+    """
+    meant = FIXTURE.wall[0].films[0]
+    namesake = FilmFixture(
+        9_800_000, meant.title, release_date=f"{meant.year}-01-01", popularity=1000.0
+    )
+    tmdb.with_films(namesake)
+
+    with pytest.raises(demobuild.BuildFailed) as failed:
+        await a_built_demo(client, db, run_jobs)
+
+    assert str(failed.value) == (
+        f"{meant.title} was not rated by the import; the wall holds "
+        f"{meant.title} ({meant.year}, TMDB {namesake.tmdb_id}) in its place"
+    )
+
+
 # --- The door ---
 
 
