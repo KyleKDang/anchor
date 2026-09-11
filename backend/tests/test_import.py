@@ -357,9 +357,9 @@ async def test_the_matcher_accepts_only_the_rows_nobody_would_argue_about(owner,
     """The awkward rows a real export supplied, and the ones only a synthetic one can.
 
     Every row here is auto-accepted, each by one of the two rules: a normalized title
-    plus a year that leaves exactly one candidate, retried at plus and minus one for the
-    festival-versus-release disagreement; or a lone exact-title hit, which is what
-    carries the row whose year is missing.
+    plus a year, widened to plus and minus one for the festival-versus-release
+    disagreement, that leaves exactly one candidate; or a lone exact-title hit, which is
+    what carries the row whose year is missing.
     """
     rows = (
         # A non-breaking space after an en dash, straight out of the real export.

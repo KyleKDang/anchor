@@ -417,9 +417,7 @@ async def _arrange(api: _Api, fixture: Fixture) -> None:
     for band in fixture.wall:
         for rank, film in enumerate(band.films, start=1):
             if film.tmdb_id not in standing:
-                raise BuildFailed(
-                    f"{film.title} was not rated by the import{_in_its_place(rated, fixture)}"
-                )
+                raise BuildFailed(_not_rated(film, rated, fixture))
             if standing[film.tmdb_id] == (band.band, rank):
                 continue
             await api.post(f"/api/rated/{film.tmdb_id}/move", {"band": band.band, "rank": rank})
@@ -439,20 +437,23 @@ def _standing(rated: dict[str, Any]) -> dict[int, tuple[float, int]]:
     }
 
 
-def _in_its_place(rated: dict[str, Any], fixture: Fixture) -> str:
-    """The films the wall holds that the fixture never named: what the import bound instead.
+def _not_rated(film: WallFilm, rated: dict[str, Any], fixture: Fixture) -> str:
+    """Why a fixture film is missing from the wall, as far as the wall itself can say.
 
-    A fixture film missing from the wall is almost always a row the matcher bound to a
-    namesake, and naming the namesake makes the failure diagnosable from the log alone.
+    It is almost always a row the matcher bound to a namesake, so the films the wall holds
+    that the fixture never named are named too, and the log line alone is diagnosable.
     """
-    named = {film.tmdb_id for film in fixture.films}
+    named = {authored.tmdb_id for authored in fixture.films}
     strangers = [
-        f"{film['title']} ({film['year']}, TMDB {film['tmdb_id']})"
+        f"{held['title']} ({held['year']}, TMDB {held['tmdb_id']})"
         for row in rated["rows"] or []
-        for film in row["films"]
-        if film["tmdb_id"] not in named
+        for held in row["films"]
+        if held["tmdb_id"] not in named
     ]
-    return f"; the wall holds {', '.join(strangers)} in its place" if strangers else ""
+    missing = f"{film.title} was not rated by the import"
+    return (
+        f"{missing}; the wall holds {', '.join(strangers)} in its place" if strangers else missing
+    )
 
 
 async def _choose_qualities(api: _Api, fixture: Fixture) -> None:
