@@ -3,14 +3,16 @@
 Letterboxd rows carry a name, a year and a short link, but no TMDB id, so every row is
 a search. The rules here are the whole of the judgment, and they are deliberately mean:
 
-*Auto-accept only the unambiguous.* Either the normalized title plus the year (retried
-at plus and minus one, because festival and wide-release years disagree) leaves exactly
-one candidate, or one exact-title hit dominates the runner-up on popularity so heavily
-that no person would pick the other. Everything else queues to review.
+*Auto-accept only the unambiguous.* Either the normalized title plus the year (widened to
+plus and minus one, because festival and wide-release years disagree) leaves exactly one
+candidate, or one exact-title hit dominates the runner-up on popularity so heavily that no
+person would pick the other. The window is counted whole, so a namesake on the exact year
+does not hide a film one year off, and where it holds several, dominance is weighed among
+those alone. Everything else queues to review.
 
-*One search per row, not three.* The year retries filter a single search response rather
-than issuing a request each, which is the difference between six hundred TMDB calls for
-a real export and eighteen hundred.
+*One search per row, not three.* The year window filters a single search response rather
+than issuing a request per year, which is the difference between six hundred TMDB calls
+for a real export and eighteen hundred.
 
 *Nothing matched is a state, not a failure.* TV-side entries and deleted films are
 structurally unmatchable to a TMDB movie - ``/search/movie`` simply never returns them -
@@ -69,13 +71,19 @@ async def match(tmdb: Tmdb, settings: Settings, name: str, year: int | None) -> 
     key = normalized(name)
     exact = [hit for hit in hits if normalized(hit.title) == key]
 
+    contenders = exact
     if year is not None:
-        for slack in range(YEAR_SLACK + 1):
-            near = [hit for hit in exact if hit.year is not None and abs(hit.year - year) <= slack]
-            if len(near) == 1:
-                return Match(accepted=near[0].tmdb_id)
+        # The whole window at once, never the exact year first: a namesake sitting on the
+        # row's year would otherwise hide the film a festival-dated row means (#127).
+        near = [hit for hit in exact if hit.year is not None and abs(hit.year - year) <= YEAR_SLACK]
+        if len(near) == 1:
+            return Match(accepted=near[0].tmdb_id)
+        if near:
+            # A famous namesake the year rules out is not a film the row could mean, however
+            # it dwarfs the ones the year allows.
+            contenders = near
 
-    dominant = _dominant(exact, settings.import_popularity_dominance)
+    dominant = _dominant(contenders, settings.import_popularity_dominance)
     if dominant is not None:
         return Match(accepted=dominant)
 
