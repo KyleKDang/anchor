@@ -92,16 +92,18 @@ async def match(tmdb: Tmdb, settings: Settings, name: str, year: int | None) -> 
     return Match(candidates=tuple(hit.tmdb_id for hit in offered))
 
 
-def _dominant(exact: list[SearchHit], factor: float) -> int | None:
+def _dominant(contenders: list[SearchHit], factor: float) -> int | None:
     """The one exact-title hit nothing else comes close to, or None if two might be it.
 
-    A single exact-title hit dominates trivially, which is what carries a row whose year
-    is missing: the title is unique on TMDB, so there is nothing for a person to choose
-    between. Two similar films of the same name is exactly the case this must not decide.
+    The contenders are every exact-title hit, or only those inside the year window when
+    it holds several. A single one dominates trivially, which is what carries a row whose
+    year is missing: the title is unique on TMDB, so there is nothing for a person to
+    choose between. Two similar films of the same name is exactly the case this must not
+    decide.
     """
-    if not exact:
+    if not contenders:
         return None
-    ranked = sorted(exact, key=lambda hit: -hit.popularity)
+    ranked = sorted(contenders, key=lambda hit: -hit.popularity)
     if len(ranked) == 1:
         return ranked[0].tmdb_id
     return ranked[0].tmdb_id if ranked[0].popularity > factor * ranked[1].popularity else None
