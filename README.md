@@ -6,7 +6,12 @@ Rate films by comparing them with the ones you are sure of, order everything by 
 Live at **[anchorfilms.app](https://anchorfilms.app)**.
 The landing page has an **Explore the demo** button that opens a fully lived-in read-only account, no signup needed.
 
-[![The Rated wall](docs/images/rated-wall.png)](https://anchorfilms.app)
+<a href="https://anchorfilms.app">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/rated-wall-dark.png">
+    <img alt="The Rated wall: the 5.0 band of the demo account, seven posters in their owner's order, three of them anchors" src="docs/images/rated-wall.png">
+  </picture>
+</a>
 
 ## Why it exists
 
@@ -37,13 +42,46 @@ A one-time import of your Letterboxd export builds the wall, the backlog, and yo
 
 ## Screenshots
 
-| The band picker | Discovery |
-| --- | --- |
-| ![The band picker](docs/images/band-picker.png) | ![The discovery feed](docs/images/discovery.png) |
+Every screenshot follows your GitHub theme: light here for a light theme, dark for a dark one, the same way the app follows your operating system.
 
-| The watchlist | A film page |
-| --- | --- |
-| ![The watchlist](docs/images/watchlist.png) | ![A rated film's page](docs/images/film.png) |
+<table>
+  <tr>
+    <th>The band picker</th>
+    <th>Discovery</th>
+  </tr>
+  <tr>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/band-picker-dark.png">
+        <img alt="The band picker: ten bands, each showing its anchors" src="docs/images/band-picker.png">
+      </picture>
+    </td>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/discovery-dark.png">
+        <img alt="The discovery feed, each film explained in terms of the owner's own films" src="docs/images/discovery.png">
+      </picture>
+    </td>
+  </tr>
+  <tr>
+    <th>The watchlist</th>
+    <th>A film page</th>
+  </tr>
+  <tr>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/watchlist-dark.png">
+        <img alt="The watchlist: the up-next zone with two pinned films, then the pool" src="docs/images/watchlist.png">
+      </picture>
+    </td>
+    <td>
+      <picture>
+        <source media="(prefers-color-scheme: dark)" srcset="docs/images/film-dark.png">
+        <img alt="A rated film's page: its band, its rank, its neighbours, and everything the owner has said about it" src="docs/images/film.png">
+      </picture>
+    </td>
+  </tr>
+</table>
 
 ## How the engine works
 
