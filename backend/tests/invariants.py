@@ -703,6 +703,23 @@ async def dismiss(db: Database, account_id: uuid.UUID, film_id: int) -> None:
         await session.commit()
 
 
+async def restate_film(db: Database, film_id: int, **facts: Any) -> None:
+    """Rewrite a stored film's TMDB facts, for the tests about a cache older than a rule.
+
+    The pipeline refuses to buy a verdict for a film the quality gate turns away, so the
+    one way such a verdict exists is that it was bought before the gate did - which no
+    API can arrange. Restating the film under a verdict already bought is that state
+    exactly, since the shelf reads the stored row and nothing else about it.
+    """
+    assignments = ", ".join(f"{column} = :{column}" for column in facts)
+    async with db.sessions() as session:
+        await session.execute(
+            text(f"UPDATE films SET {assignments} WHERE tmdb_id = :film"),
+            {**facts, "film": film_id},
+        )
+        await session.commit()
+
+
 async def feed_state(db: Database, account_id: uuid.UUID) -> tuple[Any, ...] | None:
     """The feed's bookkeeping: the counter, and the two clocks the economy reads.
 

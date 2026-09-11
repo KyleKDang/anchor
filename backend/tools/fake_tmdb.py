@@ -321,8 +321,8 @@ def _steered(query: dict[str, list[str]]) -> list[dict[str, Any]]:
             continue
         if entry["runtime"] < runtime:
             continue
-        # ISO dates compare correctly as strings.
-        if released_by and entry["release_date"] > released_by[0]:
+        # ISO dates compare correctly as strings, and an undated film is never released.
+        if released_by and not (entry["release_date"] and entry["release_date"] <= released_by[0]):
             continue
         found.append(entry)
     return sorted(found, key=lambda entry: -float(entry["popularity"]))
