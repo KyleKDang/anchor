@@ -412,18 +412,22 @@ async def _arrange(api: _Api, fixture: Fixture) -> None:
     order's own placements unmoved and the hand-ordered bands legibly hand-ordered.
     """
     moves = 0
-    standing = _standing(await api.get("/api/rated"))
+    rated = await api.get("/api/rated")
+    standing = _standing(rated)
     for band in fixture.wall:
         for rank, film in enumerate(band.films, start=1):
             if film.tmdb_id not in standing:
-                raise BuildFailed(f"{film.title} was not rated by the import")
+                raise BuildFailed(
+                    f"{film.title} was not rated by the import{_in_its_place(rated, fixture)}"
+                )
             if standing[film.tmdb_id] == (band.band, rank):
                 continue
             await api.post(f"/api/rated/{film.tmdb_id}/move", {"band": band.band, "rank": rank})
             moves += 1
             # A move renumbers the band it left and the one it landed in, so the wall is
             # re-read rather than patched: the server's own numbering is the truth here.
-            standing = _standing(await api.get("/api/rated"))
+            rated = await api.get("/api/rated")
+            standing = _standing(rated)
     log.info("demo build: %s moves made", moves)
 
 
@@ -433,6 +437,22 @@ def _standing(rated: dict[str, Any]) -> dict[int, tuple[float, int]]:
         for row in rated["rows"] or []
         for film in row["films"]
     }
+
+
+def _in_its_place(rated: dict[str, Any], fixture: Fixture) -> str:
+    """The films the wall holds that the fixture never named: what the import bound instead.
+
+    A fixture film missing from the wall is almost always a row the matcher bound to a
+    namesake, and naming the namesake makes the failure diagnosable from the log alone.
+    """
+    named = {film.tmdb_id for film in fixture.films}
+    strangers = [
+        f"{film['title']} ({film['year']}, TMDB {film['tmdb_id']})"
+        for row in rated["rows"] or []
+        for film in row["films"]
+        if film["tmdb_id"] not in named
+    ]
+    return f"; the wall holds {', '.join(strangers)} in its place" if strangers else ""
 
 
 async def _choose_qualities(api: _Api, fixture: Fixture) -> None:
