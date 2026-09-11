@@ -96,16 +96,6 @@ class FeatureSpace:
             row[position] = (value - self.centres[position]) / self.scales[position]
         return row
 
-    def standardised(self, prior: str, value: float) -> float:
-        """One prior on the library's own scale: the number its column would carry.
-
-        The discovery damper reads this. It leans against popularity in the units the
-        weights are already in, so the same setting behaves the same on a library of
-        forty films and one of six hundred.
-        """
-        position = self.columns.index(prior)
-        return (value - self.centres[position]) / self.scales[position]
-
     def to_json(self) -> dict[str, list[Any]]:
         """The space as it is stored beside the weights, which are meaningless without it."""
         return {

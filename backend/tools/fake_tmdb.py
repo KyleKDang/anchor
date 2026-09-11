@@ -90,9 +90,9 @@ def film(
 #
 # The second block is there for discovery: the feed only ever suggests films the owner has
 # never tracked, so a catalog they can rate to the last film is a catalog whose shelf is
-# always empty. Their vote counts run low, which is also what the prefilter's damper
-# prefers - a dev stack whose suggestions are the seven most famous films in it would
-# hide exactly the behaviour the damper exists for.
+# always empty. Their vote counts run low but stay over the discovery gate's floor, so
+# every one of them is a film the feed could suggest and the fit is what picks between
+# them.
 CATALOG = {
     550: film(550, "Fight Club", "1999-10-15", ["Drama", "Thriller"], "David Fincher", 42.0, 8.4),
     329865: film(
@@ -159,7 +159,7 @@ CATALOG = {
         "Jean-Pierre Melville",
         4.0,
         7.9,
-        190,
+        240,
         "fr",
     ),
     5925: film(
@@ -307,14 +307,22 @@ def _steered(query: dict[str, list[str]]) -> list[dict[str, Any]]:
     """
     genre = query.get("with_genres")
     person = query.get("with_people")
-    floor = int((query.get("vote_count.gte") or ["0"])[0])
+    votes = int((query.get("vote_count.gte") or ["0"])[0])
+    rating = float((query.get("vote_average.gte") or ["0"])[0])
+    runtime = int((query.get("with_runtime.gte") or ["0"])[0])
+    released_by = query.get("primary_release_date.lte")
     found = []
     for entry in CATALOG.values():
         if genre and int(genre[0]) not in entry["genre_ids"]:
             continue
         if person and int(person[0]) not in _people_ids(entry):
             continue
-        if entry["vote_count"] < floor:
+        if entry["vote_count"] < votes or entry["vote_average"] < rating:
+            continue
+        if entry["runtime"] < runtime:
+            continue
+        # ISO dates compare correctly as strings.
+        if released_by and entry["release_date"] > released_by[0]:
             continue
         found.append(entry)
     return sorted(found, key=lambda entry: -float(entry["popularity"]))

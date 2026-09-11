@@ -13,7 +13,7 @@ happy-path suite perfectly well, and would be a different product.
 
 Nothing here asserts which candidate the prefilter happened to rank third. That is the
 advisory math's business (ADR 0001, testing.md), and a scripted answer that named films
-by position would be pinning the damper's arithmetic rather than the feed's behaviour -
+by position would be pinning the scorer's arithmetic rather than the feed's behaviour -
 so answers are scripted over the whole candidate set, and the seam's own rule that a film
 which was not offered cannot be ranked does the rest.
 """
@@ -49,7 +49,6 @@ PIPELINE = dict(
     prose_placements_trigger=2,
     discovery_shelf=3,
     discovery_shortlist=6,
-    discovery_min_votes=0,
 )
 """Small bars and a small pipeline, so a test spends five placements and a call or two
 rather than fifty and twelve saying something that is true at any size. The dimensions
@@ -79,9 +78,13 @@ CANDIDATES = (
     FilmFixture(3000, "Django", genres=("Western",), directors=("Corbucci",), vote_count=900),
     FilmFixture(3001, "The Big Silence", genres=("Western",), directors=("Corbucci",)),
     FilmFixture(3002, "Day of Anger", genres=("Western",), directors=("Valerii",), vote_count=200),
-    FilmFixture(3003, "Ringo", genres=("Western",), directors=("Tessari",), vote_count=100),
+    FilmFixture(3003, "Ringo", genres=("Western",), directors=("Tessari",), vote_count=400),
 )
-"""Untracked films TMDB offers back. Never rated, never added, never dismissed."""
+"""Untracked films TMDB offers back. Never rated, never added, never dismissed.
+
+Every one of them passes the quality gate, and on its real thresholds: a fixture that
+zeroed the gate to get a shelf would be testing a feed nobody runs.
+"""
 
 SUBTITLED = FilmFixture(
     3100, "Il Grande Silenzio", genres=("Western",), directors=("Corbucci",), original_language="it"
@@ -322,6 +325,142 @@ async def test_a_prose_only_correction_excludes_nothing(owner, run_jobs, provide
     assert SCARY.tmdb_id in ids(await visit(owner, run_jobs))
 
 
+# --- The quality gate ---
+
+
+def shown_to_reranker(provider, film):
+    """Whether any rerank window was ever shown this film: the only way a verdict is bought."""
+    return any(
+        str(film.tmdb_id) in asked.prompt.user for asked in provider.asked_of(llm.RERANK_SYSTEM)
+    )
+
+
+async def offered_by_the_neighbours(owner, run_jobs, provider, tmdb, film):
+    """The shelf after TMDB offers ``film`` beside the credible candidates, ranked top.
+
+    Ranked first on purpose, so a gate that let it through would put it straight onto the
+    shelf rather than leave it waiting below the cut where nobody would notice.
+    """
+    tmdb.with_neighbours(RATED[0].tmdb_id, film, *CANDIDATES)
+    provider.will_say(**ranked(film, *CANDIDATES))
+    await rating_films(owner, run_jobs)
+    return await visit(owner, run_jobs)
+
+
+async def test_a_film_too_few_people_have_seen_never_reaches_the_shelf(
+    owner, run_jobs, provider, tmdb
+):
+    """Credible first: a 9.0 from a dozen votes is not a verdict anybody can trust.
+
+    Offered by the neighbour calls, which is exactly where the old floor never reached:
+    TMDB's similar and recommendations endpoints take no vote filter, so the gate has to
+    be applied to what they answer rather than asked of them.
+    """
+    thin = FilmFixture(3300, "Seen By Twelve", genres=("Western",), vote_average=9.0, vote_count=12)
+
+    films = await offered_by_the_neighbours(owner, run_jobs, provider, tmdb, thin)
+
+    assert thin.tmdb_id not in ids(films)
+    assert films, "the gate should drop one film, not the whole feed"
+    assert not shown_to_reranker(provider, thin), "a verdict was bought for a film nobody saw"
+
+
+async def test_a_discover_slice_offers_only_films_enough_people_have_seen(
+    owner, run_jobs, provider, tmdb
+):
+    """The same floor on the other source, where TMDB can be asked for it directly.
+
+    Both films are in the catalog and neither is anybody's neighbour, so a discover slice
+    is the only way either can arrive - which the credible one proves it did.
+    """
+    found = FilmFixture(3301, "Found By A Slice", genres=("Western",), vote_count=250)
+    thin = FilmFixture(3302, "Nearly Nobody", genres=("Western",), vote_count=150)
+    tmdb.with_films(found, thin)
+    provider.will_say(**ranked(thin, found, *CANDIDATES))
+    await rating_films(owner, run_jobs)
+
+    films = await visit(owner, run_jobs)
+
+    assert found.tmdb_id in ids(films), "the slice never reached the shelf, so proves nothing"
+    assert thin.tmdb_id not in ids(films)
+    gated = {"vote_count.gte", "vote_average.gte", "with_runtime.gte", "primary_release_date.lte"}
+    assert all(gated <= set(slice) for slice in tmdb.sliced()), "a slice did not ask for the gate"
+
+
+async def test_a_film_its_audience_panned_never_reaches_the_shelf(owner, run_jobs, provider, tmdb):
+    """Good second: plenty of people saw it, and they did not like what they saw."""
+    panned = FilmFixture(
+        3303, "Everyone Hated It", genres=("Western",), vote_average=4.1, vote_count=40_000
+    )
+
+    films = await offered_by_the_neighbours(owner, run_jobs, provider, tmdb, panned)
+
+    assert panned.tmdb_id not in ids(films)
+    assert films
+    assert not shown_to_reranker(provider, panned)
+
+
+@pytest.mark.parametrize("release_date", ["2099-06-01", None], ids=["unreleased", "undated"])
+async def test_a_film_that_has_not_come_out_never_reaches_the_shelf(
+    owner, run_jobs, provider, tmdb, release_date
+):
+    """Released last: a suggestion is for tonight, and "Year unknown" is not a year.
+
+    A film nobody can watch yet is no use to a backlog, and one TMDB cannot even date is
+    a row the feed cannot stand behind - whatever its vote figures say.
+    """
+    unseen = FilmFixture(3304, "Not Out Yet", genres=("Western",), release_date=release_date)
+
+    films = await offered_by_the_neighbours(owner, run_jobs, provider, tmdb, unseen)
+
+    assert unseen.tmdb_id not in ids(films)
+    assert films
+    assert not shown_to_reranker(provider, unseen)
+
+
+@pytest.mark.parametrize("runtime", [12, None], ids=["short", "runtime-unknown"])
+async def test_a_film_that_is_not_a_feature_never_reaches_the_reranker(
+    owner, run_jobs, provider, tmdb, runtime
+):
+    """A feature, and one the feed can vouch for: an unknown runtime fails rather than passes.
+
+    Runtime is the one fact a list row does not carry, so this is the part of the gate
+    that cannot be applied until the film is bundled. What it guards is the spend: a
+    short costs the one TMDB call that found out, and no sentence is ever bought for it.
+    """
+    short = FilmFixture(3305, "Twelve Minutes", genres=("Western",), runtime=runtime)
+
+    films = await offered_by_the_neighbours(owner, run_jobs, provider, tmdb, short)
+
+    assert short.tmdb_id not in ids(films)
+    assert films
+    assert not shown_to_reranker(provider, short), "a verdict was bought for a short"
+    assert len(tmdb.bundled_calls(short.tmdb_id)) == 1
+
+
+async def test_a_cached_verdict_that_fails_the_gate_leaves_at_the_next_visit(
+    owner, run_jobs, provider, tmdb, db, settings
+):
+    """The gate is read at the shelf too, so what is already judged obeys it at once.
+
+    The bar is raised between two visits, which is the same state as a verdict bought
+    before the gate existed: a film in the cache that would not be let in today. It goes
+    at the next arrival, and nothing is re-sourced or re-bought to make that happen. The
+    verdict itself stays - it is a cache, and a threshold moved back should cost nothing.
+    """
+    provider.will_say(**ranked(CANDIDATES[0], CANDIDATES[1]))
+    account = await rating_films(owner, run_jobs)
+    assert ids(await visit(owner, run_jobs)) == {3000, 3001}
+    bought, sliced = len(provider.asked_of(llm.RERANK_SYSTEM)), len(tmdb.sliced())
+
+    settings.discovery_min_votes = 1_000  # Django has 900; the rest are far above it
+
+    assert ids(await visit(owner, run_jobs)) == {3001}
+    assert len(provider.asked_of(llm.RERANK_SYSTEM)) == bought, "a verdict was re-bought"
+    assert len(tmdb.sliced()) == sliced, "the visit restocked to drop a card"
+    assert CANDIDATES[0].tmdb_id in {row[0] for row in await verdicts(db, account)}
+
+
 # --- The rerank ---
 
 
@@ -401,24 +540,6 @@ async def test_a_plausible_film_sits_below_a_strong_one(owner, run_jobs, provide
     films = await visit(owner, run_jobs)
 
     assert [film["tmdb_id"] for film in films] == [3001, 3000]
-
-
-@pytest.mark.settings(**{**PIPELINE, "discovery_shortlist": 1}, discovery_rerank_window=10)
-async def test_the_prefilter_leans_against_popularity(owner, run_jobs, provider, tmdb):
-    """Deep cuts dominate: of two films the fit cannot tell apart, the obscure one gets in.
-
-    Asserted through the one shortlist place on offer rather than by reading a score, so
-    what is pinned is the damper's effect and not its arithmetic. The two films carry the
-    same genre and the same director as everything the owner rated, so the only thing left
-    between them is how many people have seen them.
-    """
-    known = FilmFixture(3200, "The Famous One", genres=("Western",), vote_count=500_000)
-    obscure = FilmFixture(3201, "The Forgotten One", genres=("Western",), vote_count=20)
-    tmdb.with_neighbours(RATED[0].tmdb_id, known, obscure)
-    provider.will_say(**ranked(known, obscure))
-    await rating_films(owner, run_jobs)
-
-    assert ids(await visit(owner, run_jobs)) == {obscure.tmdb_id}
 
 
 @pytest.mark.settings(**{**PIPELINE, "discovery_shelf": 4}, discovery_rerank_window=2)

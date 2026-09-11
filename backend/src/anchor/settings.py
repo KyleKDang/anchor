@@ -283,26 +283,31 @@ class Settings(BaseSettings):
     discovery_seeds: int = 4
     """Exemplars that seed the similar and recommendations calls, best-first."""
 
-    discovery_min_votes: int = 10
-    """A floor on a discover slice's vote count: a data-quality gate, not a taste one.
+    discovery_min_votes: int = 200
+    """TMDB votes a film needs before the feed will suggest it: the gate's *credible*.
 
-    In tension with the spec's "no hard mainstream cap" and set deliberately low because
-    of it. What it excludes is the row TMDB has almost nothing on - no poster, no
-    overview, a handful of votes - which the feed could not put a card behind whatever it
-    thought of the film. It matters more than it looks, because the damper below *rewards*
-    a low vote count, so with no floor at all the least-known rows in the catalog would
-    win the prefilter on obscurity alone. An operator who wants the raw tail sets it to
-    zero.
+    A quality floor rather than a taste lever. A film too few people have seen has no
+    verdict worth trusting - a 9.0 from twelve votes says who voted, not what the film
+    is - and the feed never shows what it cannot stand behind. TMDB's counts run far
+    below Letterboxd's, and two hundred is roughly where a film has a real audience while
+    the deep cut an owner would thank the feed for is still well inside it.
     """
 
-    discovery_popularity_damper: float = 0.5
-    """How hard the prefilter leans against popularity, in weight-vector units.
+    discovery_min_rating: float = 6.5
+    """TMDB's average a film needs before the feed will suggest it: the gate's *good*.
 
-    Subtracted from a candidate's score as a multiple of its standardised popularity - the
-    same column the fit already carries - so the damper is measured on the account's own
-    scale and behaves the same for a library of forty films as for one of six hundred.
-    Soft by construction and by design: discovery.md wants deep cuts to dominate with no
-    hard mainstream cap, because the dismissal flow converges the rest.
+    Read only once the vote floor has passed, which is the whole of its meaning - an
+    average is a fact about a film only when enough people are standing behind it. How
+    mainstream the owner likes things is not this number's business: that is learned, by
+    the fit's popularity column and by what they dismiss.
+    """
+
+    discovery_min_runtime: int = 40
+    """Minutes a film needs before the feed will suggest it: the gate's *a feature*.
+
+    The Academy's line between a short and a feature. Only the bundled film carries a
+    runtime, so this is the one part of the gate checked after the fetch rather than on
+    the list row, and a film whose runtime TMDB does not know fails it.
     """
 
     import_max_upload_bytes: int = 20 * 1024 * 1024

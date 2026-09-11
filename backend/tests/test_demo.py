@@ -56,7 +56,6 @@ BARS = {
 PIPELINE = {
     "discovery_shelf": 3,
     "discovery_shortlist": 8,
-    "discovery_min_votes": 0,
     "discovery_rerank_window": 10,
 }
 
