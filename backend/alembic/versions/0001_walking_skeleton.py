@@ -43,7 +43,7 @@ def downgrade() -> None:
     # procrastinate ships no drop script: remove every procrastinate_* table, function,
     # and type in the current schema (triggers and sequences go with their tables).
     op.execute(
-        """
+        r"""
         DO $$
         DECLARE
             obj record;
