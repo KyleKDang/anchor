@@ -83,7 +83,7 @@ function WarmupSection() {
           warmup.anchors.state === "todo" && "mark your anchors",
           warmup.rating?.state === "todo" && "rate a few films you have seen",
           warmup.wall?.state === "todo" && "look over the wall",
-          warmup.backlog.state === "todo" && "fill your backlog",
+          warmup.backlog.state === "todo" && "fill your watchlist",
         ].filter((one): one is string => one !== false);
   if (warmup === null || left.length === 0) return null;
 
@@ -106,7 +106,7 @@ const UNLOCKS: Record<Readiness, string> = {
   cold: "Anchor is still learning. Discovery and the ranked watchlist stay off until it has enough to go on.",
   forming: "Discovery is on: Anchor can suggest films you have never tracked.",
   ready:
-    "The ranked watchlist is on: your backlog is ordered by what you are most likely to love next.",
+    "The ranked watchlist is on: your watchlist is ordered by what you are most likely to love next.",
 };
 
 const STATE_LABEL: Record<Readiness, string> = {

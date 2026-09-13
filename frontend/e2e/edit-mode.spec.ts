@@ -24,7 +24,7 @@ test("an owner drags a film across bands and finds it there after a reload", asy
   await expect(page).toHaveURL(/\/rated\?edit=1$/);
   await expect(page.getByText(/Marking a film an anchor/)).toBeVisible();
   await page.getByRole("button", { name: "Mark Arrival as an anchor" }).click();
-  await expect(page.getByRole("button", { name: "Retire Arrival as an anchor" })).toHaveAttribute(
+  await expect(page.getByRole("button", { name: "Unmark Arrival as an anchor" })).toHaveAttribute(
     "aria-pressed",
     "true",
   );
@@ -92,7 +92,7 @@ async function rate(page: Page, title: string, band: number): Promise<void> {
   await page.getByRole("button", { name: "Search" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
-  await row.getByRole("button", { name: "Mark watched" }).click();
+  await row.getByRole("button", { name: "Mark as watched" }).click();
   await row.getByRole("button", { name: "Rate now", exact: true }).click();
   await page
     .getByRole("list", { name: "Pick a rating" })

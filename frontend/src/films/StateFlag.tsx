@@ -1,7 +1,7 @@
 import type { LifecycleState } from "../api";
 
 const LABELS: Record<LifecycleState, string> = {
-  backlog: "In your backlog",
+  backlog: "On your watchlist",
   watched_unrated: "Watched, not rated",
   rated: "Rated",
 };

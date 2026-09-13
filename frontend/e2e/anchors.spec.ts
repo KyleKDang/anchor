@@ -31,7 +31,7 @@ test("an owner marks an anchor and the wall badges it in its band row", async ({
   // Scoped to the film, not the page: the nav's wordmark is also the word "Anchor", and
   // an unscoped match is satisfied by it the instant the page renders.
   await expect(page.getByRole("article").getByText("Anchor", { exact: true })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Retire this anchor" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Unmark as an anchor" })).toBeVisible();
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Rated" }).click();
   const banded = page.getByRole("region", { name: "4.0 stars" });
@@ -59,7 +59,7 @@ async function rate(page: Page, title: string, band: number): Promise<void> {
   await page.getByRole("button", { name: "Search" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
-  await row.getByRole("button", { name: "Mark watched" }).click();
+  await row.getByRole("button", { name: "Mark as watched" }).click();
   await row.getByRole("button", { name: "Rate now", exact: true }).click();
   await page
     .getByRole("list", { name: "Pick a rating" })

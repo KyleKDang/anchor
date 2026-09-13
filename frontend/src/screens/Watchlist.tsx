@@ -91,7 +91,7 @@ export function Watchlist() {
         (tier.unlocked ? <Ranked tier={tier} onChange={reload} /> : <Locked tier={tier} />)}
       {backlog !== null && (
         <section className="section" aria-labelledby="backlog-heading">
-          <h2 id="backlog-heading">Backlog</h2>
+          <h2 id="backlog-heading">Unranked</h2>
           {tier?.unlocked === true && backlog.films.length > 0 && (
             <p className="muted">Everything else you have added, in whatever order suits you.</p>
           )}
@@ -177,9 +177,9 @@ function Locked({ tier }: { tier: Tier }) {
     <section className="section" aria-labelledby="ranked-heading">
       <h2 id="ranked-heading">Ranked list</h2>
       <p className="muted">
-        Once Anchor knows your taste well enough to be worth reading, this is where your backlog
+        Once Anchor knows your taste well enough to be worth reading, this is where your watchlist
         gets ordered by what you are most likely to love next. It is not guessing before then, so
-        below is simply your backlog.
+        below is simply your watchlist, unranked.
       </p>
       <p className="unlock-bar">
         <span
@@ -231,7 +231,7 @@ function Ranked({ tier, onChange }: { tier: Tier; onChange: () => void }) {
         {tier.up_next.length === 0 ? (
           <div className="empty">
             <p className="muted">
-              Nothing in your backlog yet. <Link to="/search">Search for a film</Link> to add one.
+              Nothing on your watchlist yet. <Link to="/search">Search for a film</Link> to add one.
             </p>
           </div>
         ) : (
@@ -262,9 +262,9 @@ function Ranked({ tier, onChange }: { tier: Tier; onChange: () => void }) {
 
       {tier.vetoed.length > 0 && (
         <details className="spoiler section">
-          <summary>Not from my queue ({tier.vetoed.length})</summary>
+          <summary>Removed from ranking ({tier.vetoed.length})</summary>
           <p className="muted">
-            Kept out of the ranked list until you say otherwise. They are still in your backlog, and
+            Out of the ranking until you say otherwise. They are still on your watchlist, and
             nothing about them has been marked down.
           </p>
           <ul className="film-list">
@@ -308,7 +308,7 @@ function Row({
           <p className="row-verbs">
             {film.vetoed ? (
               <Verb
-                label="Put back in the running"
+                label="Put back in the ranking"
                 onClick={() => api.liftVeto(film.tmdb_id)}
                 onDone={onChange}
               />
@@ -321,15 +321,11 @@ function Row({
                 )}
                 {/* Not-now rotates a seat out, so it says nothing on a film without one. */}
                 {seated && !pinned && (
-                  <Verb
-                    label="Not now"
-                    onClick={() => api.notNow(film.tmdb_id)}
-                    onDone={onChange}
-                  />
+                  <Verb label="Snooze" onClick={() => api.notNow(film.tmdb_id)} onDone={onChange} />
                 )}
                 {!pinned && (
                   <Verb
-                    label="Not from my queue"
+                    label="Remove from ranking"
                     onClick={() => api.veto(film.tmdb_id)}
                     onDone={onChange}
                   />
@@ -369,7 +365,7 @@ function Identity({
             {[releaseYear(film.year), film.genres.join(", ")].filter(Boolean).join(" · ")}
           </span>
           {pinned && <span className="state-flag">Pinned</span>}
-          {film.vetoed && <span className="state-flag">Not from my queue</span>}
+          {film.vetoed && <span className="state-flag">Removed from ranking</span>}
         </p>
         {children}
       </div>

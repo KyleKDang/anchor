@@ -164,7 +164,7 @@ Ordered by pin time, capped at the zone size; a pinned film leaves only by being
 
 **Veto**:
 The override that bars a backlog film from the ranked tier until the owner lifts it.
-The film stays in the backlog with its score untouched; vetoing says "not from my queue", never "I'd dislike it", so it carries no taste-profile effect.
+The film stays in the backlog with its score untouched; vetoing says "remove from ranking", never "I'd dislike it", so it carries no taste-profile effect.
 
 **Not-now**:
 The lightweight action that rotates a ranked-tier film out immediately with the standard re-entry cooldown.
