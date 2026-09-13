@@ -2199,6 +2199,7 @@ a.poster-link:hover .poster {
   box-shadow: var(--shadow-2);
   overflow: hidden;
   font-size: var(--text-sm);
+  container-type: inline-size;
 }
 
 .screen-nav {
@@ -2222,6 +2223,27 @@ a.poster-link:hover .poster {
   color: var(--muted);
   font-size: var(--text-xs);
   font-weight: 500;
+}
+
+/* A frame too narrow for the rail it pictures tightens it the way the app's own tab bar
+   does: no gap, slimmer tabs, and the wordmark gives up its text. The frame's width
+   decides rather than the window's, because just above the one breakpoint the tour turns
+   back into two columns and its frames are narrower than on a phone. The dot survives
+   the zero font size because it is sized in rem. */
+@container (max-width: 25rem) {
+  .screen-nav {
+    gap: 0;
+    padding: 0 var(--s2);
+  }
+
+  .screen-nav .wordmark {
+    gap: 0;
+    font-size: 0;
+  }
+
+  .screen-nav span:not(.wordmark) {
+    padding: 0.2rem 0.3rem;
+  }
 }
 
 .screen-body {
@@ -3030,17 +3052,6 @@ a.poster-link:hover .poster {
     grid-template-columns: repeat(3, 1fr);
   }
 
-  /* The frame's rail tightens the way the app's own tab bar does, so all five tabs fit
-     on one line down to a 360px phone. */
-  .screen-nav {
-    gap: 0;
-    padding: 0 var(--s2);
-  }
-
-  .screen-nav span:not(.wordmark) {
-    padding: 0.2rem 0.3rem;
-  }
-
   /* Six cells at three across is two rows, and the second band's second row pushes the
      frame past the length the step can carry; it is a picture, so it may end early. */
   .screen .band-group:last-child .ordering-slot:nth-child(n + 4) {
@@ -3054,15 +3065,6 @@ a.poster-link:hover .poster {
   .landing-footer-inner {
     padding-left: var(--s4);
     padding-right: var(--s4);
-  }
-}
-
-/* The narrowest phones leave the frame's wordmark no room to breathe beside the first
-   tab, so it keeps only its dot, as the app's own tab bar gives the wordmark up. */
-@media (max-width: 380px) {
-  .screen-nav .wordmark {
-    gap: 0;
-    font-size: 0;
   }
 }
 
