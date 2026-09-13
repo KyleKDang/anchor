@@ -129,7 +129,7 @@ export function Rated() {
                 <p className="muted">
                   {hasFilters(filters)
                     ? "No rated films match these filters."
-                    : "Nothing rated yet. Mark a film watched and rate it now to start your wall."}
+                    : "Nothing rated yet. Mark a film as watched and rate it now to start your wall."}
                 </p>
               </div>
             ) : rated.rows !== null ? (

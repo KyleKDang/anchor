@@ -110,7 +110,7 @@ export function Warmup() {
       )}
 
       <Phase
-        heading="3. Fill your backlog"
+        heading="3. Fill your watchlist"
         blurb="Something to watch next, usable from minute one."
         state={state.backlog.state}
         mark="backlog"
@@ -137,7 +137,7 @@ function RatingPhase({ phase }: { phase: RatingPhaseState }) {
     <>
       <p className="muted">
         {phase.rated} of about {phase.target} so far. Find a film on{" "}
-        <Link to="/search">Search</Link>, mark it watched, and rate it.
+        <Link to="/search">Search</Link>, mark it as watched, and rate it.
       </p>
       {phase.rated === 0 && (
         <p className="muted">

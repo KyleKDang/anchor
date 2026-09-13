@@ -85,8 +85,8 @@ test("a fresh owner takes the entry fork, warms up, and comes out with a usable 
     .filter({ has: page.getByLabel("Find something to watch") })
     .getByRole("button", { name: "Search" })
     .click();
-  await page.getByRole("button", { name: "Add to backlog" }).first().click();
-  await expect(page.getByText("1 film in your backlog")).toBeVisible();
+  await page.getByRole("button", { name: "Add to watchlist" }).first().click();
+  await expect(page.getByText("1 film on your watchlist")).toBeVisible();
 
   // Putting the warmup away leaves an account that works, with what the warmup built.
   await page.getByRole("button", { name: /I'm done for now|Take me in/ }).click();

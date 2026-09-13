@@ -357,5 +357,5 @@ async def _overridable(
         )
     )
     if account_film is None or account_film.state is not LifecycleState.backlog:
-        raise ApiError(404, "not_in_backlog", "That film is not in your backlog.")
+        raise ApiError(404, "not_in_backlog", "That film is not on your watchlist.")
     return account_film

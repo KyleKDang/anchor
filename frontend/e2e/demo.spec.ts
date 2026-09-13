@@ -44,7 +44,7 @@ test("a visitor explores the demo from the front door and can look at everything
 
   // A write on the feed is intercepted by the pitch, and the shelf is untouched.
   const before = await shelf.getByRole("listitem").count();
-  await shelf.getByRole("button", { name: "Add to backlog" }).first().click();
+  await shelf.getByRole("button", { name: "Add to watchlist" }).first().click();
   const pitch = page.getByRole("dialog", { name: "This is a read-only demo" });
   await expect(pitch).toBeVisible();
   await expect(pitch.getByRole("link", { name: "Build your own" })).toBeVisible();

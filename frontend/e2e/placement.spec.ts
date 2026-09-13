@@ -47,7 +47,7 @@ test("an owner watches films, rates them, and reads the wall and the queue back"
   // Leaving the queue never touches watched-ness: the film is still seen.
   await page.goto(`/films/${HEAT}`);
   await expect(page.getByText("Watched, not rated")).toBeVisible();
-  await expect(page.getByText("Waiting in your rate-later queue.")).toHaveCount(0);
+  await expect(page.getByText("Saved to rate later.")).toHaveCount(0);
 });
 
 /**
@@ -113,8 +113,8 @@ test("an owner unsure between two bands narrows the range and lands at the seam"
       .getByRole("region", { name: "Your ordering" })
       .getByRole("link", { name: title, exact: true })
       .click();
-    await page.getByRole("button", { name: "Mark as an anchor" }).click();
-    await expect(page.getByRole("button", { name: "Retire this anchor" })).toBeVisible();
+    await page.getByRole("button", { name: "Mark as an anchor", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Unmark as an anchor" })).toBeVisible();
     await page
       .getByRole("navigation", { name: "Main" })
       .getByRole("link", { name: "Rated" })
@@ -175,7 +175,7 @@ async function markWatched(page: Page, title: string, choice: "Rate now" | "Late
   await page.getByRole("button", { name: "Search" }).click();
   const row = page.getByRole("listitem").filter({ hasText: title });
   await expect(row).toBeVisible();
-  await row.getByRole("button", { name: "Mark watched" }).click();
+  await row.getByRole("button", { name: "Mark as watched" }).click();
   await row.getByRole("button", { name: choice, exact: true }).click();
   // "Rate now" leaves for the picker, which the caller waits on. "Later" stays here, so
   // wait for the row to flag the film watched before navigating away - or a slower runner

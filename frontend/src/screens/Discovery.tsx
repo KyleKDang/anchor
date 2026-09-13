@@ -210,13 +210,13 @@ function Card({ film, onActed }: { film: Suggestion; onActed: Applied }) {
         <Plot overview={film.overview} />
         <p className="row-verbs">
           <Answer
-            label="Seen it"
+            label="Mark as watched"
             act={() => api.seenSuggestion(film.tmdb_id)}
             film={film}
             onActed={onActed}
           />
           <Answer
-            label="Not interested"
+            label="Not for me"
             act={() => api.dismissSuggestion(film.tmdb_id)}
             film={film}
             onActed={onActed}
@@ -225,7 +225,7 @@ function Card({ film, onActed }: { film: Suggestion; onActed: Applied }) {
       </div>
       <div className="film-row-actions">
         <Answer
-          label="Add to backlog"
+          label="Add to watchlist"
           act={() => api.acceptSuggestion(film.tmdb_id)}
           film={film}
           onActed={onActed}
@@ -287,7 +287,7 @@ function Answer({
 function PlaceNow({ film, onSkip }: { film: Suggestion; onSkip: () => void }) {
   return (
     <p className="nudge">
-      Marked <strong>{film.title}</strong> as watched. It is waiting in your rate-later queue.{" "}
+      Marked <strong>{film.title}</strong> as watched and saved it to rate later.{" "}
       <Link to={placePath(film.tmdb_id)}>Rate it now</Link>, or{" "}
       <button type="button" className="link-button" onClick={onSkip}>
         leave it for later
@@ -326,7 +326,7 @@ function NotInterested() {
       className="spoiler section"
       onToggle={(event) => event.currentTarget.open && void load()}
     >
-      <summary>Not interested{films && films.length > 0 ? ` (${films.length})` : ""}</summary>
+      <summary>Not for me{films && films.length > 0 ? ` (${films.length})` : ""}</summary>
       {error && (
         <p className="error" role="alert">
           {error}
