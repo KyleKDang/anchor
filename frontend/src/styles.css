@@ -764,8 +764,9 @@ button.anchor-badge {
   align-self: start;
 }
 
-/* The dismissed list sits under the shelf as an overflow rather than a section, so it
-   gets the shelf's own breathing room above it and none of a heading's weight. */
+/* An overflow rather than a section: the dismissed list under the shelf, the vetoed films
+   under the tier, the judgment history under the rating panel. Each gets the breathing
+   room of what it sits under and none of a heading's weight. */
 details.spoiler.section {
   margin-top: var(--s6);
 }
@@ -869,9 +870,15 @@ details.spoiler.section {
   margin-top: var(--s4);
 }
 
-/* The spoiler every plot summary sits behind. */
+/* The one disclosure: every plot summary sits behind it, and so does anything a screen
+   folds away under a one-line summary. */
 .spoiler {
   margin: 0 0 var(--s3);
+}
+
+/* The gap under the summary belongs to the fold, whatever it opens onto. */
+.spoiler summary + * {
+  margin-top: var(--s2);
 }
 
 .spoiler summary {
@@ -2556,16 +2563,6 @@ a.poster-link:hover .poster {
 
 /* What the owner has said about this film, as sentences rather than as a table: the
    whole question is "did I mean this?", read against the rating above it. */
-.judgments {
-  margin: var(--s4) 0 0;
-}
-
-.judgments > h3 {
-  margin: 0 0 var(--s2);
-  font-size: var(--text-base);
-  line-height: var(--leading-tight);
-}
-
 .judgment-list {
   margin: 0;
   padding-left: var(--s4);
