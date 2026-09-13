@@ -180,9 +180,10 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                   <Link to={questionsPath(film.tmdb_id)}>Answer questions about this film</Link>
                 </li>
               </ul>
-              <Judgments judgments={film.judgments} />
             </section>
           )}
+          {/* The record, under what the owner does with the film rather than inside it. */}
+          {film.state === "rated" && <Judgments judgments={film.judgments} />}
           {error && (
             <p className="error" role="alert">
               {error}
@@ -356,6 +357,10 @@ function AnchorToggle({
 /**
  * The judgment history: this film's comparison-log entries, newest first.
  *
+ * Folded behind the spoiler, closed, with the count on the summary line, so a film with
+ * forty entries has the same page shape as a film with one and the reader still sees how
+ * much history there is before opening it.
+ *
  * Shown as the owner made them and never flagged. An entry the ordering has since moved
  * past is not marked or superseded - the reader compares it with the band and rank above,
  * and the ordering wins (ADR 0013).
@@ -364,8 +369,8 @@ function Judgments({ judgments }: { judgments: Judgment[] }) {
   if (judgments.length === 0) return null;
 
   return (
-    <section className="judgments" aria-labelledby="judgments-heading">
-      <h3 id="judgments-heading">What you have said about it</h3>
+    <details className="spoiler section">
+      <summary>What you have said about it ({judgments.length})</summary>
       <ul className="judgment-list">
         {judgments.map((judgment, index) => (
           <li key={index}>
@@ -374,7 +379,7 @@ function Judgments({ judgments }: { judgments: Judgment[] }) {
           </li>
         ))}
       </ul>
-    </section>
+    </details>
   );
 }
 
