@@ -319,7 +319,7 @@ function Row({
                 ) : (
                   <Verb label="Pin" onClick={() => api.pin(film.tmdb_id)} onDone={onChange} />
                 )}
-                {/* Not-now rotates a seat out, so it says nothing on a film without one. */}
+                {/* Not-now (Snooze) rotates a seat out, so it says nothing on a film without one. */}
                 {seated && !pinned && (
                   <Verb label="Snooze" onClick={() => api.notNow(film.tmdb_id)} onDone={onChange} />
                 )}

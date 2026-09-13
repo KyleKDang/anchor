@@ -23,7 +23,7 @@ test("an owner drags a film across bands and finds it there after a reload", asy
   await page.getByRole("button", { name: "Edit the wall" }).click();
   await expect(page).toHaveURL(/\/rated\?edit=1$/);
   await expect(page.getByText(/Marking a film an anchor/)).toBeVisible();
-  await page.getByRole("button", { name: "Mark Arrival as an anchor" }).click();
+  await page.getByRole("button", { name: "Mark Arrival as an anchor", exact: true }).click();
   await expect(page.getByRole("button", { name: "Unmark Arrival as an anchor" })).toHaveAttribute(
     "aria-pressed",
     "true",
@@ -51,10 +51,9 @@ test("an owner drags a film across bands and finds it there after a reload", asy
   await expect(page.getByRole("region", { name: "4.0 stars" }).getByRole("listitem")).toHaveCount(
     0,
   );
-  await expect(page.getByRole("button", { name: "Mark Arrival as an anchor" })).toHaveAttribute(
-    "aria-pressed",
-    "false",
-  );
+  await expect(
+    page.getByRole("button", { name: "Mark Arrival as an anchor", exact: true }),
+  ).toHaveAttribute("aria-pressed", "false");
 
   // Leaving edit mode is the same toggle, and the read-only wall agrees.
   await page.getByRole("button", { name: "Done editing" }).click();

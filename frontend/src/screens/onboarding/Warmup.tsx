@@ -137,7 +137,7 @@ function RatingPhase({ phase }: { phase: RatingPhaseState }) {
     <>
       <p className="muted">
         {phase.rated} of about {phase.target} so far. Find a film on{" "}
-        <Link to="/search">Search</Link>, mark it watched, and rate it.
+        <Link to="/search">Search</Link>, mark it as watched, and rate it.
       </p>
       {phase.rated === 0 && (
         <p className="muted">
