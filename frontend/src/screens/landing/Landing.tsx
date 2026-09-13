@@ -63,7 +63,7 @@ export function Landing() {
           id="step-watchlist"
           destination="Watchlist"
           claim="A watchlist that ranks itself."
-          body="Anything you pin stays at the top; the rest is ordered by how much you're likely to love it, once Anchor knows your taste. Mark a film watched and you rate it on the spot."
+          body="Anything you pin stays at the top; the rest is ordered by how much you're likely to love it, once Anchor knows your taste. Mark a film as watched and you rate it on the spot."
           active="Watchlist"
           flipped
         >
@@ -301,11 +301,15 @@ function DiscoveryFrame() {
                   {fresh && <span className="state-flag">New</span>}
                 </p>
                 <p className="pitch">{pitch}</p>
-                {/* Inert text, not controls: see the note on the page above. */}
+                {/* Inert text, not controls: see the note on the page above. The same
+                    three answers the shelf gives, at the same weights. */}
                 <p className="row-verbs">
-                  <span className="link-button">Add to watchlist</span>
+                  <span className="link-button">Mark as watched</span>
                   <span className="link-button">Not for me</span>
                 </p>
+              </div>
+              <div className="film-row-actions">
+                <span className="button">Add to watchlist</span>
               </div>
             </li>
           ))}
