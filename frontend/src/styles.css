@@ -3030,6 +3030,17 @@ a.poster-link:hover .poster {
     grid-template-columns: repeat(3, 1fr);
   }
 
+  /* The frame's rail tightens the way the app's own tab bar does, so all five tabs fit
+     on one line down to a 360px phone. */
+  .screen-nav {
+    gap: 0;
+    padding: 0 var(--s2);
+  }
+
+  .screen-nav span:not(.wordmark) {
+    padding: 0.2rem 0.3rem;
+  }
+
   /* Six cells at three across is two rows, and the second band's second row pushes the
      frame past the length the step can carry; it is a picture, so it may end early. */
   .screen .band-group:last-child .ordering-slot:nth-child(n + 4) {
@@ -3043,6 +3054,15 @@ a.poster-link:hover .poster {
   .landing-footer-inner {
     padding-left: var(--s4);
     padding-right: var(--s4);
+  }
+}
+
+/* The narrowest phones leave the frame's wordmark no room to breathe beside the first
+   tab, so it keeps only its dot, as the app's own tab bar gives the wordmark up. */
+@media (max-width: 380px) {
+  .screen-nav .wordmark {
+    gap: 0;
+    font-size: 0;
   }
 }
 
