@@ -37,7 +37,7 @@ Future features inherit the posture; an exception requires amending ADR 0011, ne
 - **Rate-later queue**: the Rated-screen section with its count is the ceiling; no post-placement chasers - "later" never becomes a promise.
 - **Fresh suggestions**: in-feed "new since your last visit" markers on cards, positions untouched; nothing at nav level (freshness, not fit, so [ADR 0005](../adr/0005-no-rating-shaped-predictions.md) is untouched).
 - **Import residue**: the review queue is offered inline when matching completes; deferred, it and the unmatched list become ambient counts in Profile's Letterboxd area beside the sync list, and are never mentioned anywhere else.
-- **Pin / veto / not-now**: the visible effect is the confirmation; each action's inverse is its undo; veto's presentation always reads "not from my queue", never distaste.
+- **Pin / veto / not-now**: the visible effect is the confirmation; each action's inverse is its undo; veto's presentation always reads "remove from ranking", never distaste.
 
 ## The sync list
 

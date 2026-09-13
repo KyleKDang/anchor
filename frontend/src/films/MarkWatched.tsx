@@ -16,12 +16,10 @@ import { useAsyncAction } from "./useAsyncAction";
 export function MarkWatched({
   tmdbId,
   onLater,
-  label = "Mark watched",
 }: {
   tmdbId: number;
   /** Called after "later"; "now" leaves for the placement flow instead. */
   onLater: () => void;
-  label?: string;
 }) {
   const [choosing, setChoosing] = useState(false);
   const { busy, error, run } = useAsyncAction();
@@ -38,7 +36,7 @@ export function MarkWatched({
   if (!choosing) {
     return (
       <button type="button" className="button secondary" onClick={() => setChoosing(true)}>
-        {label}
+        Mark as watched
       </button>
     );
   }

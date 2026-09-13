@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 
 import { signUpOwner } from "./owner";
 
-test("an owner searches, adds a film to the backlog, opens it, marks it watched, and sees the TMDB attribution", async ({
+test("an owner searches, adds a film to the watchlist, opens it, marks it watched, and sees the TMDB attribution", async ({
   page,
   request,
 }) => {
@@ -16,8 +16,8 @@ test("an owner searches, adds a film to the backlog, opens it, marks it watched,
   await page.getByRole("button", { name: "Search" }).click();
   const result = page.getByRole("listitem").filter({ hasText: "Fight Club" });
   await expect(result).toBeVisible();
-  await result.getByRole("button", { name: "Add to backlog" }).click();
-  await expect(result.getByText("In your backlog")).toBeVisible();
+  await result.getByRole("button", { name: "Add to watchlist" }).click();
+  await expect(result.getByText("On your watchlist")).toBeVisible();
 
   await page
     .getByRole("navigation", { name: "Main" })
@@ -28,15 +28,15 @@ test("an owner searches, adds a film to the backlog, opens it, marks it watched,
 
   await row.getByRole("link", { name: "Fight Club" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toHaveText("Fight Club");
-  await expect(page.getByText("In your backlog")).toBeVisible();
+  await expect(page.getByText("On your watchlist")).toBeVisible();
   // The plot sits behind the spoiler toggle until the owner asks for it.
   await expect(page.getByText("ending and all")).toBeHidden();
   await page.locator("details.spoiler > summary").click();
   await expect(page.getByText("ending and all")).toBeVisible();
   // Logging a watch is always a choice; "later" seats the film in the rate-later queue.
-  await page.getByRole("button", { name: "I watched this" }).click();
+  await page.getByRole("button", { name: "Mark as watched" }).click();
   await page.getByRole("button", { name: "Later", exact: true }).click();
-  await expect(page.getByText("Waiting in your rate-later queue.")).toBeVisible();
+  await expect(page.getByText("Saved to rate later.")).toBeVisible();
 
   await page
     .getByRole("navigation", { name: "Main" })

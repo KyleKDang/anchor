@@ -209,7 +209,7 @@ async def remove_from_backlog(
     if account_film is None:
         return
     if account_film.state is not LifecycleState.backlog:
-        raise ApiError(409, "not_in_backlog", "That film is not in your backlog.")
+        raise ApiError(409, "not_in_backlog", "That film is not on your watchlist.")
     await db.execute(delete(AccountFilm).where(AccountFilm.id == account_film.id))
     await db.flush()
     await tier_module.reconcile(db, account.id, settings)

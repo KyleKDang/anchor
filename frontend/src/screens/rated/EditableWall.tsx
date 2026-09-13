@@ -453,7 +453,7 @@ function EditableCell({
             className="anchor-badge"
             aria-pressed={film.anchor}
             aria-label={
-              film.anchor ? `Retire ${film.title} as an anchor` : `Mark ${film.title} as an anchor`
+              film.anchor ? `Unmark ${film.title} as an anchor` : `Mark ${film.title} as an anchor`
             }
             title={
               film.anchor

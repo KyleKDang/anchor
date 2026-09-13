@@ -35,7 +35,7 @@ export function SeedBacklog({
       <>
         <p>
           {phase.seeded} film{phase.seeded === 1 ? "" : "s"} from your Letterboxd watchlist
-          {phase.seeded === 1 ? " is" : " are"} already in your backlog.
+          {phase.seeded === 1 ? " is" : " are"} already on your watchlist.
         </p>
         <p className="muted">
           It is ranked once Anchor knows your taste well enough to mean it. Until then it is
@@ -43,7 +43,7 @@ export function SeedBacklog({
         </p>
         <p>
           <Link className="button secondary" to="/watchlist">
-            See your backlog
+            See your watchlist
           </Link>
         </p>
       </>
@@ -53,12 +53,12 @@ export function SeedBacklog({
   return (
     <>
       <p className="muted">
-        Add a few films you have been meaning to watch. This is your backlog, and it works from the
-        moment it has something in it.
+        Add a few films you have been meaning to watch. This is your watchlist, and it works from
+        the moment it has something in it.
       </p>
       {phase.films > 0 && (
         <p className="prompt-step muted">
-          {phase.films} film{phase.films === 1 ? "" : "s"} in your backlog
+          {phase.films} film{phase.films === 1 ? "" : "s"} on your watchlist
         </p>
       )}
       {error && (
@@ -68,7 +68,7 @@ export function SeedBacklog({
       )}
       <FilmPicker
         label="Find something to watch"
-        action="Add to backlog"
+        action="Add to watchlist"
         disabled={busy}
         onPick={add}
         pickable={(film) => film.state === null}

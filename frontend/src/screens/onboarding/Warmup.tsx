@@ -110,7 +110,7 @@ export function Warmup() {
       )}
 
       <Phase
-        heading="3. Fill your backlog"
+        heading="3. Fill your watchlist"
         blurb="Something to watch next, usable from minute one."
         state={state.backlog.state}
         mark="backlog"

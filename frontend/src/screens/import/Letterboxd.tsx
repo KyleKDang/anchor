@@ -440,7 +440,7 @@ function destroyed(warning: ImportWarning): string {
     plural(warning.rated_films, "rating"),
     plural(warning.judgments, "recorded answer"),
     plural(warning.anchors, "anchor"),
-    plural(warning.backlog_films, "backlog film"),
+    plural(warning.backlog_films, "watchlist film"),
     plural(warning.watch_events, "logged watch", "logged watches"),
   ].filter((part) => part !== null);
   return parts.length > 0 ? parts.join(", ") : "everything this account holds";

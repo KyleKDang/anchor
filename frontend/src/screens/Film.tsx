@@ -102,7 +102,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                 disabled={busy}
                 onClick={() => void run(async () => onChange(await api.addToBacklog(film.tmdb_id)))}
               >
-                Add to backlog
+                Add to watchlist
               </button>
             )}
             {film.state === "backlog" && (
@@ -117,13 +117,12 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
                   })
                 }
               >
-                Remove from backlog
+                Remove from watchlist
               </button>
             )}
             {(film.state === null || film.state === "backlog") && (
               <MarkWatched
                 tmdbId={film.tmdb_id}
-                label="I watched this"
                 onLater={() => onChange({ ...film, state: "watched_unrated", rate_later: true })}
               />
             )}
@@ -149,7 +148,7 @@ function FilmPage({ film, onChange }: { film: FilmDetail; onChange: (film: FilmD
             )}
           </div>
           {film.state === "watched_unrated" && film.rate_later && (
-            <p className="muted">Waiting in your rate-later queue.</p>
+            <p className="muted">Saved to rate later.</p>
           )}
           {film.state === "rated" && (
             <section className="rating-panel" aria-labelledby="rating-heading">
@@ -266,7 +265,7 @@ function Watched({ film, onChanged }: { film: FilmDetail; onChanged: (film: Film
         disabled={busy}
         onClick={() => void run(async () => onChanged(await api.logRewatch(film.tmdb_id)))}
       >
-        I watched this again
+        Mark as rewatched
       </button>
       {error && (
         <p className="error" role="alert">
@@ -342,7 +341,7 @@ function AnchorToggle({
           })
         }
       >
-        {film.anchor ? "Retire this anchor" : "Mark as an anchor"}
+        {film.anchor ? "Unmark as an anchor" : "Mark as an anchor"}
       </button>
       {error && (
         <p className="error" role="alert">

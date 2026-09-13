@@ -133,7 +133,7 @@ function ResultRow({
               onClick={addToBacklog}
               disabled={busy}
             >
-              Add to backlog
+              Add to watchlist
             </button>
           )}
           <MarkWatched

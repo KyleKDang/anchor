@@ -80,7 +80,7 @@ test("an owner who already started the account is told what importing will erase
   await expect(
     page.getByRole("heading", { name: "You have already started this account" }),
   ).toBeVisible();
-  await expect(page.getByText("This erases 1 backlog film")).toBeVisible();
+  await expect(page.getByText("This erases 1 watchlist film")).toBeVisible();
 
   await page.getByLabel("Your Letterboxd export (.zip)").setInputFiles({
     name: "letterboxd-owner-2026-08-02-11-00-utc.zip",
