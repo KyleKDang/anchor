@@ -870,9 +870,15 @@ details.spoiler.section {
   margin-top: var(--s4);
 }
 
-/* The spoiler every plot summary sits behind. */
+/* The one disclosure: every plot summary sits behind it, and so does anything a screen
+   folds away under a one-line summary. */
 .spoiler {
   margin: 0 0 var(--s3);
+}
+
+/* The gap under the summary belongs to the fold, whatever it opens onto. */
+.spoiler summary + * {
+  margin-top: var(--s2);
 }
 
 .spoiler summary {
@@ -2558,7 +2564,7 @@ a.poster-link:hover .poster {
 /* What the owner has said about this film, as sentences rather than as a table: the
    whole question is "did I mean this?", read against the rating above it. */
 .judgment-list {
-  margin: var(--s2) 0 0;
+  margin: 0;
   padding-left: var(--s4);
   font-size: var(--text-sm);
 }
