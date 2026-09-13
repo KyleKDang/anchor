@@ -2226,23 +2226,29 @@ a.poster-link:hover .poster {
 }
 
 /* A frame too narrow for the rail it pictures tightens it the way the app's own tab bar
-   does: no gap, slimmer tabs, and the wordmark gives up its text. The frame's width
-   decides rather than the window's, because just above the one breakpoint the tour turns
-   back into two columns and its frames are narrower than on a phone. The dot survives
-   the zero font size because it is sized in rem. */
+   does: no gap and slimmer tabs. The frame's width decides rather than the window's,
+   because just above the one breakpoint the tour turns back into two columns and its
+   frames are narrower than on a phone. */
 @container (max-width: 25rem) {
   .screen-nav {
     gap: 0;
     padding: 0 var(--s2);
   }
 
+  .screen-nav span:not(.wordmark) {
+    padding: 0.2rem 0.3rem;
+  }
+}
+
+/* Only a frame narrower still gives up the wordmark's text for its dot. Measured, the
+   tightened rail with the text needs a frame of about 20.25rem; 22rem keeps more than
+   1.75rem beside the first tab wherever the text shows, so a 390px phone keeps the brand
+   and a 375px one does not crowd it. The dot survives the zero font size because it is sized
+   in rem. */
+@container (max-width: 22rem) {
   .screen-nav .wordmark {
     gap: 0;
     font-size: 0;
-  }
-
-  .screen-nav span:not(.wordmark) {
-    padding: 0.2rem 0.3rem;
   }
 }
 
