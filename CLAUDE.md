@@ -32,6 +32,10 @@ The bar is `docs/design/testing.md`.
 `main` is protected and every push to it deploys, so code reaches it only through a rebase-merge of a PR that links the ticket (`Closes #N`); the branch then auto-deletes.
 Doc and config one-liners may go straight to `main`.
 
+**Commit attribution.**
+This repo opts in: commits carry the `Co-Authored-By: Claude` and `Claude-Session` trailers.
+Pull request descriptions still carry no Claude Code line or session link.
+
 **Validation green.**
 In `backend/`: `uv run ruff check`, `uv run ruff format --check`, `uv run mypy`, `uv run pytest`.
 In `frontend/`: `npm run lint`, `npm run format:check`, `npm run build`.
