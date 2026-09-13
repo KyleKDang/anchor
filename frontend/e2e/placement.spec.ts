@@ -113,7 +113,7 @@ test("an owner unsure between two bands narrows the range and lands at the seam"
       .getByRole("region", { name: "Your ordering" })
       .getByRole("link", { name: title, exact: true })
       .click();
-    await page.getByRole("button", { name: "Mark as an anchor" }).click();
+    await page.getByRole("button", { name: "Mark as an anchor", exact: true }).click();
     await expect(page.getByRole("button", { name: "Unmark as an anchor" })).toBeVisible();
     await page
       .getByRole("navigation", { name: "Main" })

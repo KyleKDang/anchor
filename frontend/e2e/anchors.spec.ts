@@ -27,7 +27,7 @@ test("an owner marks an anchor and the wall badges it in its band row", async ({
 
   // The toggle also lives on the film's own page, and marking changes nothing else.
   await page.goto(`/films/${ARRIVAL}`);
-  await page.getByRole("button", { name: "Mark as an anchor" }).click();
+  await page.getByRole("button", { name: "Mark as an anchor", exact: true }).click();
   // Scoped to the film, not the page: the nav's wordmark is also the word "Anchor", and
   // an unscoped match is satisfied by it the instant the page renders.
   await expect(page.getByRole("article").getByText("Anchor", { exact: true })).toBeVisible();

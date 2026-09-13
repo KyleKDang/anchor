@@ -945,7 +945,7 @@ export const api = {
     request<Feed>("GET", `/api/discovery${boundary ? "" : "?boundary=false"}`),
   /** "I want to watch this": the film joins the backlog, and nothing learns anything. */
   acceptSuggestion: (tmdbId: number) => request<Acted>("POST", `/api/discovery/${tmdbId}/accept`),
-  /** "Not interested": suppressed until lifted, and kept on the dismissed list. */
+  /** "Not for me": suppressed until lifted, and kept on the dismissed list. */
   dismissSuggestion: (tmdbId: number) =>
     request<Acted>("POST", `/api/discovery/${tmdbId}/dismissal`),
   /** "I have already seen this": watched-unrated, with a seat and one skippable offer. */
