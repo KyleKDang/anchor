@@ -2240,11 +2240,11 @@ a.poster-link:hover .poster {
   }
 }
 
-/* Only a frame narrower still gives up the wordmark's text for its dot. Measured, the
-   tightened rail with the text needs a frame of about 20.25rem; 22rem keeps more than
-   1.75rem beside the first tab wherever the text shows, so a 390px phone keeps the brand
-   and a 375px one does not crowd it. The dot survives the zero font size because it is sized
-   in rem. */
+/* Only a frame narrower still gives up the wordmark's text for its dot. Measured against
+   the tightened rail above, so retune it if that rail's padding changes: the text needs a
+   frame of about 20.25rem, and 22rem keeps it only where at least 1.75rem is left beside
+   the first tab. A 390px phone keeps the brand; a 375px one, which would leave barely 1rem, shows
+   the dot. The dot survives the zero font size because it is sized in rem. */
 @container (max-width: 22rem) {
   .screen-nav .wordmark {
     gap: 0;
