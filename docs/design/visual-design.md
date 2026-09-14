@@ -94,7 +94,7 @@ The contrast floor is arithmetic, not judgment, so it is checked by computing ev
 
 ## Primitives
 
-The shared vocabulary, all defined in the token layer: `button` (primary, `secondary`, `danger`, and `link-button`), `field`, `chip`, `card`, `film-row`, the badges (`anchor-badge`, `state-flag`), `band`, `empty`, `nudge`, `notice`, `scrim` and `dialog`, `spoiler`, `poster`, `neighbours`, and `actions`.
+The shared vocabulary, all defined in the token layer: `button` (primary, `secondary`, `danger`, and `link-button`), `field`, `chip`, `card`, `wordmark`, `film-row`, the badges (`anchor-badge`, `state-flag`), `band`, `empty`, `nudge`, `notice`, `scrim` and `dialog`, `spoiler`, `poster`, `neighbours`, and `actions`.
 
 A screen composes these and adds only what is genuinely its own.
 When a screen wants something a primitive nearly does, the primitive grows; a screen that grows its own copy is how 936 lines of ad-hoc CSS happened the first time.
@@ -116,7 +116,8 @@ Because the lines take the wordmark's ink, the mark inverts with the theme and n
 There is no gradient, no third color, and no shape behind it.
 
 The mark sits inside every `wordmark`, hidden from assistive tech, so the wordmark's name stays the word "Anchor".
-It is sized in `em` on the primitive (`1.15em`), so a wordmark set smaller gets a smaller mark without a rule of its own.
+It is sized in `em` on the primitive (`1em`), so a wordmark set smaller gets a smaller mark without a rule of its own.
+The wordmark aligns on the baseline, which puts the flukes on the word's baseline and lifts the ring just above its cap height; centered, the flukes hung two to four pixels below the word at every size from `1em` to `1.2em`.
 The one exception is the landing frame narrow enough to drop the word, where the wordmark's font size goes to zero and the mark is pinned to the size it had beside the text.
 
 As a favicon, the SVG carries literal colors and its own `prefers-color-scheme` query, since a tab strip has no tokens to read.
