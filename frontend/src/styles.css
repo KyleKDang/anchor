@@ -342,6 +342,11 @@ select {
   height: calc(var(--mark-size) * 1em);
 }
 
+/* Where the wordmark is a link it leads home, and never wears a text link's underline. */
+a.wordmark:hover {
+  text-decoration: none;
+}
+
 .nav .wordmark {
   margin-right: auto;
   padding-left: 0.5rem;
@@ -2018,6 +2023,11 @@ a.poster-link:hover .poster {
   flex-direction: column;
   gap: var(--s4);
   padding: var(--s5);
+}
+
+/* Its own width rather than the column's, so the link and its focus ring hug the word. */
+.auth-card .wordmark {
+  align-self: flex-start;
 }
 
 .auth-card h1 {

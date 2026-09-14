@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { Link } from "react-router";
 
 import { Mark } from "../../Mark";
 
@@ -7,10 +8,11 @@ export function AuthCard({ title, children }: { title: string; children: ReactNo
   return (
     <div className="auth">
       <section className="auth-card card" aria-labelledby="auth-title">
-        <p className="wordmark">
+        {/* The wordmark leads home, as the frame's does; signed out, home is the front door. */}
+        <Link className="wordmark" to="/">
           <Mark />
           Anchor
-        </p>
+        </Link>
         <h1 id="auth-title">{title}</h1>
         {children}
       </section>

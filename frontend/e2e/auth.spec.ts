@@ -50,6 +50,12 @@ test("a visitor signs up, verifies through the emailed link, logs out, logs in, 
   await page.getByRole("button", { name: "Log out" }).click();
   await expect(page).toHaveURL(/\/login$/);
   await expect(page.getByRole("status")).toHaveText("You are logged out.");
+  // The card's wordmark leads home, which signed out is the front door.
+  await page.getByRole("link", { name: "Anchor" }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("heading", { level: 1 })).toHaveText(
+    "Rank every film you've ever seen.",
+  );
   await page.goto("/watchlist");
   await expect(page).toHaveURL(/\/login$/);
 });
