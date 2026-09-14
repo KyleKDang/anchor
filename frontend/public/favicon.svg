@@ -1,0 +1,14 @@
+<!-- The same drawing as src/Mark.tsx; a change to it is made in both. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <style>
+    .ring { fill: #b57614; }
+    .lines { stroke: #141518; }
+    @media (prefers-color-scheme: dark) {
+      .ring { fill: #f0b94a; }
+      .lines { stroke: #eceef1; }
+    }
+  </style>
+  <circle class="ring" cx="12" cy="5.5" r="3.5"/>
+  <path class="lines" d="M12 9v12M8 11.5h8M4 14a8 8 0 0 0 16 0"
+        fill="none" stroke-width="2" stroke-linecap="round"/>
+</svg>

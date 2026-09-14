@@ -5,6 +5,7 @@ import { api } from "./api";
 import { RequireAccount, RequireVisitor, useAuth } from "./auth";
 import { ReadOnlyPitch } from "./demo";
 import { destinations } from "./destinations";
+import { Mark } from "./Mark";
 import { Film } from "./screens/Film";
 import { Place } from "./screens/Place";
 import { Questions } from "./screens/Questions";
@@ -128,6 +129,7 @@ function Shell() {
         {/* The wordmark leads home rather than to a sixth destination; on a phone the rail
             becomes a tab bar and it gives up its space to the five that go somewhere. */}
         <Link className="wordmark" to="/">
+          <Mark />
           Anchor
         </Link>
         {destinations.map(({ path, label }) => (
