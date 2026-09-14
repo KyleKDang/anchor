@@ -3,6 +3,7 @@ import { Link } from "react-router";
 
 import { Band } from "../../films/Band";
 import { Poster } from "../../films/Poster";
+import { Mark } from "../../Mark";
 import {
   specimen,
   suggestions,
@@ -36,6 +37,7 @@ export function Landing() {
     <div className="landing">
       <header className="landing-nav">
         <Link className="wordmark" to="/">
+          <Mark />
           Anchor
         </Link>
         <nav className="landing-nav-actions" aria-label="Account">
@@ -199,7 +201,10 @@ function TourStep({
 function ScreenNav({ active }: { active: string }) {
   return (
     <div className="screen-nav">
-      <span className="wordmark">Anchor</span>
+      <span className="wordmark">
+        <Mark />
+        Anchor
+      </span>
       {["Watchlist", "Discovery", "Rated", "Search", "Profile"].map((label) => (
         <span key={label} className={label === active ? "active" : undefined}>
           {label}
@@ -338,7 +343,10 @@ function Footer() {
     <footer className="landing-footer">
       <div className="landing-footer-inner">
         <div className="footer-brand">
-          <span className="wordmark">Anchor</span>
+          <span className="wordmark">
+            <Mark />
+            Anchor
+          </span>
           {/* The rail's two verbs again, and not a second "Account" landmark: they lead
               exactly where the rail's do, so announcing them twice is noise. */}
           <div className="footer-links">

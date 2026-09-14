@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router";
 
 import { api, messageOf } from "../../api";
+import { Mark } from "../../Mark";
 
 /**
  * The entry fork: the first screen a new account sees, and the only time it is asked.
@@ -37,6 +38,7 @@ export function Welcome() {
     <div className="welcome">
       <header className="welcome-head">
         <p className="wordmark" aria-hidden="true">
+          <Mark />
           Anchor
         </p>
         <h1>Let's find your scale</h1>

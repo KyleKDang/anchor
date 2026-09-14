@@ -21,7 +21,7 @@ But the poster is never the subject: the band, the rank, and the anchor badge ar
 
 There is exactly one accent, and it means *a rating*.
 
-Amber is used by the stars, the anchor badge, the wordmark's dot, the nudge's rule, and the focus ring, and by nothing else.
+Amber is used by the stars, the anchor badge, the mark's ring, the nudge's rule, and the focus ring, and by nothing else.
 The one exception is the landing page's eyebrow, the word naming each destination on the tour, decided with the page itself on [#113](https://github.com/KyleKDang/anchor/issues/113): the page has no ratings to spend the accent on outside its specimen, and the eyebrow is its one mark of emphasis.
 It is the only screen a visitor sees before signing in, so the rule holds everywhere the product is actually used.
 Every action on every screen is monochrome: the primary button is inverted ink, the secondary is a hairline outline, the quiet one is an underlined link.
@@ -103,6 +103,25 @@ When a screen wants something a primitive nearly does, the primitive grows; a sc
 That first use is the demo account's read-only intercept ([#42](https://github.com/KyleKDang/anchor/issues/42)), which brought `scrim` with it - the cover behind a dialog, and the only thing in Anchor that ever covers the screen.
 It is allowed to interrupt because it is answering a press the visitor just made, which is the one shape of interruption [ADR 0011](../adr/0011-no-nagging-surfacing-policy.md) leaves open.
 The scrim is a literal dark rather than a mix of `--ink`, which inverts between themes: a scrim that went pale in the dark theme would lift the page towards the dialog instead of dropping it away.
+
+### The mark
+
+Anchor's mark is an anchor reduced to ring, stock, shank, and flukes, chosen on [#142](https://github.com/KyleKDang/anchor/issues/142) because it is the one sketch that reads at 16px and says the name without a word.
+It is a 24-unit drawing: a circle of radius 3.5 at (12, 5.5), and the path `M12 9v12M8 11.5h8M4 14a8 8 0 0 0 16 0` stroked at 2 with round caps.
+`Mark.tsx` and `public/favicon.svg` are the two copies of it, and each names the other.
+
+It is two colors and nothing else: the ring is `--star` and the lines are `currentColor`.
+The ring is the dot the wordmark used to carry, so the one-amber inventory did not grow.
+Because the lines take the wordmark's ink, the mark inverts with the theme and needs no dark rule of its own.
+There is no gradient, no third color, and no shape behind it.
+
+The mark sits inside every `wordmark`, hidden from assistive tech, so the wordmark's name stays the word "Anchor".
+It is sized in `em` on the primitive (`1.15em`), so a wordmark set smaller gets a smaller mark without a rule of its own.
+The one exception is the landing frame narrow enough to drop the word, where the wordmark's font size goes to zero and the mark is pinned to the size it had beside the text.
+
+As a favicon, the SVG carries literal colors and its own `prefers-color-scheme` query, since a tab strip has no tokens to read.
+The PNG fallbacks (32px for Safari, 180px for the iOS home screen) are the one place the mark gets a shape behind it: an opaque tile of the light ground `#f5f5f6`.
+A raster icon cannot follow the theme, and a transparent one vanishes on a dark tab strip.
 
 ## What is not styled yet
 

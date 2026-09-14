@@ -332,13 +332,11 @@ select {
   letter-spacing: -0.02em;
 }
 
-.wordmark::before {
-  content: "";
-  width: 0.55rem;
-  height: 0.55rem;
-  border-radius: 50%;
-  background: var(--star);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--star) 25%, transparent);
+/* The mark is sized in em, so a wordmark set smaller gets a smaller mark with no rule of its own. */
+.wordmark svg {
+  flex: none;
+  width: 1.15em;
+  height: 1.15em;
 }
 
 .nav .wordmark {
@@ -2240,15 +2238,20 @@ a.poster-link:hover .poster {
   }
 }
 
-/* Only a frame narrower still gives up the wordmark's text for its dot. Measured against
+/* Only a frame narrower still gives up the wordmark's text for its mark. Measured against
    the tightened rail above, so retune it if that rail's padding changes: the text needs a
    frame of about 20.25rem, and 22rem keeps it only where at least 1.75rem is left beside
    the first tab. A 390px phone keeps the brand; a 375px one, which would leave barely 1rem, shows
-   the dot. The dot survives the zero font size because it is sized in rem. */
+   the mark. The mark is sized in em, so it is pinned here to the size it had beside the text. */
 @container (max-width: 22rem) {
   .screen-nav .wordmark {
     gap: 0;
     font-size: 0;
+  }
+
+  .screen-nav .wordmark svg {
+    width: calc(1.15 * var(--text-sm));
+    height: calc(1.15 * var(--text-sm));
   }
 }
 
