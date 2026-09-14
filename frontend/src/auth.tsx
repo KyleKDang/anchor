@@ -105,7 +105,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 /** The session lookup failed for a reason other than "not logged in": nothing else can render. */
 function Unavailable({ message }: { message: string }) {
   return (
-    <AuthCard title="Anchor is unavailable">
+    <AuthCard title="Anchor is unavailable" reloadHome>
       <p className="error" role="alert">
         {message}
       </p>
