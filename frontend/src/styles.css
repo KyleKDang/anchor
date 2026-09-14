@@ -255,8 +255,8 @@ select {
   flex: 1;
 }
 
-/* The destinations as quiet tabs on a thin rail, and the wordmark carrying the same
-   amber dot that marks a rating everywhere else. The landing page wears the same rail
+/* The destinations as quiet tabs on a thin rail, and the wordmark carrying the mark, whose
+   ring is the same amber that marks a rating everywhere else. The landing page wears the same rail
    with the account verbs in place of the destinations, so the shape is shared here and
    each says only how it differs. */
 .nav,
@@ -322,8 +322,9 @@ select {
 }
 
 .wordmark {
+  --mark-size: 1;
   display: inline-flex;
-  align-items: center;
+  align-items: baseline;
   gap: 0.45rem;
   margin: 0;
   color: var(--text);
@@ -332,11 +333,13 @@ select {
   letter-spacing: -0.02em;
 }
 
-/* The mark is sized in em, so a wordmark set smaller gets a smaller mark with no rule of its own. */
+/* The mark is sized in em, so a wordmark set smaller gets a smaller mark with no rule of its own.
+   The row aligns on the baseline rather than the center, because an SVG's baseline is its
+   foot, where the flukes end: centered, the flukes hang below the word at every size. */
 .wordmark svg {
   flex: none;
-  width: 1.15em;
-  height: 1.15em;
+  width: calc(var(--mark-size) * 1em);
+  height: calc(var(--mark-size) * 1em);
 }
 
 .nav .wordmark {
@@ -2250,8 +2253,8 @@ a.poster-link:hover .poster {
   }
 
   .screen-nav .wordmark svg {
-    width: calc(1.15 * var(--text-sm));
-    height: calc(1.15 * var(--text-sm));
+    width: calc(var(--mark-size) * var(--text-sm));
+    height: calc(var(--mark-size) * var(--text-sm));
   }
 }
 

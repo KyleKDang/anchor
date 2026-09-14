@@ -1,4 +1,5 @@
-<!-- The same drawing as src/Mark.tsx; a change to it is made in both. -->
+<!-- The same drawing as src/Mark.tsx; a change to it is made in both. The colors are
+     literal copies of --ink and --star from src/styles.css, and the PNGs are rendered from them. -->
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
   <style>
     .ring { fill: #b57614; }
