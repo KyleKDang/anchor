@@ -82,6 +82,13 @@
   --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 
   --nav-h: 3.25rem;
+  /* The demo strip's height, which everything that sticks to the top sits under. Zero
+     for an owner, whose session never has one. */
+  --strip-h: 0px;
+}
+
+:root:has(.demo-strip) {
+  --strip-h: 1.875rem;
 }
 
 /* The theme follows the operating system and nothing else: Anchor has no theme switch,
@@ -244,7 +251,7 @@ select {
 
 .app {
   max-width: 64rem;
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--strip-h));
   margin: 0 auto;
   padding: 0 var(--s5) var(--s8);
   display: flex;
@@ -273,6 +280,8 @@ select {
 }
 
 .nav {
+  /* Under the demo strip, where there is one. */
+  top: var(--strip-h);
   gap: var(--s1);
   /* The frame's own side padding, cancelled: the rail spans the window. */
   margin: 0 calc(var(--s5) * -1);
@@ -881,6 +890,65 @@ details.spoiler.section {
   margin-top: var(--s4);
 }
 
+/* The demo strip: the demo saying what it is, at the top of every screen it is on. A status
+   line and not a banner, so it is drawn as furniture: the page's own ground, one hairline
+   under it, the copy at the small size, the verbs as text links. No amber, which means a
+   rating, and no fill, which would compete with the rail. It sticks above the rail so the
+   way out is on screen wherever the visitor has scrolled to, and the rail and everything
+   that sticks under it move down by `--strip-h`. */
+.demo-strip {
+  position: sticky;
+  top: 0;
+  /* Over the intercept's scrim (30): the way out stays in reach while the dialog is up. */
+  z-index: 40;
+  height: var(--strip-h);
+  border-bottom: var(--hairline);
+  background: var(--bg);
+  color: var(--muted);
+  font-size: var(--text-sm);
+}
+
+/* The frame's width and side padding, so the copy lines up with the wordmark's dot and
+   the page's own left edge. */
+.demo-strip-inner {
+  max-width: 64rem;
+  height: 100%;
+  margin: 0 auto;
+  padding: 0 var(--s5);
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  white-space: nowrap;
+}
+
+.demo-strip-copy {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.demo-strip-copy strong {
+  color: var(--text);
+  font-weight: 500;
+}
+
+/* The quiet verb, but read as a link rather than found on hover: beside muted copy, the
+   underline is what says these two can be pressed. */
+.demo-strip .link-button {
+  color: var(--text);
+  text-decoration-color: var(--border-control);
+}
+
+.demo-strip .link-button:hover {
+  text-decoration-color: var(--faint);
+}
+
+.demo-strip-dot {
+  color: var(--faint);
+}
+
 /* The one disclosure: every plot summary sits behind it, and so does anything a screen
    folds away under a one-line summary. */
 .spoiler {
@@ -1023,14 +1091,14 @@ details.spoiler.section {
 
 .band-group {
   margin-bottom: var(--s5);
-  scroll-margin-top: calc(var(--nav-h) + var(--s2));
+  scroll-margin-top: calc(var(--strip-h) + var(--nav-h) + var(--s2));
 }
 
 /* Sticky under the nav: on a wall hundreds of posters long, the band a poster belongs to
    has to stay on screen or the ordering stops meaning anything. */
 .band-header {
   position: sticky;
-  top: var(--nav-h);
+  top: calc(var(--strip-h) + var(--nav-h));
   z-index: 10;
   display: flex;
   flex-wrap: wrap;
@@ -1266,7 +1334,7 @@ a.poster-link:hover .poster {
   grid-row: 1 / span 2;
   width: 100%;
   position: sticky;
-  top: calc(var(--nav-h) + var(--s4));
+  top: calc(var(--strip-h) + var(--nav-h) + var(--s4));
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-2);
 }
@@ -2955,11 +3023,30 @@ a.poster-link:hover .poster {
   }
 
   .band-header {
-    top: 0;
+    top: var(--strip-h);
   }
 
   .band-group {
-    scroll-margin-top: var(--s2);
+    scroll-margin-top: calc(var(--strip-h) + var(--s2));
+  }
+
+  /* The strip stays at the top while the rail goes to the bottom, so it is the only thing
+     up there; it drops to the hint size and gives up its sentence, because one line at
+     this width holds the label and the two verbs and nothing more. */
+  :root:has(.demo-strip) {
+    --strip-h: 1.75rem;
+  }
+
+  .demo-strip {
+    font-size: var(--text-xs);
+  }
+
+  .demo-strip-inner {
+    padding: 0 var(--s4);
+  }
+
+  .demo-strip-more {
+    display: none;
   }
 
   .ordering {

@@ -7,6 +7,8 @@ test("an owner searches, adds a film to the watchlist, opens it, marks it watche
   request,
 }) => {
   await signUpOwner(page, request, "films");
+  // The demo's strip is the demo's, and an owner's session never wears it (#144).
+  await expect(page.getByRole("complementary", { name: "Demo" })).toHaveCount(0);
 
   await page
     .getByRole("navigation", { name: "Main" })
