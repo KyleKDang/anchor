@@ -41,6 +41,9 @@ test("a visitor explores the demo from the front door and can look at everything
   await expect(shelf.getByRole("listitem").first()).toBeVisible();
   // No tour and no welcome overlay: the first thing on screen is the product.
   await expect(page.getByRole("dialog")).toHaveCount(0);
+  // The strip says what this is on every screen, with the way out beside it (#144).
+  const strip = page.getByRole("complementary", { name: "Demo" });
+  await expect(strip).toContainText("Demo account - look anywhere, nothing you press changes it.");
 
   // A write on the feed is intercepted by the pitch, and the shelf is untouched.
   const before = await shelf.getByRole("listitem").count();
@@ -82,9 +85,22 @@ test("a visitor explores the demo from the front door and can look at everything
   await expect(account).toContainText("Demo account");
   await expect(account).not.toContainText("@");
   await expect(account.getByRole("button", { name: "Delete account" })).toHaveCount(0);
+  // Profile keeps its own way out, said at length; the strip's is the one a visitor
+  // finds without looking for it.
+  await expect(account.getByRole("button", { name: "Leave the demo" })).toBeVisible();
+  await expect(strip).toBeVisible();
 
-  // Leaving lands back on the front door, with no "logged out" line to explain.
-  await account.getByRole("button", { name: "Leave the demo" }).click();
+  // The strip's "Build your own" is the intercept's door: straight onto signup, where
+  // the strip is gone, because a visitor there is already on their way out.
+  await strip.getByRole("link", { name: "Build your own" }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+  await expect(strip).toHaveCount(0);
+  await page.goBack();
+  await expect(strip).toBeVisible();
+
+  // Leaving through the strip lands back on the front door, with no "logged out" line
+  // to explain.
+  await strip.getByRole("button", { name: "Leave the demo" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(
     "Rank every film you've ever seen.",

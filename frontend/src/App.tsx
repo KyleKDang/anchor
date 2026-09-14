@@ -3,7 +3,7 @@ import { Link, Navigate, NavLink, Outlet, Route, Routes, useLocation } from "rea
 
 import { api } from "./api";
 import { RequireAccount, RequireVisitor, useAuth } from "./auth";
-import { ReadOnlyPitch } from "./demo";
+import { DemoStrip, ReadOnlyPitch } from "./demo";
 import { destinations } from "./destinations";
 import { Mark } from "./Mark";
 import { Film } from "./screens/Film";
@@ -22,8 +22,10 @@ import { Welcome } from "./screens/onboarding/Welcome";
 export function App() {
   return (
     <>
-      {/* Above the router, because the demo's intercept has to reach the full-screen
-          flows as well as the frame, and there is one of it for the whole session. */}
+      {/* Above the router, because the demo's strip and intercept have to reach the
+          full-screen flows as well as the frame, and there is one of each for the whole
+          session. The strip comes first so it is the top of every page it is on. */}
+      <DemoStrip />
       <ReadOnlyPitch />
       <Routes>
         <Route element={<RequireVisitor />}>
