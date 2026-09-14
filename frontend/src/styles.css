@@ -347,6 +347,11 @@ a.wordmark:hover {
   text-decoration: none;
 }
 
+/* The mark's ring tops its box and the word ends flush, so the focus ring stands off both. */
+a.wordmark:focus-visible {
+  outline-offset: 5px;
+}
+
 .nav .wordmark {
   margin-right: auto;
   padding-left: 0.5rem;
