@@ -941,10 +941,6 @@ details.spoiler.section {
   text-decoration-color: var(--border-control);
 }
 
-.demo-strip .link-button:hover {
-  text-decoration-color: var(--faint);
-}
-
 .demo-strip-dot {
   color: var(--faint);
 }
@@ -3041,8 +3037,10 @@ a.poster-link:hover .poster {
     font-size: var(--text-xs);
   }
 
+  /* Tighter, so the label and both verbs still clear a 320px screen. */
   .demo-strip-inner {
     padding: 0 var(--s4);
+    gap: var(--s2);
   }
 
   .demo-strip-more {

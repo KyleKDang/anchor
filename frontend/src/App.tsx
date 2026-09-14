@@ -22,10 +22,8 @@ import { Welcome } from "./screens/onboarding/Welcome";
 export function App() {
   return (
     <>
-      {/* Above the router, because the demo's strip and intercept have to reach the
-          full-screen flows as well as the frame, and there is one of each for the whole
-          session. The strip comes first so it is the top of every page it is on. */}
-      <DemoStrip />
+      {/* Above the router, because the demo's intercept has to reach the full-screen
+          flows as well as the frame, and there is one of it for the whole session. */}
       <ReadOnlyPitch />
       <Routes>
         <Route element={<RequireVisitor />}>
@@ -48,30 +46,34 @@ export function App() {
           </Route>
         </Route>
         <Route element={<RequireAccount />}>
-          {/* Full-screen and outside the frame: on the picker there is nothing to do
-            but pick, so the navigation would only be a distraction. The entry fork
-            is outside for the same reason, one step earlier - the five destinations
-            have nothing in them yet, so showing them would be showing five dead ends. */}
-          <Route path="/place/:tmdbId" element={<Place />} />
-          {/* The criteria session is a stream of cards about one film, and full-screen for
-            the same reason the picker is: one thing to do, and a leave control. */}
-          <Route path="/films/:tmdbId/questions" element={<Questions />} />
-          <Route path="/welcome" element={<Welcome />} />
-          <Route element={<Shell />}>
-            {destinations.map(({ path, screen: Screen }) => (
-              <Route key={path} path={path} element={<Screen />} />
-            ))}
-            {/* Not a destination: the film page is reached by tapping a film anywhere. */}
-            <Route path="/films/:tmdbId" element={<Film />} />
-            {/* Nor is the warmup, which is a flow to walk through and then leave; it is
-              reached from the fork and, afterwards, from Profile. */}
-            <Route path="/warmup" element={<Warmup />} />
-            {/* Nor is the import: the fork's first branch leads here, and Profile's
-              Letterboxd area carries the same section for every visit after that. */}
-            <Route path="/import" element={<Import />} />
-            {/* Nor is the import review: it is offered from Profile's Letterboxd area,
-              and it is a queue to work through rather than somewhere to live. */}
-            <Route path="/import/review" element={<Review />} />
+          {/* The demo's strip sits over every account route, inside the frame and outside
+              it, and over none of the visitor's: a demo session on signup is leaving. */}
+          <Route element={<DemoStrip />}>
+            {/* Full-screen and outside the frame: on the picker there is nothing to do
+              but pick, so the navigation would only be a distraction. The entry fork
+              is outside for the same reason, one step earlier - the five destinations
+              have nothing in them yet, so showing them would be showing five dead ends. */}
+            <Route path="/place/:tmdbId" element={<Place />} />
+            {/* The criteria session is a stream of cards about one film, and full-screen
+              for the same reason the picker is: one thing to do, and a leave control. */}
+            <Route path="/films/:tmdbId/questions" element={<Questions />} />
+            <Route path="/welcome" element={<Welcome />} />
+            <Route element={<Shell />}>
+              {destinations.map(({ path, screen: Screen }) => (
+                <Route key={path} path={path} element={<Screen />} />
+              ))}
+              {/* Not a destination: the film page is reached by tapping a film anywhere. */}
+              <Route path="/films/:tmdbId" element={<Film />} />
+              {/* Nor is the warmup, which is a flow to walk through and then leave; it is
+                reached from the fork and, afterwards, from Profile. */}
+              <Route path="/warmup" element={<Warmup />} />
+              {/* Nor is the import: the fork's first branch leads here, and Profile's
+                Letterboxd area carries the same section for every visit after that. */}
+              <Route path="/import" element={<Import />} />
+              {/* Nor is the import review: it is offered from Profile's Letterboxd area,
+                and it is a queue to work through rather than somewhere to live. */}
+              <Route path="/import/review" element={<Review />} />
+            </Route>
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />

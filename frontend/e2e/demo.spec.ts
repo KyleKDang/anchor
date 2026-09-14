@@ -55,6 +55,19 @@ test("a visitor explores the demo from the front door and can look at everything
   await expect(pitch).toHaveCount(0);
   await expect(shelf.getByRole("listitem")).toHaveCount(before);
 
+  // The strip stays in reach over the pitch's scrim, and its "Build your own" is the
+  // intercept's door: straight onto signup, with the pitch closed behind the visitor and
+  // the strip gone, because a visitor there is already on their way out.
+  await shelf.getByRole("button", { name: "Add to watchlist" }).first().click();
+  await expect(pitch).toBeVisible();
+  await strip.getByRole("link", { name: "Build your own" }).click();
+  await expect(page).toHaveURL(/\/signup$/);
+  await expect(pitch).toHaveCount(0);
+  await expect(strip).toHaveCount(0);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/discovery$/);
+  await expect(strip).toBeVisible();
+
   // The wall: the fixture's bands in the fixture's order, and no way to edit it.
   const rail = page.getByRole("navigation", { name: "Main" });
   await rail.getByRole("link", { name: "Rated" }).click();
@@ -88,15 +101,6 @@ test("a visitor explores the demo from the front door and can look at everything
   // Profile keeps its own way out, said at length; the strip's is the one a visitor
   // finds without looking for it.
   await expect(account.getByRole("button", { name: "Leave the demo" })).toBeVisible();
-  await expect(strip).toBeVisible();
-
-  // The strip's "Build your own" is the intercept's door: straight onto signup, where
-  // the strip is gone, because a visitor there is already on their way out.
-  await strip.getByRole("link", { name: "Build your own" }).click();
-  await expect(page).toHaveURL(/\/signup$/);
-  await expect(strip).toHaveCount(0);
-  await page.goBack();
-  await expect(strip).toBeVisible();
 
   // Leaving through the strip lands back on the front door, with no "logged out" line
   // to explain.

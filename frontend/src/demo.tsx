@@ -1,54 +1,52 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useLocation } from "react-router";
+import { Link, Outlet, useLocation } from "react-router";
 
 import { onRefusedWrite } from "./api";
 import { useAuth } from "./auth";
 
 /**
- * The account screens, where a demo session is allowed for the one purpose of leaving
- * (`RequireVisitor`), and the verification that follows signing up. A visitor there is
- * already on their way out, so the strip below stays off them.
- */
-const DOORS = new Set(["/signup", "/login", "/verify", "/demo"]);
-
-/**
  * The strip: the demo saying what it is on every screen, with the way out beside it.
  *
- * Mounted once above the router like the intercept, and for the same reason: the picker
- * and the criteria session render outside the frame, and a visitor is as much in the demo
- * there as on the wall. It answers the question the intercept cannot - a visitor who wants
- * the door has not pressed anything - so that finding the exit never means guessing that
- * Profile is where it is kept.
+ * A layout route over the account's routes, which is exactly the set of screens a demo
+ * session stands on: the frame and the full-screen flows outside it, since the picker and
+ * the criteria session are as much the demo as the wall. What sits outside that set is the
+ * visitor's side - signup, which a demo session is allowed onto for the one purpose of
+ * leaving - and a visitor there is already on their way out, so the strip is gone.
  *
- * A status line and not a banner (ADR 0011): it never changes and never asks for anything,
- * so it is furniture. "Leave the demo" is the same `logOut` Profile calls, which for a demo
- * session lands on the front door with no notice; "Build your own" is the intercept's own
- * link to signup, a plain link for the same reason - there is nothing to sign out of first.
+ * It answers the question the intercept cannot: a visitor who wants the door has not
+ * pressed anything, so finding the exit must never mean guessing that Profile is where it
+ * is kept. A status line and not a banner (ADR 0011): it never changes and never asks for
+ * anything, so it is furniture. "Leave the demo" is the same `logOut` Profile calls, which
+ * for a demo session lands on the front door with no notice; "Build your own" is the
+ * intercept's own link to signup, a plain link for the same reason - there is nothing to
+ * sign out of first.
  */
 export function DemoStrip() {
   const { account, logOut } = useAuth();
-  const { pathname } = useLocation();
-  if (!account?.demo || DOORS.has(pathname)) return null;
+  if (!account?.demo) return <Outlet />;
   return (
-    <aside className="demo-strip" aria-label="Demo">
-      <div className="demo-strip-inner">
-        <p className="demo-strip-copy">
-          <strong>Demo account</strong>
-          {/* The sentence gives way on a phone, where one line holds the label and the
-              two verbs and nothing more. */}
-          <span className="demo-strip-more"> - look anywhere, nothing you press changes it.</span>
-        </p>
-        <button type="button" className="link-button" onClick={() => void logOut()}>
-          Leave the demo
-        </button>
-        <span className="demo-strip-dot" aria-hidden="true">
-          ·
-        </span>
-        <Link className="link-button" to="/signup">
-          Build your own
-        </Link>
-      </div>
-    </aside>
+    <>
+      <aside className="demo-strip" aria-label="Demo">
+        <div className="demo-strip-inner">
+          <p className="demo-strip-copy">
+            <strong>Demo account</strong>
+            {/* The sentence gives way on a phone, where one line holds the label and the
+                two verbs and nothing more. */}
+            <span className="demo-strip-more"> - look anywhere, nothing you press changes it.</span>
+          </p>
+          <button type="button" className="link-button" onClick={() => void logOut()}>
+            Leave the demo
+          </button>
+          <span className="demo-strip-dot" aria-hidden="true">
+            ·
+          </span>
+          <Link className="link-button" to="/signup">
+            Build your own
+          </Link>
+        </div>
+      </aside>
+      <Outlet />
+    </>
   );
 }
 
@@ -80,6 +78,11 @@ export function ReadOnlyPitch() {
     onRefusedWrite(() => setOpen(true));
     return () => onRefusedWrite(null);
   }, []);
+
+  // Leaving the screen closes it: the strip's verbs stay in reach over the scrim, and a
+  // visitor who took one has gone somewhere the press this answers was never made.
+  const { pathname } = useLocation();
+  useEffect(() => setOpen(false), [pathname]);
 
   // Focus follows the interception, so a visitor on the keyboard is standing in the dialog
   // rather than still on the control that did nothing, and lands back on that control when
